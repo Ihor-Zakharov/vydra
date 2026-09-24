@@ -232,3 +232,21 @@ def test_retry_does_not_ask_the_same_question_twice(settings, library, make_clip
     assert wait_for(lambda: job.status in FINAL)  # вторая попытка ответила сама — из job.decisions
     assert job.status == "done" and job.attempt == 2
     manager.shutdown()
+
+
+def test_answer_endpoint_takes_json_body(settings, library, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from vydra.main import create_app
+
+    def waits(work_dir, kw):
+        kw["reporter"].question(dict(QUESTION))
+
+    monkeypatch.setattr(jobs, "download", fake_download(None, [waits]))
+    with TestClient(create_app(settings), base_url="http://localhost") as client:
+        assert client.post("/api/jobs/nope/answer", json={"option": "accept"}).status_code == 404
+        job_id = client.post("/api/jobs", json={"urls": [URL]}).json()[0]["id"]
+        assert wait_for(lambda: client.get("/api/jobs").json()[0]["status"] == "waiting")
+        assert client.post(f"/api/jobs/{job_id}/answer", json={"option": "bogus"}).status_code == 409
+        assert client.post(f"/api/jobs/{job_id}/answer", json={"option": "cancel"}).status_code == 200
+        assert wait_for(lambda: client.get("/api/jobs").json()[0]["status"] == "cancelled")

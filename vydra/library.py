@@ -212,9 +212,16 @@ class Library:
         return self.root / item.path
 
     def available(self) -> bool:
-        """Папка есть — или её можно создать (родитель на месте). Отключённый диск — нет."""
+        """Папка есть — или её можно создать. Отключённый диск (папка вне домашней, и нет даже
+        её родителя) — нет: иначе создали бы пустое хранилище вместо подключаемого."""
         root = self.root
-        return root.is_dir() or root.parent.is_dir()
+        if root.is_dir() or root.parent.is_dir():
+            return True
+        home = Path.home()
+        try:
+            return home.is_dir() and root.resolve().is_relative_to(home.resolve())
+        except OSError:
+            return False
 
     def resolve(self, rel: str) -> Path | None:
         """Файл внутри хранилища по относительному пути (для /lib/…); выход за корень — None."""

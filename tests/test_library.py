@@ -63,3 +63,25 @@ def test_change_root(library, tmp_path):
     library.set_root(new_root)
     assert library.root == new_root
     assert (new_root / "TikTok" / "Видео").is_dir()
+
+
+def test_fresh_machine_without_downloads_folder(settings, tmp_path, monkeypatch):
+    """Чистая система: ~/Downloads ещё нет — хранилище всё равно создаётся (а отключённый диск — нет)."""
+    import dataclasses
+
+    from vydra.config import Prefs
+    from vydra.library import Library, LibraryUnavailable
+    from vydra.media import Media
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+    fresh = dataclasses.replace(settings, default_library=home / "Downloads" / "VideoDownloader")
+    lib = Library(Prefs(fresh), Media(fresh))
+    lib.ensure_layout()
+    assert (home / "Downloads" / "VideoDownloader" / "YouTube" / "Видео").is_dir()
+    Prefs(fresh).set_library_dir(tmp_path / "отключённый диск" / "Кино" / "lib")
+    import pytest
+
+    with pytest.raises(LibraryUnavailable):
+        lib.ensure_layout()

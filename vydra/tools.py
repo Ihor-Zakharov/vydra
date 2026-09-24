@@ -35,8 +35,12 @@ def _os() -> str:
     return "linux" if system.OS == "wsl" else system.OS
 
 
-def ffmpeg_source() -> list[str] | None:
-    """Откуда качать FFmpeg для этой системы (архивы с ffmpeg и ffprobe внутри)."""
+_RIEDL = "https://ffmpeg.martin-riedl.de/redirect/latest/"
+
+
+def ffmpeg_sources() -> list[list[str]]:
+    """Откуда качать FFmpeg для этой системы: наборы архивов (с ffmpeg и ffprobe внутри) по порядку
+    предпочтения — если первый источник недоступен, берётся следующий."""
     builds = {
         ("linux", "x64"): ["ffmpeg-master-latest-linux64-gpl.tar.xz"],
         ("linux", "arm64"): ["ffmpeg-master-latest-linuxarm64-gpl.tar.xz"],
@@ -44,10 +48,20 @@ def ffmpeg_source() -> list[str] | None:
         ("windows", "arm64"): ["ffmpeg-master-latest-winarm64-gpl.zip"],
     }
     if files := builds.get((_os(), _arch())):
-        return [_FFMPEG + f for f in files]
-    if _os() == "mac":  # статические сборки evermeet.cx (x64, на Apple Silicon идут через Rosetta)
-        return ["https://evermeet.cx/ffmpeg/getrelease/zip", "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"]
-    return None
+        return [[_FFMPEG + f for f in files]]
+    if _os() == "mac":
+        # подписанные сборки Мартина Риделя: для Apple Silicon — родные arm64, для Intel — релиз;
+        # запасной вариант — evermeet.cx (x64, на Apple Silicon через Rosetta)
+        flavour = "arm64/snapshot" if _arch() == "arm64" else "amd64/release"
+        riedl = [f"{_RIEDL}macos/{flavour}/ffmpeg.zip", f"{_RIEDL}macos/{flavour}/ffprobe.zip"]
+        evermeet = ["https://evermeet.cx/ffmpeg/getrelease/zip", "https://evermeet.cx/ffmpeg/getrelease/ffprobe/zip"]
+        return [riedl, evermeet]
+    return []
+
+
+def ffmpeg_source() -> list[str] | None:
+    sources = ffmpeg_sources()
+    return sources[0] if sources else None
 
 
 def deno_source() -> str | None:
@@ -63,22 +77,29 @@ def deno_source() -> str | None:
 
 
 def install_ffmpeg(settings: Settings, progress: Progress | None = None) -> str:
-    urls = ffmpeg_source()
-    if not urls:
-        hint = "brew install ffmpeg" if _os() == "mac" else "установите ffmpeg через пакетный менеджер"
-        raise RuntimeError(f"Для этой системы автоустановки нет — {hint}")
+    sources = ffmpeg_sources()
+    if not sources:
+        raise RuntimeError("Для этой системы автоустановки нет — установите ffmpeg через пакетный менеджер")
     settings.tools_dir.mkdir(parents=True, exist_ok=True)
     wanted = {f"ffmpeg{EXE}", f"ffprobe{EXE}"}
-    found: set[str] = set()
-    with tempfile.TemporaryDirectory() as tmp:
-        for url in urls:
-            archive = Path(tmp) / "archive"
-            _fetch(url, archive, progress)
-            found |= _extract(archive, wanted, settings.tools_dir)
-    if found != wanted:
-        raise RuntimeError("В архиве не нашлось ffmpeg/ffprobe")
-    version = _first_line([str(settings.tools_dir / f"ffmpeg{EXE}"), "-version"])
-    return f"FFmpeg установлен: {version or settings.tools_dir}"
+    errors = []
+    for urls in sources:
+        found: set[str] = set()
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                for url in urls:
+                    archive = Path(tmp) / "archive"
+                    _fetch(url, archive, progress)
+                    found |= _extract(archive, wanted, settings.tools_dir)
+        except Exception as exc:  # noqa: BLE001 — источник недоступен, пробуем следующий
+            errors.append(f"{urls[0]}: {exc}")
+            continue
+        version = _first_line([str(settings.tools_dir / f"ffmpeg{EXE}"), "-version"]) if found == wanted else None
+        if version:
+            return f"FFmpeg установлен: {version}"
+        errors.append(f"{urls[0]}: ffmpeg не запускается или его нет в архиве")
+    hint = " Или: brew install ffmpeg" if _os() == "mac" else ""
+    raise RuntimeError("Не удалось скачать FFmpeg (" + "; ".join(errors)[:300] + ")." + hint)
 
 
 def install_deno(settings: Settings, progress: Progress | None = None) -> str:

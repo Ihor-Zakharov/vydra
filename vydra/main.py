@@ -57,6 +57,10 @@ def normalize_url(raw: str) -> str:
     return url
 
 
+class AnswerRequest(BaseModel):  # на уровне модуля: с отложенными аннотациями FastAPI не видит локальные классы
+    option: str
+
+
 class DownloadRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=50)
     mode: Mode = "mp4"
@@ -374,9 +378,6 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
             raise HTTPException(404, "Задача не найдена") from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
-
-    class AnswerRequest(BaseModel):
-        option: str
 
     @app.post("/api/jobs/{job_id}/answer")
     def answer_job(job_id: str, req: AnswerRequest):

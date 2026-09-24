@@ -8,8 +8,22 @@ from vydra.config import Prefs, Settings
 from vydra.library import Library
 from vydra.media import Media
 
-needs_ffmpeg = pytest.mark.skipif(not shutil.which("ffmpeg") and not Path.home().joinpath(".local/bin/ffmpeg").exists(),
-                                  reason="нужен ffmpeg")
+def _find_ffmpeg() -> str | None:
+    """ffmpeg из PATH, ~/.local/bin или папки, куда его ставит `vydra doctor --fix` (так в CI)."""
+    from vydra.config import Settings
+
+    try:
+        return Settings.from_env().ffmpeg
+    except Exception:  # noqa: BLE001
+        return shutil.which("ffmpeg")
+
+
+_FFMPEG = _find_ffmpeg()
+if _FFMPEG:  # чтобы тестовые Settings с пустой папкой инструментов тоже его нашли
+    import os
+
+    os.environ["PATH"] = str(Path(_FFMPEG).parent) + os.pathsep + os.environ.get("PATH", "")
+needs_ffmpeg = pytest.mark.skipif(_FFMPEG is None, reason="нужен ffmpeg")
 
 
 @pytest.fixture
