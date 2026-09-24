@@ -1,0 +1,526 @@
+<!doctype html>
+<html lang="ru" data-platform="none" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>выдра</title>
+  <meta name="description" content="Скачивание видео с YouTube, TikTok и Instagram без водяных знаков, конвертация в MP4 и MP3, офлайн-хранилище и кинотеатр">
+  <meta name="color-scheme" content="dark light">
+  <meta name="referrer" content="no-referrer">
+  <meta name="theme-color" content="#050508">
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+  <link rel="modulepreload" href="/static/spring.js">
+  <link rel="modulepreload" href="/static/cosmos.js">
+  <link rel="modulepreload" href="/static/explorer.js">
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <script>
+    // тема и режим — до первой отрисовки, чтобы ничего не мигало
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var t = q.get('theme');
+      try { t = t || localStorage.getItem('vd.theme'); } catch (e) {}
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      document.documentElement.dataset.theme = t;
+      try { if (sessionStorage.getItem('vd.mono') === '1') document.documentElement.dataset.mono = '1'; } catch (e) {}
+      if (q.get('motion') === '0') document.documentElement.classList.add('motion-off');
+    })();
+  </script>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 4v16M5 13l7 7 7-7"/></symbol>
+    <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
+    <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 20V4M5 11l7-7 7 7"/></symbol>
+    <symbol id="i-clipboard" viewBox="0 0 24 24"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 10v4M7 6v12M11 3v18M15 8v8M19 5v14"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></symbol>
+    <symbol id="i-folder-plus" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/><path d="M12 10v6M9 13h6"/></symbol>
+    <symbol id="i-folder-open" viewBox="0 0 24 24"><path d="M2 8V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v1"/><path d="M2.4 20h15.4a2 2 0 0 0 1.9-1.4l2-6.6A1 1 0 0 0 20.8 10H6.6a2 2 0 0 0-1.9 1.4l-2.3 8.6z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 7v6M12 16.5v.5"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17v.5"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-sweep" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.8 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M22 12h-4l-3 8L9 4l-3 8H2"/></symbol>
+    <symbol id="i-clapper" viewBox="0 0 24 24"><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M20.2 6 3 11l-.9-2.4a2 2 0 0 1 1.3-2.5l13.5-4a2 2 0 0 1 2.5 1.3z"/><path d="m6.2 5.3 3.1 3.9M12.4 3.4l3.1 4"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></symbol>
+    <symbol id="i-cookie" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5z"/><path d="M8.5 8.5v.01M16 15.5v.01M12 12v.01M11 17v.01M7 14v.01"/></symbol>
+    <symbol id="i-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/><path d="M6 16h.01M10 16h.01"/></symbol>
+    <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-5M12 8v.5"/></symbol>
+    <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.6-6.4L3 8"/><path d="M3 3v5h5"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 20V4"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-chev-d" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-move" viewBox="0 0 24 24"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></symbol>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a2 2 0 0 1-2 2h-4v-7H9v7H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5M5 17h14l-1.5-5H6.5zM9 2h6l-1 10H10z"/></symbol>
+    <symbol id="i-orbit" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M20.2 8.3A9 9 0 1 1 8.4 3.8"/><circle cx="18" cy="5.5" r="1.5"/></symbol>
+    <symbol id="p-youtube" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M6.5 4.5h11a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-11a5 5 0 0 1-5-5v-5a5 5 0 0 1 5-5zM10 8.6v6.8l5.8-3.4z"/></symbol>
+    <symbol id="p-tiktok" viewBox="0 0 24 24"><path d="M13.6 2h3.3a4.6 4.6 0 0 0 4.4 4.3v3.4a7.8 7.8 0 0 1-4.3-1.4v6.6A6.6 6.6 0 1 1 10.4 8.3v3.5a3.2 3.2 0 1 0 3.2 3.1z"/></symbol>
+    <symbol id="p-instagram" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9a5.5 5.5 0 0 1-5.5 5.5h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2zm0 2A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm5.3-3.6a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6z"/></symbol>
+    <symbol id="p-other" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-2.1 2.4A8 8 0 0 0 4.1 11h3.4a15 15 0 0 1 2.4-6.6zm4.2 0A15 15 0 0 1 16.5 11h3.4a8 8 0 0 0-5.8-6.6zM12 4.6A13 13 0 0 0 9.5 11h5A13 13 0 0 0 12 4.6zM4.1 13a8 8 0 0 0 5.8 6.6A15 15 0 0 1 7.5 13zm5.4 0a13 13 0 0 0 2.5 6.4 13 13 0 0 0 2.5-6.4zm7 0a15 15 0 0 1-2.4 6.6 8 8 0 0 0 5.8-6.6z"/></symbol>
+    <symbol id="p-file" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM10 12.5v6l5-3z"/></symbol>
+  </svg>
+
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="offline" id="offline" role="alert" hidden>
+    <span class="offline-dot" aria-hidden="true"></span>
+    <p><b>Сервер выдры не запущен.</b> Запустите ярлык «Выдра» или команду <code>vydra ui</code> — страница оживёт сама.</p>
+  </div>
+
+  <div class="island" id="island" data-state="idle">
+    <div class="island-bg" aria-hidden="true"></div>
+    <button class="island-hit" id="island-hit" type="button" aria-label="Статус загрузок" tabindex="-1">
+      <span class="island-compact">
+        <svg class="island-ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="ir-track" cx="18" cy="18" r="14"/><circle class="ir-fill" id="ir-fill" cx="18" cy="18" r="14" pathLength="100"/></svg>
+        <span class="island-pct" id="island-pct">0%</span>
+      </span>
+      <span class="island-full">
+        <span class="island-thumb" id="island-thumb"><svg><use href="#p-other"/></svg></span>
+        <span class="island-text">
+          <b id="island-title">Скачиваю</b>
+          <small id="island-stage"></small>
+          <span class="island-bar"><span id="island-bar"></span></span>
+        </span>
+        <span class="island-count" id="island-count"></span>
+      </span>
+      <span class="island-done"><svg><use href="#i-check"/></svg><span id="island-done-text">Готово</span></span>
+    </button>
+  </div>
+
+  <header class="topbar" id="topbar">
+    <a class="brand" href="/" aria-label="выдра — на главную">
+      <span class="brand-mark"><svg><use href="#i-play"/></svg></span>
+      <span class="brand-word">выдра</span>
+    </a>
+    <nav class="topbar-actions" aria-label="Разделы">
+      <a class="glass pill cinema-btn" id="cinema-top" href="/lib/%D0%9A%D0%B8%D0%BD%D0%BE%D1%82%D0%B5%D0%B0%D1%82%D1%80.html" target="_blank" rel="noopener">
+        <svg><use href="#i-clapper"/></svg><span>Кинотеатр</span>
+      </a>
+      <button class="glass icon-btn" id="open-palette" type="button" title="Команды (Ctrl+K)" aria-label="Команды"><svg><use href="#i-command"/></svg></button>
+      <button class="glass icon-btn" id="open-folder" type="button" title="Открыть папку хранилища" aria-label="Открыть папку хранилища"><svg><use href="#i-folder"/></svg></button>
+      <button class="glass icon-btn" id="open-health" type="button" title="Состояние системы" aria-label="Состояние системы">
+        <svg><use href="#i-pulse"/></svg><span class="badge" id="health-badge" hidden></span>
+      </button>
+      <button class="glass icon-btn" id="open-settings" type="button" title="Настройки" aria-label="Настройки"><svg><use href="#i-sliders"/></svg></button>
+      <button class="glass icon-btn" id="theme" type="button" title="Светлая / тёмная тема" aria-label="Сменить тему">
+        <svg class="sun"><use href="#i-sun"/></svg><svg class="moon"><use href="#i-moon"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero" id="hero" aria-label="Скачивание">
+      <div class="cosmos-wrap" aria-hidden="true">
+        <canvas class="cosmos" id="cosmos"></canvas>
+        <div class="cosmos-fallback" id="cosmos-fallback"></div>
+        <div class="hero-scrim"></div>
+      </div>
+      <div class="hero-frame" aria-hidden="true">
+        <i class="hf-tl"></i><i class="hf-br"></i>
+      </div>
+      <dl class="readout" id="readout" aria-label="Состояние хранилища">
+        <div><dt>файлов</dt><dd id="ro-count">—</dd></div>
+        <div><dt>объём</dt><dd id="ro-size">—</dd></div>
+        <div><dt>активно</dt><dd id="ro-active">0</dd></div>
+        <div><dt>скорость</dt><dd id="ro-speed">—</dd></div>
+      </dl>
+
+      <div class="hero-copy">
+        <p class="kicker rv" data-i="0"><span class="num">01</span> / ссылка</p>
+        <h1 class="rv" data-i="1"><span class="thin">Вставь ссылку</span><span class="slab">забери видео</span></h1>
+        <p class="lede rv" data-i="2">
+          <span class="pf" data-p="youtube"><svg><use href="#p-youtube"/></svg>YouTube</span>,
+          <span class="pf" data-p="tiktok"><svg><use href="#p-tiktok"/></svg>TikTok</span>,
+          <span class="pf" data-p="instagram"><svg><use href="#p-instagram"/></svg>Instagram</span>
+          <span class="lede-rest">и сотни других сайтов — сразу в MP4 или MP3, без водяных знаков, прямо на ваш компьютер.</span>
+        </p>
+
+        <div class="console rv" data-i="3" aria-label="Скачивание и конвертация">
+          <div class="tabs glass" role="tablist" aria-label="Режим">
+            <button role="tab" class="tab" id="tab-link" aria-selected="true" aria-controls="panel-link" data-tab="link" type="button"><svg><use href="#i-link"/></svg>По ссылке</button>
+            <button role="tab" class="tab" id="tab-file" aria-selected="false" aria-controls="panel-file" data-tab="file" type="button"><svg><use href="#i-upload"/></svg>Конвертер</button>
+            <span class="tab-ink" aria-hidden="true"></span>
+          </div>
+
+          <div id="panel-link" role="tabpanel" aria-labelledby="tab-link" data-panel="link">
+            <form class="portal" id="link-form" autocomplete="off">
+              <div class="portal-ring" aria-hidden="true"></div>
+              <div class="portal-orbit" aria-hidden="true"><i class="satellite" id="satellite"></i></div>
+              <div class="portal-body glass">
+                <span class="portal-glyph" id="portal-glyph" aria-hidden="true"><svg><use href="#i-link"/></svg></span>
+                <textarea id="url" rows="1" spellcheck="false" autocapitalize="off" placeholder="Ссылка на видео — или несколько, каждая с новой строки" aria-label="Ссылка на видео"></textarea>
+                <button class="ghost-btn" id="paste" type="button" title="Вставить из буфера обмена (Ctrl+V)"><svg><use href="#i-clipboard"/></svg><span>Вставить</span></button>
+                <button class="go-btn" id="go" type="submit" aria-label="Скачать"><svg><use href="#i-arrow-down"/></svg></button>
+              </div>
+            </form>
+            <div class="preview-slot" id="preview-slot" aria-live="polite"></div>
+          </div>
+
+          <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" data-panel="file" hidden>
+            <label class="dropzone" id="dropzone" for="file-input">
+              <input type="file" id="file-input" multiple accept="video/*,audio/*,.mkv,.webm,.flv,.avi,.mov,.m4a,.opus,.ogg,.wav,.flac">
+              <span class="dz-orb" aria-hidden="true"><svg><use href="#i-upload"/></svg></span>
+              <span class="dz-title">Перетащите видео или аудио сюда</span>
+              <span class="dz-sub">или <u>выберите файлы</u> — сконвертирую в выбранный формат и положу в хранилище</span>
+            </label>
+          </div>
+
+          <div class="controls" id="controls" data-open="false">
+            <div class="controls-inner">
+              <div class="options">
+                <div class="row">
+                  <span class="row-label">Формат</span>
+                  <div class="pills formats glass" role="radiogroup" aria-label="Формат" data-name="mode">
+                    <button type="button" role="radio" data-value="mp4"><svg><use href="#i-film"/></svg>MP4</button>
+                    <button type="button" role="radio" data-value="mp3"><svg><use href="#i-wave"/></svg>MP3</button>
+                    <button type="button" role="radio" data-value="both"><svg><use href="#i-layers"/></svg>MP4 + MP3</button>
+                    <span class="pill-ink" aria-hidden="true"></span>
+                  </div>
+                </div>
+                <div class="row tuner" id="quality-tuner">
+                  <span class="row-label">Качество</span>
+                  <div class="pills glass" role="radiogroup" aria-label="Качество видео" data-name="quality">
+                    <button type="button" role="radio" data-value="max" title="Самое высокое, вплоть до 4K. Может перекодироваться дольше">Макс</button>
+                    <button type="button" role="radio" data-value="1080">1080p</button>
+                    <button type="button" role="radio" data-value="720">720p</button>
+                    <button type="button" role="radio" data-value="480">480p</button>
+                    <button type="button" role="radio" data-value="360">360p</button>
+                    <span class="pill-ink" aria-hidden="true"></span>
+                  </div>
+                </div>
+                <div class="row tuner" id="bitrate-tuner">
+                  <span class="row-label">MP3, кбит/с</span>
+                  <div class="pills glass" role="radiogroup" aria-label="Битрейт MP3, кбит/с" data-name="bitrate">
+                    <button type="button" role="radio" data-value="320">320</button>
+                    <button type="button" role="radio" data-value="256">256</button>
+                    <button type="button" role="radio" data-value="192">192</button>
+                    <button type="button" role="radio" data-value="128">128</button>
+                    <span class="pill-ink" aria-hidden="true"></span>
+                  </div>
+                </div>
+                <div class="row clip" id="clip">
+                  <label class="switch">
+                    <input type="checkbox" id="clip-on">
+                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                    <span class="switch-text"><svg><use href="#i-scissors"/></svg>Только отрезок</span>
+                  </label>
+                  <div class="clip-fields" id="clip-fields" hidden>
+                    <label class="time-field glass"><span>с</span><input id="clip-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label>
+                    <div class="clip-mini" aria-hidden="true"><span class="clip-mini-sel" id="clip-mini-sel"></span></div>
+                    <label class="time-field glass"><span>по</span><input id="clip-end" inputmode="decimal" placeholder="конец" aria-label="Конец отрезка"></label>
+                    <output class="clip-len" id="clip-len" aria-live="polite"></output>
+                  </div>
+                </div>
+                <div class="row extras">
+                  <label class="switch autostart" id="autostart-wrap" title="Ссылка, вставленная в любом месте страницы (Ctrl+V), сразу начнёт качаться">
+                    <input type="checkbox" id="autostart">
+                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+                    <span class="switch-text">Качать сразу после вставки</span>
+                  </label>
+                  <span class="save-here" id="save-here-note" hidden><svg><use href="#i-pin"/></svg>Сохраню в <b id="save-here-name"></b></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="controls-toggle" id="controls-toggle" type="button" aria-expanded="false" aria-controls="controls"><svg><use href="#i-sliders"/></svg><span>Формат и качество</span></button>
+        </div>
+      </div>
+    </section>
+
+    <section class="queue section" id="queue" aria-labelledby="queue-title" hidden>
+      <div class="section-head rv">
+        <p class="kicker"><span class="num">02</span> / очередь</p>
+        <h2 id="queue-title"><span class="live-dot" aria-hidden="true"></span>Очередь</h2>
+        <span class="hairline" aria-hidden="true"></span>
+        <span class="head-readout" id="queue-readout"></span>
+        <button class="text-btn" id="clear-jobs" type="button"><svg><use href="#i-sweep"/></svg>Убрать завершённые</button>
+      </div>
+      <ol class="jobs" id="jobs"></ol>
+    </section>
+
+    <section class="library section" id="library" aria-labelledby="lib-title">
+      <div class="section-head rv">
+        <p class="kicker"><span class="num">03</span> / хранилище</p>
+        <h2 id="lib-title">Хранилище</h2>
+        <span class="hairline" aria-hidden="true"></span>
+        <span class="head-readout" id="lib-readout"></span>
+        <span class="sync" id="sync" aria-live="polite"><i></i><span>синхронизировано</span></span>
+        <a class="glass pill cinema-link" id="cinema-card" href="/lib/%D0%9A%D0%B8%D0%BD%D0%BE%D1%82%D0%B5%D0%B0%D1%82%D1%80.html" target="_blank" rel="noopener">
+          <svg><use href="#i-clapper"/></svg><span>Офлайн-кинотеатр</span>
+        </a>
+      </div>
+
+      <div class="explorer rv" id="explorer" data-view="grid">
+        <div class="ex-top">
+          <nav class="crumbs" id="crumbs" aria-label="Путь"></nav>
+          <div class="ex-tools">
+            <label class="search glass"><svg><use href="#i-search"/></svg><input id="lib-search" type="search" placeholder="Поиск" aria-label="Поиск в хранилище"><button type="button" class="search-scope" id="search-scope" title="Искать в этой папке или везде" aria-pressed="false">везде</button></label>
+            <div class="sort glass" id="sort">
+              <svg><use href="#i-sort"/></svg>
+              <select id="sort-select" aria-label="Сортировка">
+                <option value="date">по дате</option>
+                <option value="name">по имени</option>
+                <option value="size">по размеру</option>
+                <option value="duration">по длительности</option>
+              </select>
+            </div>
+            <div class="pills glass small view-toggle" role="radiogroup" aria-label="Вид" data-name="view">
+              <button type="button" role="radio" data-value="grid" title="Плитки" aria-label="Плитки"><svg><use href="#i-grid"/></svg></button>
+              <button type="button" role="radio" data-value="list" title="Список" aria-label="Список"><svg><use href="#i-list"/></svg></button>
+              <span class="pill-ink" aria-hidden="true"></span>
+            </div>
+            <button class="glass btn small" id="new-folder" type="button" title="Новая папка (Ctrl+Shift+N)"><svg><use href="#i-folder-plus"/></svg><span>Папка</span></button>
+            <label class="switch save-here-switch glass" id="save-here-wrap" title="Новые загрузки будут сохраняться в открытую папку">
+              <input type="checkbox" id="save-here">
+              <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+              <span class="switch-text"><svg><use href="#i-pin"/></svg>Сохранять сюда</span>
+            </label>
+          </div>
+        </div>
+        <div class="ex-body">
+          <aside class="ex-tree" id="ex-tree" aria-label="Папки"></aside>
+          <div class="ex-main" id="ex-main" tabindex="0" aria-label="Содержимое папки">
+            <div class="ex-departments" id="ex-departments"></div>
+            <div class="ex-folders" id="ex-folders"></div>
+            <div class="ex-files" id="ex-files"></div>
+            <div class="empty" id="lib-empty" hidden>
+              <span class="void-star" aria-hidden="true"></span>
+              <p id="lib-empty-title">Пусто. Как в войде.</p>
+              <small id="lib-empty-sub">Вставьте ссылку выше — файл появится здесь и будет доступен без интернета</small>
+            </div>
+            <div class="rubber" id="rubber" hidden></div>
+          </div>
+        </div>
+        <div class="selbar glass" id="selbar" hidden>
+          <span class="selbar-count" id="selbar-count"></span>
+          <button class="btn small" type="button" data-sel="open"><svg><use href="#i-play"/></svg>Открыть</button>
+          <button class="btn small" type="button" data-sel="move"><svg><use href="#i-move"/></svg>Переместить</button>
+          <button class="btn small" type="button" data-sel="rename"><svg><use href="#i-pencil"/></svg>Переименовать</button>
+          <button class="btn small danger" type="button" data-sel="delete"><svg><use href="#i-trash"/></svg>Удалить</button>
+          <button class="icon-btn small" type="button" data-sel="clear" aria-label="Снять выделение"><svg><use href="#i-x"/></svg></button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="foot-path"><svg><use href="#i-drive"/></svg><span id="foot-path">…</span></span>
+    <span class="foot-right"><span id="foot-meta"></span><button class="text-btn" id="open-cheats" type="button" title="Горячие клавиши (?)"><svg><use href="#i-keyboard"/></svg>клавиши</button></span>
+  </footer>
+
+  <div class="dragveil" id="dragveil" hidden>
+    <div class="dragveil-ring"><svg><use href="#i-upload"/></svg><p>Отпустите — сконвертирую</p><small id="dragveil-sub"></small></div>
+  </div>
+
+  <div class="ctx glass" id="ctx" role="menu" hidden></div>
+
+  <dialog class="player" id="player" aria-labelledby="player-title">
+    <div class="player-box" tabindex="-1" autofocus>
+      <button class="glass icon-btn player-close" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      <div class="player-stage" id="player-stage"></div>
+      <div class="player-info">
+        <div class="player-head">
+          <h3 class="player-title" id="player-title"></h3>
+          <p class="player-meta" id="player-meta"></p>
+        </div>
+        <div class="player-actions">
+          <a class="glass chip-btn accent-btn" data-act="cinema" target="_blank" rel="noopener"><svg><use href="#i-clapper"/></svg>В кинотеатре</a>
+          <button class="glass chip-btn" data-act="open" type="button"><svg><use href="#i-external"/></svg>Открыть в плеере</button>
+          <button class="glass chip-btn" data-act="reveal" type="button"><svg><use href="#i-folder"/></svg>Показать в папке</button>
+          <a class="glass chip-btn" data-act="download" download><svg><use href="#i-download"/></svg>Скачать копию</a>
+          <a class="glass chip-btn" data-act="source" target="_blank" rel="noopener noreferrer"><svg><use href="#i-link"/></svg>Источник</a>
+          <span class="danger-zone">
+            <button class="glass chip-btn danger" data-act="delete" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
+            <span class="confirm" hidden>
+              <span>В Корзину?</span>
+              <button class="chip-btn danger solid" data-act="delete-yes" type="button">Да, удалить</button>
+              <button class="glass chip-btn" data-act="delete-no" type="button">Нет</button>
+            </span>
+          </span>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="drawer" id="settings" aria-labelledby="settings-title">
+    <div class="drawer-box" tabindex="-1" autofocus>
+      <div class="grab" aria-hidden="true"></div>
+      <header class="drawer-head">
+        <div>
+          <p class="drawer-kicker"><svg><use href="#i-sliders"/></svg>Настройки</p>
+          <h3 id="settings-title">Где хранить и как качать</h3>
+        </div>
+        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <div class="drawer-scroll">
+        <section class="card-block">
+          <h4><svg><use href="#i-drive"/></svg>Папка хранилища <span class="tag" id="lib-tag"></span></h4>
+          <p class="path-now" id="lib-path">…</p>
+          <p class="fixed-note" id="lib-fixed" hidden>Папка задана переменной окружения VD_LIBRARY_DIR и из интерфейса не меняется.</p>
+          <form class="path-form" id="path-form">
+            <input class="glass" id="path-input" type="text" spellcheck="false" autocomplete="off" placeholder="Например, D:\Видео или ~/Movies" aria-label="Новый путь к папке хранилища">
+            <button class="btn primary" type="submit">Применить</button>
+          </form>
+          <p class="form-error" id="path-error" role="alert" hidden></p>
+          <div class="btn-row">
+            <button class="glass btn" id="pick-folder" type="button"><svg><use href="#i-folder"/></svg><span>Выбрать…</span></button>
+            <button class="glass btn" id="reset-folder" type="button"><svg><use href="#i-rotate"/></svg>По умолчанию</button>
+            <button class="glass btn" id="open-folder-2" type="button"><svg><use href="#i-external"/></svg>Открыть папку</button>
+          </div>
+          <div class="tree" aria-label="Что будет в папке">
+            <p class="tree-root"><svg><use href="#i-folder"/></svg><span id="tree-root">VideoDownloader</span></p>
+            <ul>
+              <li><svg><use href="#p-youtube"/></svg><b>YouTube</b><span class="tree-sub">Видео · Аудио</span></li>
+              <li><svg><use href="#p-tiktok"/></svg><b>TikTok</b><span class="tree-sub">Видео · Аудио</span></li>
+              <li><svg><use href="#p-instagram"/></svg><b>Instagram</b><span class="tree-sub">Видео · Аудио</span></li>
+              <li><svg><use href="#p-other"/></svg><b>Другие сайты</b><span class="tree-sub">и <b>Мои файлы</b> — конвертированные</span></li>
+              <li class="tree-cinema"><svg><use href="#i-clapper"/></svg><b>Кинотеатр.html</b><span class="tree-sub">открывается двойным кликом, без интернета и без сервера</span></li>
+              <li class="tree-dim"><svg><use href="#i-sliders"/></svg><b>.vydra</b><span class="tree-sub">скрытая служебная папка: постеры и индекс</span></li>
+            </ul>
+          </div>
+        </section>
+        <section class="card-block">
+          <h4><svg><use href="#i-cookie"/></svg>Cookies для входа <span class="tag" id="cookie-tag"></span></h4>
+          <p class="muted-text">Нужны, только если сайт просит войти: закрытые, 18+ или «подтвердите, что вы не бот». Экспортируйте <code>cookies.txt</code> из браузера (например, расширением «Get cookies.txt LOCALLY») и загрузите сюда. Файл остаётся только на этом компьютере.</p>
+          <div class="btn-row">
+            <label class="glass btn" id="cookie-upload"><input type="file" id="cookie-input" accept=".txt,text/plain" hidden><svg><use href="#i-upload"/></svg>Загрузить cookies.txt</label>
+            <button class="glass btn danger" id="cookie-remove" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
+          </div>
+        </section>
+        <section class="card-block about">
+          <h4><svg><use href="#i-info"/></svg>О программе</h4>
+          <dl class="about-list" id="about"></dl>
+        </section>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="drawer" id="health" aria-labelledby="health-title">
+    <div class="drawer-box" tabindex="-1" autofocus>
+      <div class="grab" aria-hidden="true"></div>
+      <header class="drawer-head">
+        <div>
+          <p class="drawer-kicker"><svg><use href="#i-pulse"/></svg>Диагностика</p>
+          <h3 id="health-title">Состояние системы</h3>
+        </div>
+        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <div class="health-summary" id="health-summary"></div>
+      <div class="btn-row health-actions">
+        <button class="btn primary" id="fix-all" type="button"><svg><use href="#i-wrench"/></svg><span>Починить всё</span></button>
+        <button class="glass btn" id="recheck" type="button"><svg><use href="#i-refresh"/></svg><span>Проверить снова</span></button>
+      </div>
+      <div class="drawer-scroll">
+        <ul class="checks" id="checks"></ul>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="move-dialog" aria-labelledby="move-title">
+    <div class="modal-box" tabindex="-1" autofocus>
+      <header class="drawer-head">
+        <div><p class="drawer-kicker"><svg><use href="#i-move"/></svg>Переместить</p><h3 id="move-title">Куда переместить?</h3></div>
+        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <div class="move-tree" id="move-tree"></div>
+      <div class="btn-row modal-actions">
+        <button class="btn primary" id="move-confirm" type="button" disabled>Переместить</button>
+        <button class="glass btn" data-close type="button">Отмена</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title">
+    <div class="modal-box small" tabindex="-1" autofocus>
+      <h3 id="confirm-title">Удалить?</h3>
+      <p class="muted-text" id="confirm-text"></p>
+      <div class="btn-row modal-actions">
+        <button class="btn danger solid" id="confirm-yes" type="button">Удалить</button>
+        <button class="glass btn" data-close type="button">Отмена</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="palette" id="palette" aria-label="Команды">
+    <div class="palette-box" tabindex="-1" autofocus>
+      <label class="palette-input"><svg><use href="#i-search"/></svg><input id="palette-q" type="text" placeholder="Команда или ссылка…" autocomplete="off" spellcheck="false" aria-label="Поиск команды"><kbd>Esc</kbd></label>
+      <ul class="palette-list" id="palette-list" role="listbox"></ul>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="cheats" aria-labelledby="cheats-title">
+    <div class="modal-box" tabindex="-1" autofocus>
+      <header class="drawer-head">
+        <div><p class="drawer-kicker"><svg><use href="#i-keyboard"/></svg>Клавиши</p><h3 id="cheats-title">Горячие клавиши</h3></div>
+        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <dl class="cheat-list">
+        <dt><kbd>Ctrl</kbd><kbd>V</kbd></dt><dd>вставить ссылку где угодно на странице</dd>
+        <dt><kbd>Enter</kbd></dt><dd>скачать · открыть файл или папку</dd>
+        <dt><kbd>Ctrl</kbd><kbd>K</kbd></dt><dd>палитра команд</dd>
+        <dt><kbd>?</kbd></dt><dd>эта подсказка</dd>
+        <dt><kbd>Esc</kbd></dt><dd>закрыть · снять выделение</dd>
+        <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>ходить по файлам · пилюли · ручки отрезка</dd>
+        <dt><kbd>Backspace</kbd></dt><dd>папка выше</dd>
+        <dt><kbd>Ctrl</kbd><kbd>A</kbd></dt><dd>выделить всё в папке</dd>
+        <dt><kbd>F2</kbd></dt><dd>переименовать</dd>
+        <dt><kbd>Del</kbd></dt><dd>в Корзину</dd>
+        <dt><kbd>Ctrl</kbd><kbd>Shift</kbd><kbd>N</kbd></dt><dd>новая папка</dd>
+        <dt><kbd>Shift</kbd> + клик</dt><dd>выделить диапазон</dd>
+      </dl>
+    </div>
+  </dialog>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <template id="job-tpl">
+    <li class="job">
+      <div class="job-frame">
+        <div class="job-thumb"><svg class="job-thumb-icon"><use href="#p-other"/></svg></div>
+        <span class="job-badge"><svg><use href="#p-other"/></svg></span>
+        <span class="job-check" aria-hidden="true"><svg><use href="#i-check"/></svg></span>
+      </div>
+      <div class="job-main">
+        <div class="job-top">
+          <p class="job-title"></p>
+          <button class="glass icon-btn small job-cancel" type="button" aria-label="Отменить"><svg><use href="#i-x"/></svg></button>
+          <button class="glass btn small job-retry" type="button" hidden><svg><use href="#i-rotate"/></svg>Повторить</button>
+        </div>
+        <p class="job-meta"></p>
+        <div class="job-bar"><div class="job-fill"></div></div>
+        <div class="job-status"><span class="job-stage"></span><span class="job-nums"></span></div>
+        <p class="job-note" hidden></p>
+        <div class="job-files"></div>
+      </div>
+    </li>
+  </template>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

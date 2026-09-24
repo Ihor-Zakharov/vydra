@@ -1,0 +1,22 @@
+{
+  "name": "выдра — видео без водяных знаков",
+  "short_name": "выдра",
+  "description": "Скачивание видео с YouTube, TikTok и Instagram, конвертация в MP4 и MP3, офлайн-хранилище и кинотеатр",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#07070c",
+  "theme_color": "#07070c",
+  "icons": [
+    { "src": "/static/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/static/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Кинотеатр", "url": "/lib/%D0%9A%D0%B8%D0%BD%D0%BE%D1%82%D0%B5%D0%B0%D1%82%D1%80.html" },
+    { "name": "Состояние системы", "url": "/?panel=health" }
+  ]
+}

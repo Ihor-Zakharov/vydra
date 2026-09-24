@@ -1,0 +1,6 @@
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.sh text eol=lf
+*.woff2 binary
+*.png binary
+*.ico binary

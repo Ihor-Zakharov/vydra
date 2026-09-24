@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ru" data-platform="none">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>выдра · кинотеатр</title>
+  <meta name="description" content="Офлайн-кинотеатр: всё, что скачано выдрой, доступно без интернета">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07070c">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2300d4ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='18' fill='url(%23g)'/%3E%3Cpath d='M22 16l24 16-24 16z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href=".vydra/fonts/fonts.css">
+  <link rel="stylesheet" href=".vydra/cinema.css">
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M7 4.6v14.8a1 1 0 0 0 1.5.86l11.9-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M18.5 5.2v13.6a1 1 0 0 1-1.55.83L7.9 13.3a1.5 1.5 0 0 1 0-2.6l9.05-6.33a1 1 0 0 1 1.55.83z"/><path d="M5 5v14"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M5.5 5.2v13.6a1 1 0 0 0 1.55.83l9.05-6.33a1.5 1.5 0 0 0 0-2.6L7.05 4.37A1 1 0 0 0 5.5 5.2z"/><path d="M19 5v14"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20.5 20.5-4.3-4.3"/></symbol>
+    <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chev-r" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-arrow-l" viewBox="0 0 24 24"><path d="M19 12H5M11 18l-6-6 6-6"/></symbol>
+    <symbol id="i-external" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M7 3v18M17 3v18M3 7.5h4M3 12h18M3 16.5h4M17 7.5h4M17 16.5h4"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.9 5.8L20 11l-6.1 2.2L12 19l-1.9-5.8L4 11l6.1-2.2z"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M16 21h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 2.64-6.36L3 8.3"/><path d="M3 3v5.3h5.3"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z"/></symbol>
+    <symbol id="p-youtube" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6.5 4.5h11a5 5 0 0 1 5 5v5a5 5 0 0 1-5 5h-11a5 5 0 0 1-5-5v-5a5 5 0 0 1 5-5zM10 8.6v6.8l5.8-3.4z"/></symbol>
+    <symbol id="p-tiktok" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" d="M13.6 2h3.3a4.6 4.6 0 0 0 4.4 4.3v3.4a7.8 7.8 0 0 1-4.3-1.4v6.6A6.6 6.6 0 1 1 10.4 8.3v3.5a3.2 3.2 0 1 0 3.2 3.1z"/></symbol>
+    <symbol id="p-instagram" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M7.5 2h9A5.5 5.5 0 0 1 22 7.5v9a5.5 5.5 0 0 1-5.5 5.5h-9A5.5 5.5 0 0 1 2 16.5v-9A5.5 5.5 0 0 1 7.5 2zm0 2A3.5 3.5 0 0 0 4 7.5v9A3.5 3.5 0 0 0 7.5 20h9a3.5 3.5 0 0 0 3.5-3.5v-9A3.5 3.5 0 0 0 16.5 4zM12 7a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm5.3-3.6a1.3 1.3 0 1 1 0 2.6 1.3 1.3 0 0 1 0-2.6z"/></symbol>
+    <symbol id="p-other" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm-2.1 2.4A8 8 0 0 0 4.1 11h3.4a15 15 0 0 1 2.4-6.6zm4.2 0A15 15 0 0 1 16.5 11h3.4a8 8 0 0 0-5.8-6.6zM12 4.6A13 13 0 0 0 9.5 11h5A13 13 0 0 0 12 4.6zM4.1 13a8 8 0 0 0 5.8 6.6A15 15 0 0 1 7.5 13zm5.4 0a13 13 0 0 0 2.5 6.4 13 13 0 0 0 2.5-6.4zm7 0a15 15 0 0 1-2.4 6.6 8 8 0 0 0 5.8-6.6z"/></symbol>
+    <symbol id="p-file" viewBox="0 0 24 24"><path fill="currentColor" stroke="none" fill-rule="evenodd" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM10 12.5v6l5-3z"/></symbol>
+  </svg>
+
+  <div class="aurora is-on" id="aurora-a" data-platform="none" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="aurora" id="aurora-b" data-platform="none" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="grain" aria-hidden="true"></div>
+
+  <div class="shell" id="shell">
+  <header class="bar" id="bar">
+    <div class="bar-inner">
+      <a class="back" id="back" href="/"><svg class="ico"><use href="#i-arrow-l"/></svg><span>В выдру</span></a>
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"><svg class="ico"><use href="#i-play"/></svg></span>
+        <span class="brand-word">выдра</span>
+        <span class="brand-sub">кинотеатр</span>
+      </div>
+      <label class="search">
+        <svg class="ico"><use href="#i-search"/></svg>
+        <input id="q" type="search" placeholder="Найти видео или трек" autocomplete="off" spellcheck="false" aria-label="Поиск по коллекции">
+        <kbd aria-hidden="true">/</kbd>
+      </label>
+      <div class="seg" id="seg" role="group" aria-label="Что показывать">
+        <span class="seg-thumb" aria-hidden="true"></span>
+        <button type="button" data-type="all">Всё</button>
+        <button type="button" data-type="video">Видео</button>
+        <button type="button" data-type="audio">Музыка</button>
+      </div>
+      <p class="stats" id="stats"></p>
+    </div>
+  </header>
+
+  <main class="main" id="main">
+    <section class="hero" id="hero" hidden></section>
+    <div class="rows" id="rows"></div>
+    <section class="results" id="results" hidden></section>
+
+    <section class="empty" id="empty" hidden>
+      <svg class="empty-art" viewBox="0 0 440 290" aria-hidden="true">
+        <defs>
+          <linearGradient id="e-screen" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7c5cff"/><stop offset=".55" stop-color="#ff4fd8"/><stop offset="1" stop-color="#00d4ff"/>
+          </linearGradient>
+          <linearGradient id="e-beam" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0" stop-color="#ffffff" stop-opacity=".22"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+          </linearGradient>
+          <radialGradient id="e-glow" cx=".5" cy=".5" r=".5">
+            <stop offset="0" stop-color="#7c5cff" stop-opacity=".55"/><stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="220" cy="100" rx="210" ry="100" fill="url(#e-glow)"/>
+        <polygon class="e-beam" points="220,286 84,38 356,38" fill="url(#e-beam)"/>
+        <rect x="70" y="20" width="300" height="158" rx="16" fill="#0d0d16"/>
+        <rect x="70" y="20" width="300" height="158" rx="16" fill="url(#e-screen)" opacity=".16"/>
+        <rect x="70.75" y="20.75" width="298.5" height="156.5" rx="15.5" fill="none" stroke="url(#e-screen)" stroke-width="1.5"/>
+        <g class="e-sprockets" fill="#ffffff" opacity=".18">
+          <rect x="86" y="28" width="10" height="5" rx="1.5"/><rect x="104" y="28" width="10" height="5" rx="1.5"/><rect x="122" y="28" width="10" height="5" rx="1.5"/><rect x="306" y="28" width="10" height="5" rx="1.5"/><rect x="324" y="28" width="10" height="5" rx="1.5"/><rect x="342" y="28" width="10" height="5" rx="1.5"/>
+          <rect x="86" y="165" width="10" height="5" rx="1.5"/><rect x="104" y="165" width="10" height="5" rx="1.5"/><rect x="122" y="165" width="10" height="5" rx="1.5"/><rect x="306" y="165" width="10" height="5" rx="1.5"/><rect x="324" y="165" width="10" height="5" rx="1.5"/><rect x="342" y="165" width="10" height="5" rx="1.5"/>
+        </g>
+        <circle cx="220" cy="99" r="30" fill="#ffffff" opacity=".08"/>
+        <path d="M211 84v30l25-15z" fill="#ffffff" opacity=".9"/>
+        <g fill="#161622" stroke="#ffffff" stroke-opacity=".07">
+          <rect x="44" y="204" width="34" height="26" rx="9"/><rect x="84" y="204" width="34" height="26" rx="9"/><rect x="124" y="204" width="34" height="26" rx="9"/><rect x="164" y="204" width="34" height="26" rx="9"/><rect x="242" y="204" width="34" height="26" rx="9"/><rect x="282" y="204" width="34" height="26" rx="9"/><rect x="322" y="204" width="34" height="26" rx="9"/><rect x="362" y="204" width="34" height="26" rx="9"/>
+          <rect x="24" y="242" width="38" height="30" rx="10"/><rect x="68" y="242" width="38" height="30" rx="10"/><rect x="112" y="242" width="38" height="30" rx="10"/><rect x="156" y="242" width="38" height="30" rx="10"/><rect x="246" y="242" width="38" height="30" rx="10"/><rect x="290" y="242" width="38" height="30" rx="10"/><rect x="334" y="242" width="38" height="30" rx="10"/><rect x="378" y="242" width="38" height="30" rx="10"/>
+        </g>
+        <rect x="210" y="262" width="20" height="14" rx="4" fill="#23233a"/>
+        <circle cx="220" cy="262" r="4" fill="#ffffff" opacity=".85"/>
+      </svg>
+      <h2>Здесь будет ваш кинотеатр</h2>
+      <p>Скачайте что-нибудь в выдре — оно появится тут и будет доступно без интернета.</p>
+      <a class="btn btn-primary" id="empty-go" href="/"><svg class="ico"><use href="#i-arrow-l"/></svg>Открыть выдру</a>
+    </section>
+  </main>
+
+  <footer class="foot" id="foot">
+    <span class="foot-root"><svg class="ico"><use href="#i-folder"/></svg><span id="foot-root"></span></span>
+    <span id="foot-time"></span>
+  </footer>
+  </div>
+
+  <div class="theater" id="theater" hidden tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="th-title">
+    <div class="th-dim" id="th-dim" aria-hidden="true"><div class="th-backdrop" id="th-backdrop"></div></div>
+    <div class="th-layout" id="th-layout">
+      <div class="th-grab" id="th-grab" aria-hidden="true"><i></i></div>
+      <div class="th-stage">
+        <div class="th-head">
+          <div class="th-heading">
+            <p class="th-eyebrow" id="th-eyebrow"></p>
+            <h2 class="th-title" id="th-title"></h2>
+            <div class="th-meta" id="th-meta"></div>
+          </div>
+          <button class="icon-btn th-close" id="th-close" type="button" aria-label="Закрыть (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
+        </div>
+        <div class="th-screen" id="th-screen"></div>
+        <div class="th-controls">
+          <button class="ctl" id="th-prev" type="button" title="Предыдущее (Shift+←)"><svg class="ico"><use href="#i-prev"/></svg><span class="lbl">Предыдущее</span></button>
+          <button class="ctl" id="th-next" type="button" title="Следующее (Shift+→)"><span class="lbl">Следующее</span><svg class="ico"><use href="#i-next"/></svg></button>
+          <label class="switch" title="Когда ролик закончится, сразу включить следующий">
+            <input type="checkbox" id="th-auto">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            <span class="sw-long">Автовоспроизведение</span><span class="sw-short">Авто</span>
+          </label>
+          <span class="spacer"></span>
+          <button class="ctl ghost" id="th-full" type="button" title="Весь экран (F)"><svg class="ico"><use href="#i-expand"/></svg><span class="lbl">Весь экран</span></button>
+          <a class="ctl ghost" id="th-source" target="_blank" rel="noopener noreferrer" hidden><svg class="ico"><use href="#i-external"/></svg><span class="lbl">Открыть источник</span></a>
+        </div>
+        <p class="th-keys">Пробел — пауза · ← → — 5 секунд · Shift + ← → — соседние · F — весь экран · Esc — закрыть</p>
+      </div>
+      <aside class="th-side" aria-label="Очередь">
+        <div class="th-side-head"><h3>Дальше</h3><span id="th-count"></span></div>
+        <div class="th-list" id="th-list"></div>
+      </aside>
+    </div>
+  </div>
+
+  <script src=".vydra/library.js"></script>
+  <script src=".vydra/cinema.js"></script>
+</body>
+</html>
