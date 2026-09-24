@@ -1173,6 +1173,8 @@ def _normalize(url: str) -> str:
 
 
 def _alive(port: int) -> bool:
+    if not _port_busy(port):  # свободный порт не спрашиваем: в WSL запрос к нему висит до таймаута
+        return False
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as resp:
             return b'"ok"' in resp.read()
@@ -1181,8 +1183,17 @@ def _alive(port: int) -> bool:
 
 
 def _port_busy(port: int) -> bool:
+    """Занят ли порт: пробуем занять его сами, как это сделает uvicorn (с SO_REUSEADDR).
+
+    Не connect(): в WSL с networkingMode=mirrored и включённым брандмауэром подключение
+    к закрытому порту не получает отказа и висит минутами — `vydra ui` молча не запускался."""
     with socket.socket() as sock:
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return True
+        return False
 
 
 def _russian_help_option() -> None:
