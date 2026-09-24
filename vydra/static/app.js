@@ -1,120 +1,15 @@
-// выдра — логика интерфейса. Без фреймворков: состояние → точечные обновления DOM,
-// движение на пружинах (WAAPI + View Transitions), FLIP для списков.
+// выдра — логика интерфейса. Без фреймворков: состояние → точечные обновления DOM.
+// Движение объектов — пружины (spring.js), фон — чёрная дыра (cosmos.js), хранилище — проводник (explorer.js).
+
+import { Spring, motionOf, enter, exit, pressable, rubber, flip, REDUCED } from './spring.js';
+import { createCosmos } from './cosmos.js';
+import { createExplorer } from './explorer.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const html = document.documentElement;
-
-/* ============================== движение ============================== */
-
-// ?motion=0 — как «уменьшить движение» (для скриншотов и слабых машин)
-const MOTION_OFF = new URLSearchParams(location.search).get('motion') === '0';
-if (MOTION_OFF) html.classList.add('motion-off');
-const REDUCED = MOTION_OFF || matchMedia('(prefers-reduced-motion: reduce)').matches;
-const HAS_LINEAR = CSS.supports('transition-timing-function', 'linear(0, 1)');
-const SPRING = HAS_LINEAR
-  ? 'linear(0, 0.0213, 0.0775, 0.1581, 0.2541, 0.3579, 0.4635, 0.5662, 0.6624, 0.7498, 0.8268, 0.8928, 0.9476, 0.9917, 1.0258, 1.0508, 1.0679, 1.0782, 1.0828, 1.083, 1.0798, 1.0741, 1.0667, 1.0583, 1.0495, 1.0408, 1.0324, 1.0247, 1.0178, 1.0118, 1.0067, 1.0026, 0.9993, 0.9968, 0.995, 0.9939, 0.9932, 0.993, 0.9932, 0.9935, 0.9941, 0.9948, 0.9955, 0.9962, 0.9969, 0.9976, 0.9982, 0.9988, 1)'
-  : 'cubic-bezier(.34, 1.4, .64, 1)';
-const SPRING_SOFT = HAS_LINEAR
-  ? 'linear(0, 0.0154, 0.0546, 0.109, 0.1723, 0.2399, 0.3086, 0.376, 0.4405, 0.5012, 0.5575, 0.6092, 0.6561, 0.6984, 0.7363, 0.7701, 0.8, 0.8265, 0.8497, 0.8701, 0.8879, 0.9035, 0.917, 0.9287, 0.9388, 0.9476, 0.9552, 0.9617, 0.9673, 0.9721, 0.9762, 0.9797, 0.9828, 0.9853, 0.9875, 0.9894, 0.991, 0.9924, 0.9936, 0.9945, 0.9954, 0.9961, 0.9967, 0.9972, 0.9976, 0.998, 0.9983, 0.9986, 1)'
-  : 'cubic-bezier(.22, 1, .36, 1)';
-const EASE_IN = 'cubic-bezier(.4, 0, 1, 1)';
 const CAN_VT = typeof document.startViewTransition === 'function' && !REDUCED;
-
-function animate(el, frames, opts) {
-  if (!el || REDUCED || !el.animate) return { finished: Promise.resolve() };
-  return el.animate(frames, opts);
-}
-
-/** View Transition с запасным вариантом; cls — класс на <html> на время перехода. */
-function viewTransition(update, cls) {
-  if (!CAN_VT) { update(); return { finished: Promise.resolve(), ready: Promise.resolve() }; }
-  if (cls) html.classList.add(cls);
-  const t = document.startViewTransition(update);
-  t.finished.catch(() => {}).finally(() => cls && html.classList.remove(cls));
-  t.ready.catch(() => {});
-  return t;
-}
-
-const ENTER = [
-  { opacity: 0, transform: 'translateY(14px) scale(.94)', filter: 'blur(8px)' },
-  { opacity: 1, transform: 'none', filter: 'blur(0)' },
-];
-
-/** FLIP: снимаем позиции, меняем DOM, анимируем сдвиги. removed — уходящие элементы. */
-function flip(container, mutate, removed = []) {
-  if (REDUCED) { removed.forEach((el) => el.remove()); mutate(); return; }
-  const first = new Map();
-  for (const el of container.children) first.set(el, el.getBoundingClientRect());
-  const box = container.getBoundingClientRect();
-  for (const el of removed) {
-    const r = first.get(el) || el.getBoundingClientRect();
-    Object.assign(el.style, {
-      position: 'absolute', left: `${r.left - box.left}px`, top: `${r.top - box.top}px`,
-      width: `${r.width}px`, height: `${r.height}px`, margin: '0', pointerEvents: 'none', zIndex: '0',
-    });
-    container.append(el);
-    el.animate([{ opacity: 1, transform: 'none', filter: 'blur(0)' }, { opacity: 0, transform: 'scale(.9)', filter: 'blur(6px)' }],
-      { duration: 320, easing: EASE_IN, fill: 'forwards' }).finished.then(() => el.remove(), () => el.remove());
-  }
-  mutate();
-  let i = 0;
-  for (const el of container.children) {
-    if (removed.includes(el)) continue;
-    const f = first.get(el);
-    const l = el.getBoundingClientRect();
-    if (!f) {
-      el.animate(ENTER, { duration: 650, easing: SPRING_SOFT, delay: Math.min(i++, 8) * 40, fill: 'backwards' });
-      continue;
-    }
-    const dx = f.left - l.left, dy = f.top - l.top;
-    const sx = l.width ? f.width / l.width : 1, sy = l.height ? f.height / l.height : 1;
-    if (Math.abs(dx) + Math.abs(dy) > 1 || Math.abs(sx - 1) > .02 || Math.abs(sy - 1) > .02) {
-      el.animate([{ transformOrigin: '0 0', transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` }, { transformOrigin: '0 0', transform: 'none' }],
-        { duration: 620, easing: SPRING_SOFT });
-    }
-  }
-}
-
-/* появление при прокрутке */
-const revealer = 'IntersectionObserver' in window
-  ? new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); revealer.unobserve(e.target); }
-  }, { rootMargin: '0px 0px -6% 0px' })
-  : null;
-function reveal(el, i = 0) {
-  if (!revealer || REDUCED) return;
-  el.classList.add('rv');
-  el.style.setProperty('--i', i);
-  revealer.observe(el);
-  // Уже видимое проявляем сразу, не дожидаясь наблюдателя; и страховка — контент
-  // не должен остаться невидимым, если IntersectionObserver промолчит (iframe, фоновая вкладка).
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (el.getBoundingClientRect().top < innerHeight) el.classList.add('in');
-  }));
-  setTimeout(() => el.classList.add('in'), 1600 + i * 70);
-}
-
-/* инерционная прокрутка перетаскиванием мышью */
-function dragScroll(el) {
-  let down = false, moved = false, lastX = 0, lastT = 0, v = 0, raf = 0;
-  el.addEventListener('pointerdown', (e) => {
-    if (e.pointerType !== 'mouse' || el.scrollWidth <= el.clientWidth) return;
-    down = true; moved = false; lastX = e.clientX; lastT = performance.now(); v = 0; cancelAnimationFrame(raf);
-  });
-  window.addEventListener('pointermove', (e) => {
-    if (!down) return;
-    const dx = e.clientX - lastX, now = performance.now();
-    if (Math.abs(dx) > 2) moved = true;
-    el.scrollLeft -= dx; v = dx / Math.max(1, now - lastT); lastX = e.clientX; lastT = now;
-  });
-  window.addEventListener('pointerup', () => {
-    if (!down) return; down = false;
-    const step = () => { v *= 0.93; el.scrollLeft -= v * 16; if (Math.abs(v) > 0.02) raf = requestAnimationFrame(step); };
-    if (!REDUCED) raf = requestAnimationFrame(step);
-  });
-  el.addEventListener('click', (e) => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } }, true);
-}
+const isPhone = () => matchMedia('(max-width: 680px)').matches;
 
 /* ============================== форматирование ============================== */
 
@@ -154,28 +49,23 @@ function fmtAgo(unix) {
   if (d.toDateString() === y.toDateString()) return `вчера, ${hm}`;
   return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
-const PLATFORM = {
-  youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram', other: 'Другой сайт', file: 'Мой файл',
-};
+function plural(n, one, few, many) { const m10 = n % 10, m100 = n % 100; if (m10 === 1 && m100 !== 11) return one; if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few; return many; }
+const PLATFORM = { youtube: 'YouTube', tiktok: 'TikTok', instagram: 'Instagram', other: 'Другой сайт', file: 'Мой файл' };
+const PLATFORM_COLOR = { youtube: '#ff3b3b', tiktok: '#25f4ee', instagram: '#f36f9a', other: '#3ee0a1' };
 const glyph = (p) => `#p-${PLATFORM[p] ? p : 'other'}`;
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const CINEMA_URL = `/lib/${encodeURIComponent('Кинотеатр.html')}`;
 const libUrl = (rel) => '/lib/' + String(rel).split('/').map(encodeURIComponent).join('/');
 const svgUse = (id, cls = '') => `<svg${cls ? ` class="${cls}"` : ''}><use href="${id}"/></svg>`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+function h(markup) { const t = document.createElement('template'); t.innerHTML = markup.trim(); return t.content.firstElementChild; }
 
-function hash(str) {
-  let h = 2166136261;
-  for (const ch of String(str)) { h ^= ch.codePointAt(0); h = Math.imul(h, 16777619); }
-  return h >>> 0;
-}
-function rng(seed) {
-  return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-}
-/** Обложка-заглушка: градиент и «волна», детерминированно от id. */
+function hash(str) { let x = 2166136261; for (const ch of String(str)) { x ^= ch.codePointAt(0); x = Math.imul(x, 16777619); } return x >>> 0; }
+function rng(seed) { return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+/** Обложка-заглушка: монохромный градиент и «волна», детерминированно от id. */
 function artHtml(seed, kind = 'MP3') {
-  const h = hash(seed), h1 = h % 360, h2 = (h1 + 40 + (h >> 8) % 90) % 360;
-  const r = rng(h);
+  const x = hash(seed), h1 = x % 360, h2 = (h1 + 40 + (x >> 8) % 90) % 360;
+  const r = rng(x);
   let bars = '';
   const n = 28;
   for (let i = 0; i < n; i++) {
@@ -188,9 +78,7 @@ function artHtml(seed, kind = 'MP3') {
 
 /* ============================== API ============================== */
 
-class ApiError extends Error {
-  constructor(message, status) { super(message); this.status = status; }
-}
+class ApiError extends Error { constructor(message, status) { super(message); this.status = status; } }
 function detailText(d) {
   if (!d) return '';
   if (typeof d.detail === 'string') return d.detail;
@@ -200,11 +88,7 @@ function detailText(d) {
 async function api(path, { method = 'GET', body, form, signal } = {}) {
   let res;
   try {
-    res = await fetch(path, {
-      method, signal, cache: 'no-store',
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
-      body: body !== undefined ? JSON.stringify(body) : form,
-    });
+    res = await fetch(path, { method, signal, cache: 'no-store', headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined, body: body !== undefined ? JSON.stringify(body) : form });
   } catch (e) {
     if (e.name === 'AbortError') throw e;
     setServerDown(true);
@@ -231,20 +115,12 @@ const state = {
   quality: saved.quality || '1080',
   bitrate: String(saved.bitrate || '192'),
   autostart: !!saved.autostart,
-  libtype: 'all',
-  libplatform: 'all',
-  libsearch: '',
-  jobs: [],
-  library: null,
-  info: null,
-  doctor: null,
-  preview: null, // {kind: loading|ready|error|multi, url, data, message, n}
-  range: null, // {a, b, d}
-  heights: null,
-  down: false,
-  fresh: new Set(),
+  controlsManual: !!saved.controlsOpen,
+  jobs: [], library: null, info: null, doctor: null,
+  preview: null, range: null, heights: null, down: false, fresh: new Set(),
+  speed: 0,
 };
-const savePrefs = () => store.set('vd.prefs', { mode: state.mode, quality: state.quality, bitrate: state.bitrate, autostart: state.autostart });
+const savePrefs = () => store.set('vd.prefs', { mode: state.mode, quality: state.quality, bitrate: state.bitrate, autostart: state.autostart, controlsOpen: state.controlsManual });
 
 /* ============================== тосты ============================== */
 
@@ -257,12 +133,13 @@ function toast(message, type = 'info', { timeout = 3800 } = {}) {
   el.innerHTML = `<span class="ti">${svgUse(icon)}</span><span class="tt"></span>`;
   el.querySelector('.tt').textContent = message;
   box.append(el);
+  enter(el, { dy: 22, scale: 0.92, blur: 6, response: 0.5, damping: 0.8 });
   while (box.children.length > 4) box.firstElementChild.remove();
   let timer;
   const api_ = {
     update(msg) { el.querySelector('.tt').textContent = msg; return api_; },
-    close() { clearTimeout(timer); el.classList.add('out'); setTimeout(() => el.remove(), REDUCED ? 0 : 360); },
-    type(t) { el.className = `toast ${t}`; return api_; },
+    close() { clearTimeout(timer); exit(el, { dy: 10, scale: 0.94 }).then(() => el.remove()); },
+    type(t) { el.className = `toast ${t}`; el.querySelector('.ti').innerHTML = svgUse({ ok: '#i-check', err: '#i-alert', info: '#i-info', warn: '#i-warn' }[t] || '#i-info'); return api_; },
     later(ms) { clearTimeout(timer); timer = setTimeout(api_.close, ms); return api_; },
   };
   if (timeout) api_.later(timeout);
@@ -279,22 +156,20 @@ function setServerDown(down) {
     (async () => {
       while (state.down) {
         await sleep(3500);
-        try {
-          const r = await fetch('/api/health', { cache: 'no-store' });
-          if (r.ok) { setServerDown(false); loadInfo(); loadLibrary(); pollJobs(); }
-        } catch { /* ещё лежит */ }
+        try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok) { setServerDown(false); loadInfo(); explorer.refresh(); pollJobs(); connectEvents(); } }
+        catch { /* ещё лежит */ }
       }
     })();
   }
 }
 
-/* ============================== тема ============================== */
+/* ============================== тема и режимы ============================== */
 
 function applyTheme(t) {
   html.dataset.theme = t;
-  store.set('vd.theme', t);
   try { localStorage.setItem('vd.theme', t); } catch { /* */ }
-  $('meta[name="theme-color"]').content = t === 'light' ? '#f3eee4' : '#07070c';
+  $('meta[name="theme-color"]').content = t === 'light' ? '#f3f3f0' : '#050508';
+  cosmos?.setInvert(t === 'light');
 }
 $('#theme').addEventListener('click', (e) => {
   const next = html.dataset.theme === 'light' ? 'dark' : 'light';
@@ -302,25 +177,111 @@ $('#theme').addEventListener('click', (e) => {
   const r = e.currentTarget.getBoundingClientRect();
   const x = r.left + r.width / 2, y = r.top + r.height / 2;
   const radius = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
-  const t = viewTransition(() => applyTheme(next), 'vt-theme');
+  html.classList.add('vt-theme');
+  const t = document.startViewTransition(() => applyTheme(next));
+  t.finished.catch(() => {}).finally(() => html.classList.remove('vt-theme'));
   t.ready.then(() => {
-    html.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-      { duration: 750, easing: SPRING_SOFT, pseudoElement: '::view-transition-new(root)' });
-  });
+    html.animate({ clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] }, { duration: 700, easing: 'cubic-bezier(.16,1,.3,1)', pseudoElement: '::view-transition-new(root)' });
+  }).catch(() => {});
 });
+function setMono(on) {
+  if (on) html.dataset.mono = '1'; else delete html.dataset.mono;
+  try { sessionStorage.setItem('vd.mono', on ? '1' : '0'); } catch { /* */ }
+  applyAccent();
+  toast(on ? 'Режим «космос»: только свет и тьма' : 'Цвет вернулся', 'info', { timeout: 2200 });
+}
 
-/* ============================== «чернила» вкладок и пилюль ============================== */
+/* ============================== стекло: свет следует за указателем ============================== */
 
-function moveInk(group) {
+let glassRaf = 0, glassEv = null;
+document.addEventListener('pointermove', (e) => {
+  glassEv = e;
+  if (glassRaf) return;
+  glassRaf = requestAnimationFrame(() => {
+    glassRaf = 0;
+    const el = glassEv.target.closest?.('.glass');
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${((glassEv.clientX - r.left) / r.width * 100).toFixed(1)}%`);
+    el.style.setProperty('--my', `${((glassEv.clientY - r.top) / r.height * 100).toFixed(1)}%`);
+  });
+}, { passive: true });
+pressable(document, '.glass, .go-btn, .btn, .chip-btn, .icon-btn, .tab, .pills button, .pchip, .dept, .folder, .crumb, .text-btn, .tile-media', { scale: 0.965 });
+
+/* ============================== космос ============================== */
+
+let cosmos = null;
+const heroEl = $('#hero');
+function heroLayout() {
+  if (!cosmos) return;
+  const phone = isPhone();
+  const w = heroEl.clientWidth, hh = heroEl.clientHeight;
+  const scale = phone ? 0.16 : Math.min(0.14, Math.max(0.09, 0.115 * (w / 1440)));
+  cosmos.setCenter(phone ? 0.5 : 0.70, phone ? 0.24 : 0.5, scale);
+  cosmos.resize();
+  void hh;
+}
+function initCosmos() {
+  const canvas = $('#cosmos');
+  const wrap = $('.cosmos-wrap');
+  cosmos = createCosmos(canvas, { reduced: REDUCED, center: [0.7, 0.5], scale: 0.115, resScale: 0.5, accent: '#5a86ff', seed: 0.37 });
+  if (!cosmos.ok) { wrap.classList.add('fallback'); cosmos = null; return; }
+  cosmos.setInvert(html.dataset.theme === 'light');
+  applyAccent();
+  heroLayout();
+  let ro = 0;
+  new ResizeObserver(() => { cancelAnimationFrame(ro); ro = requestAnimationFrame(heroLayout); }).observe(heroEl);
+  // параллакс указателя
+  window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') cosmos.setPointer((e.clientX / innerWidth - 0.5) * 2, (e.clientY / innerHeight - 0.5) * -2); }, { passive: true });
+  // гироскоп на телефоне (iOS спрашивает разрешение при первом касании)
+  const orient = (e) => { if (e.gamma == null) return; cosmos.setPointer(Math.max(-1, Math.min(1, e.gamma / 30)), Math.max(-1, Math.min(1, (e.beta - 45) / -30))); };
+  if ('DeviceOrientationEvent' in window && matchMedia('(pointer: coarse)').matches) {
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      const ask = () => { DeviceOrientationEvent.requestPermission().then((r) => { if (r === 'granted') window.addEventListener('deviceorientation', orient); }).catch(() => {}); heroEl.removeEventListener('touchend', ask); };
+      heroEl.addEventListener('touchend', ask, { once: true });
+    } else window.addEventListener('deviceorientation', orient);
+  }
+  // прокрутка: параллакс и пауза за пределами экрана
+  let sRaf = 0;
+  const onScroll = () => { cancelAnimationFrame(sRaf); sRaf = requestAnimationFrame(() => cosmos.setScroll(Math.min(1, Math.max(0, scrollY / Math.max(1, heroEl.clientHeight))))); };
+  window.addEventListener('scroll', onScroll, { passive: true });
+  new IntersectionObserver((en) => { for (const e of en) { if (e.isIntersecting) cosmos.resume(); else cosmos.pause(); } }, { threshold: 0.02 }).observe(heroEl);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) cosmos.pause(); else cosmos.resume(); });
+}
+function applyAccent() {
+  if (!cosmos) return;
+  const mono = html.dataset.mono === '1';
+  const p = html.dataset.platform;
+  const col = mono ? '#ffffff' : (PLATFORM_COLOR[p] || '#5a86ff');
+  cosmos.setAccent(col, mono ? 0 : 1);
+}
+
+/* ============================== «чернила» вкладок и пилюль — на пружинах ============================== */
+
+const inks = new WeakMap();
+function inkOf(group) {
+  let s = inks.get(group);
+  if (!s) {
+    const ink = group.querySelector('.pill-ink, .tab-ink');
+    s = { x: new Spring({ response: 0.42, damping: 0.86, epsilon: 0.2 }), w: new Spring({ response: 0.42, damping: 0.86, epsilon: 0.2 }), init: false };
+    s.x.onUpdate = (v) => ink.style.setProperty('--x', `${v.toFixed(2)}px`);
+    s.w.onUpdate = (v) => ink.style.setProperty('--w', `${v.toFixed(2)}px`);
+    inks.set(group, s);
+  }
+  return s;
+}
+function moveInk(group, { immediate = false } = {}) {
   const on = group.querySelector('[aria-checked="true"], [aria-selected="true"]');
   const ink = group.querySelector('.pill-ink, .tab-ink');
   if (!ink) return;
-  if (!on || !on.offsetWidth) { ink.style.setProperty('--w', '0px'); return; }
-  ink.style.setProperty('--x', `${on.offsetLeft}px`);
-  ink.style.setProperty('--w', `${on.offsetWidth}px`);
+  const s = inkOf(group);
+  if (!on || !on.offsetWidth) { s.w.snap(0); return; }
+  const imm = immediate || !s.init;
+  s.init = true;
+  s.x.set(on.offsetLeft, { immediate: imm });
+  s.w.set(on.offsetWidth, { immediate: imm });
 }
-const moveAllInks = () => $$('.pills, .tabs').forEach(moveInk);
-
+const moveAllInks = (opts) => $$('.pills, .tabs').forEach((g) => moveInk(g, opts));
 function setPill(group, value) {
   for (const b of group.querySelectorAll('button[data-value]')) b.setAttribute('aria-checked', String(b.dataset.value === String(value)));
   moveInk(group);
@@ -343,51 +304,47 @@ function initPills(group, onChange) {
 
 /* ============================== вкладки ============================== */
 
-function switchTab(tab, { animate: anim = true } = {}) {
-  if (tab === state.tab && anim) return;
-  const forward = tab === 'file';
-  const update = () => {
-    state.tab = tab;
-    for (const t of $$('.tab')) t.setAttribute('aria-selected', String(t.dataset.tab === tab));
-    $('#panel-link').hidden = tab !== 'link';
-    $('#panel-file').hidden = tab !== 'file';
-    updateTuners();
-    moveAllInks();
-  };
-  if (!anim) { update(); return; }
-  const consoleEl = $('.console');
-  consoleEl.classList.add('vt-panel');
-  const t = viewTransition(update, forward ? 'vt-tab-fwd' : 'vt-tab-back');
-  t.finished.finally(() => consoleEl.classList.remove('vt-panel'));
+function switchTab(tab, { animate = true } = {}) {
+  if (tab === state.tab && animate) return;
+  const from = $(`[data-panel="${state.tab}"]`), to = $(`[data-panel="${tab}"]`);
+  state.tab = tab;
+  for (const t of $$('.tab')) t.setAttribute('aria-selected', String(t.dataset.tab === tab));
+  moveInk($('.tabs'));
+  const dir = tab === 'file' ? 1 : -1;
+  const show = () => { from.hidden = true; to.hidden = false; if (animate && !REDUCED) { const m = motionOf(to); m.from({ x: 26 * dir, o: 0, b: 6 }); m.to({ x: 0, o: 1, b: 0 }, { response: 0.5, damping: 0.9 }); } };
+  if (animate && !REDUCED && !from.hidden) motionOf(from).to({ x: -22 * dir, o: 0, b: 5 }, { response: 0.28, damping: 1 }).then(show);
+  else show();
+  updateTuners();
+  updateControls();
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
-/* ============================== формат, качество, отрезок ============================== */
+/* ============================== настройки скачивания ============================== */
 
 function setMode(mode, { save = true } = {}) {
   state.mode = mode;
-  for (const b of $$('.fmt')) b.setAttribute('aria-checked', String(b.dataset.mode === mode));
+  setPill($('[data-name="mode"]'), mode);
   updateTuners();
   if (save) savePrefs();
 }
-$$('.fmt').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
-$('.formats').addEventListener('keydown', (e) => {
-  if (!['ArrowLeft', 'ArrowRight'].includes(e.key)) return;
-  const order = ['mp4', 'mp3', 'both'];
-  const next = order[(order.indexOf(state.mode) + (e.key === 'ArrowRight' ? 1 : 2)) % 3];
-  setMode(next);
-  $(`.fmt[data-mode="${next}"]`).focus();
-  e.preventDefault();
-});
-
 function updateTuners() {
   $('#quality-tuner').classList.toggle('off', state.tab !== 'link' || state.mode === 'mp3');
   $('#bitrate-tuner').classList.toggle('off', state.mode === 'mp4');
   $('#autostart-wrap').hidden = state.tab !== 'link';
   const previewHasRange = state.tab === 'link' && state.preview?.kind === 'ready' && state.range;
   $('#clip').hidden = !!previewHasRange;
-  requestAnimationFrame(moveAllInks);
+  requestAnimationFrame(() => moveAllInks());
 }
+/** Настройки показываем, когда есть что настраивать: ссылка распознана, конвертер или пользователь открыл сам. */
+function updateControls() {
+  const open = state.tab === 'file' || !!state.preview || state.controlsManual;
+  const c = $('#controls');
+  if (c.dataset.open === String(open)) return;
+  c.dataset.open = String(open);
+  $('#controls-toggle').setAttribute('aria-expanded', String(open));
+  if (open) requestAnimationFrame(() => moveAllInks({ immediate: true }));
+}
+$('#controls-toggle').addEventListener('click', () => { state.controlsManual = true; savePrefs(); updateControls(); });
 
 /** Какие «высоты» есть у видео: недоступное качество гасим, «Макс» всегда можно. */
 function applyHeights(heights) {
@@ -410,13 +367,8 @@ function applyHeights(heights) {
 }
 const effectiveQuality = () => $('[data-name="quality"] [aria-checked="true"]')?.dataset.value || state.quality;
 
-/* «Только отрезок» без превью (несколько ссылок, конвертер, превью не загрузилось) */
 const clipOn = $('#clip-on');
-function clipValues() {
-  const sEl = $('#clip-start'), eEl = $('#clip-end');
-  const s = parseTime(sEl.value), e = parseTime(eEl.value);
-  return { s, e, sEl, eEl };
-}
+function clipValues() { const sEl = $('#clip-start'), eEl = $('#clip-end'); return { s: parseTime(sEl.value), e: parseTime(eEl.value), sEl, eEl }; }
 function renderClipRow() {
   $('#clip-fields').hidden = !clipOn.checked;
   const { s, e, sEl, eEl } = clipValues();
@@ -429,8 +381,7 @@ function renderClipRow() {
   if (Number.isNaN(s) || Number.isNaN(e)) { out.textContent = 'формат: 1:30 или 90'; out.classList.add('bad'); return; }
   if (s != null && e != null && e <= s) { out.textContent = 'конец раньше начала'; out.classList.add('bad'); return; }
   if (s == null && e == null) { out.textContent = 'весь ролик'; return; }
-  if (e != null) out.textContent = `= ${fmtTime(e - (s || 0))}`;
-  else out.textContent = `с ${fmtTime(s)} до конца`;
+  if (e != null) out.textContent = `= ${fmtTime(e - (s || 0))}`; else out.textContent = `с ${fmtTime(s)} до конца`;
   const d = Math.max(e || 0, (s || 0) * 1.6, 1);
   sel.style.setProperty('--a', `${((s || 0) / d) * 100}%`);
   sel.style.setProperty('--b', `${((e ?? d) / d) * 100}%`);
@@ -438,14 +389,10 @@ function renderClipRow() {
 clipOn.addEventListener('change', () => { renderClipRow(); if (clipOn.checked) $('#clip-start').focus(); });
 $('#clip-start').addEventListener('input', renderClipRow);
 $('#clip-end').addEventListener('input', renderClipRow);
-
-/** start/end для отправки или ошибка. */
 function clipPayload(useRange) {
   if (useRange && state.range) {
     const { a, b, d } = state.range;
-    const start = a > 0.5 ? String(Math.round(a)) : null;
-    const end = b < d - 0.5 ? String(Math.round(b)) : null;
-    return { start, end };
+    return { start: a > 0.5 ? String(Math.round(a)) : null, end: b < d - 0.5 ? String(Math.round(b)) : null };
   }
   if (!clipOn.checked) return { start: null, end: null };
   const { s, e, sEl, eEl } = clipValues();
@@ -457,10 +404,9 @@ function clipPayload(useRange) {
 /* ============================== портал ссылок ============================== */
 
 const urlBox = $('#url');
+const portal = $('#link-form');
 const URL_RE = /^(https?:\/\/)?([\w-]+\.)+[a-z]{2,}(:\d+)?(\/\S*)?$/i;
-function extractUrls(text) {
-  return String(text).split(/\s+/).map((s) => s.trim()).filter((s) => s && URL_RE.test(s));
-}
+function extractUrls(text) { return String(text).split(/\s+/).map((s) => s.trim()).filter((s) => s && URL_RE.test(s)); }
 function detectPlatform(url) {
   if (!url) return 'none';
   let host = '';
@@ -477,13 +423,12 @@ function setPlatform(p) {
   const g = $('#portal-glyph');
   g.dataset.p = p;
   g.innerHTML = svgUse(p === 'none' ? '#i-link' : glyph(p));
-  g.classList.remove('pop'); void g.offsetWidth; g.classList.add('pop');
+  if (!REDUCED) { const m = motionOf(g); m.from({ s: 0.6, r: -12 }); m.to({ s: 1, r: 0 }, { response: 0.42, damping: 0.7 }); }
   $$('.pf').forEach((el) => el.classList.toggle('lit', el.dataset.p === p));
+  portal.classList.toggle('lit', p !== 'none');
+  applyAccent();
 }
-function autoGrow() {
-  urlBox.style.height = 'auto';
-  urlBox.style.height = `${Math.min(urlBox.scrollHeight, 180)}px`;
-}
+function autoGrow() { urlBox.style.height = 'auto'; urlBox.style.height = `${Math.min(urlBox.scrollHeight, 180)}px`; }
 
 let pvTimer = 0;
 function onUrlInput() {
@@ -498,10 +443,8 @@ function onUrlInput() {
   pvTimer = setTimeout(() => loadPreview(url), 400);
 }
 urlBox.addEventListener('input', onUrlInput);
-urlBox.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submitLinks(); }
-});
-$('#link-form').addEventListener('submit', (e) => { e.preventDefault(); submitLinks(); });
+urlBox.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); submitLinks(); } });
+portal.addEventListener('submit', (e) => { e.preventDefault(); submitLinks(); });
 
 function acceptPastedText(text, { replace = true } = {}) {
   const urls = extractUrls(text);
@@ -510,25 +453,19 @@ function acceptPastedText(text, { replace = true } = {}) {
   if (state.tab !== 'link') switchTab('link');
   onUrlInput();
   if (state.autostart) { clearTimeout(pvTimer); submitLinks(); }
-  else urlBox.focus();
+  else { urlBox.focus(); heroEl.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
   return true;
 }
 $('#paste').addEventListener('click', async () => {
   try {
     const text = await navigator.clipboard.readText();
     if (!acceptPastedText(text)) toast('В буфере обмена нет ссылки', 'warn');
-  } catch {
-    urlBox.focus();
-    toast('Браузер не дал прочитать буфер — нажмите Ctrl+V', 'info');
-  }
+  } catch { urlBox.focus(); toast('Браузер не дал прочитать буфер — нажмите Ctrl+V', 'info'); }
 });
 document.addEventListener('paste', (e) => {
   const text = e.clipboardData?.getData('text') || '';
   const t = e.target;
-  if (t === urlBox) {
-    if (state.autostart && extractUrls(text).length) setTimeout(() => { clearTimeout(pvTimer); submitLinks(); }, 0);
-    return;
-  }
+  if (t === urlBox) { if (state.autostart && extractUrls(text).length) setTimeout(() => { clearTimeout(pvTimer); submitLinks(); }, 0); return; }
   if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t?.isContentEditable) return;
   if (acceptPastedText(text)) e.preventDefault();
 });
@@ -536,43 +473,67 @@ const autostart = $('#autostart');
 autostart.checked = state.autostart;
 autostart.addEventListener('change', () => { state.autostart = autostart.checked; savePrefs(); });
 
+/** Ссылка улетает в сингулярность по спирали: маленький ритуал перед постановкой в очередь. */
+function flyToSingularity(text) {
+  if (REDUCED || !cosmos) return;
+  const hr = heroEl.getBoundingClientRect();
+  if (hr.bottom < 0 || hr.top > innerHeight) return;
+  const [cx, cy] = cosmos.center;
+  const hx = hr.left + hr.width * cx, hy = hr.top + hr.height * cy;
+  const ur = urlBox.getBoundingClientRect();
+  const sx = ur.left, sy = ur.top + ur.height / 2 - 9;
+  const el = h('<span class="fly" aria-hidden="true"></span>');
+  el.textContent = text.length > 46 ? `${text.slice(0, 44)}…` : text;
+  document.body.append(el);
+  const dx = sx - hx, dy = sy - hy;
+  const dist = Math.hypot(dx, dy), a0 = Math.atan2(dy, dx);
+  const sp = new Spring({ response: 1.0, damping: 1, epsilon: 0.0005 });
+  sp.onUpdate = (u) => {
+    const r = dist * (1 - u), a = a0 + u * u * 4.2;
+    const x = hx + r * Math.cos(a), y = hy + r * Math.sin(a);
+    el.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${1 - 0.92 * u}) rotate(${(u * 40).toFixed(1)}deg)`;
+    el.style.opacity = String(1 - u * u * 0.9);
+  };
+  sp.onRest = () => el.remove();
+  sp.snap(0); sp.set(1);
+  portal.classList.add('absorbing');
+  setTimeout(() => { cosmos.absorb(); portal.classList.remove('absorbing'); }, 520);
+}
+
 async function submitLinks() {
   const urls = extractUrls(urlBox.value);
-  const form = $('#link-form');
   if (!urls.length) {
-    animate(form, [{ transform: 'translateX(0)' }, { transform: 'translateX(-10px)' }, { transform: 'translateX(9px)' }, { transform: 'translateX(-5px)' }, { transform: 'none' }], { duration: 420, easing: 'ease-out' });
+    if (!REDUCED) { const m = motionOf(portal); m.from({ x: -9 }); m.to({ x: 0 }, { response: 0.28, damping: 0.35 }); }
     toast(urlBox.value.trim() ? 'Это не похоже на ссылку' : 'Сначала вставьте ссылку на видео', 'warn');
     urlBox.focus();
     return;
   }
   let clip;
-  try {
-    clip = clipPayload(urls.length === 1 && state.preview?.kind === 'ready' && state.preview.url === urls[0]);
-  } catch (err) { toast(err.message, 'err'); return; }
+  try { clip = clipPayload(urls.length === 1 && state.preview?.kind === 'ready' && state.preview.url === urls[0]); }
+  catch (err) { toast(err.message, 'err'); return; }
   const go = $('#go');
   go.disabled = true;
   go.classList.remove('fire'); void go.offsetWidth; go.classList.add('fire');
+  flyToSingularity(urls[0]);
   try {
     const body = { urls, mode: state.mode, quality: effectiveQuality(), bitrate: Number(state.bitrate) };
     if (clip.start) body.start = clip.start;
     if (clip.end) body.end = clip.end;
+    const folder = explorer.saveFolder();
+    if (folder) body.folder = folder;
     const jobs = await api('/api/jobs', { method: 'POST', body });
     urlBox.value = '';
     onUrlInput();
-    toast(jobs.length > 1 ? `В очереди: ${jobs.length} ссылки` : 'Поехали! Ссылка в очереди', 'ok', { timeout: 2400 });
+    toast(jobs.length > 1 ? `В очереди: ${jobs.length} ${plural(jobs.length, 'ссылка', 'ссылки', 'ссылок')}` : 'Поехали! Ссылка в очереди', 'ok', { timeout: 2400 });
     pollJobs();
-  } catch (err) {
-    toast(err.message, 'err', { timeout: 6000 });
-  } finally {
-    go.disabled = false;
-  }
+  } catch (err) { toast(err.message, 'err', { timeout: 6000 }); }
+  finally { go.disabled = false; }
 }
 
 /* ============================== превью ссылки ============================== */
 
 const pvCache = new Map();
 let pvAbort = null;
-
 async function loadPreview(url) {
   if (state.autostart) return;
   if (pvCache.has(url)) { setPreview({ kind: 'ready', url, data: pvCache.get(url) }); return; }
@@ -588,52 +549,33 @@ async function loadPreview(url) {
     if (extractUrls(urlBox.value)[0] === url) setPreview({ kind: 'error', url, message: err.message });
   }
 }
-
 function setPreview(p) {
   const slot = $('#preview-slot');
   const prevKind = state.preview?.kind;
-  const sameUrl = p && state.preview && p.url === state.preview.url;
   state.preview = p;
   state.range = null;
   if (!p) {
     pvAbort?.abort();
     applyHeights(null);
     const card = slot.firstElementChild;
-    if (card) animate(card, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(-6px) scale(.97)', filter: 'blur(6px)' }], { duration: 220, easing: EASE_IN }).finished.then(() => { if (!state.preview) slot.replaceChildren(); });
-    updateTuners();
+    if (card) exit(card, { dy: -6, scale: 0.97 }).then(() => { if (!state.preview && card.isConnected) card.remove(); });
+    updateTuners(); updateControls();
     return;
   }
   let card;
-  if (p.kind === 'multi') {
-    applyHeights(null);
-    card = h(`<div class="preview compact">${svgUse('#i-layers')}<span><b>${p.n} ссылки</b> — превью покажу для одной, а скачаю все сразу</span></div>`);
-  } else if (p.kind === 'loading') {
-    card = h(`<div class="preview loading" aria-busy="true">
-      <div class="pv-media skel"></div>
-      <div class="pv-body">
-        <div class="skel skel-line" style="width:82%;height:18px"></div>
-        <div class="skel skel-line" style="width:48%"></div>
-        <div class="skel" style="height:46px;margin-top:auto;border-radius:12px"></div>
-      </div></div>`);
-  } else if (p.kind === 'error') {
-    applyHeights(null);
-    card = h(`<div class="preview compact error">${svgUse('#i-warn')}<span><b>Превью не загрузилось.</b> ${esc(p.message)} Скачать всё равно можно — жмите стрелку.</span></div>`);
-  } else {
-    card = previewCard(p.data);
-  }
+  if (p.kind === 'multi') { applyHeights(null); card = h(`<div class="preview compact">${svgUse('#i-layers')}<span><b>${p.n} ${plural(p.n, 'ссылка', 'ссылки', 'ссылок')}</b> — превью покажу для одной, а скачаю все сразу</span></div>`); }
+  else if (p.kind === 'loading') {
+    card = h(`<div class="preview loading" aria-busy="true"><div class="pv-media skel"></div><div class="pv-body"><div class="skel skel-line" style="width:82%;height:18px"></div><div class="skel skel-line" style="width:48%"></div><div class="skel" style="height:46px;margin-top:auto;border-radius:12px"></div></div></div>`);
+  } else if (p.kind === 'error') { applyHeights(null); card = h(`<div class="preview compact error">${svgUse('#i-warn')}<span><b>Превью не загрузилось.</b> ${esc(p.message)} Скачать всё равно можно — жмите стрелку.</span></div>`); }
+  else card = previewCard(p.data);
   slot.replaceChildren(card);
-  if (!(sameUrl && prevKind && prevKind !== 'multi' && p.kind === 'ready' && prevKind === 'loading') || p.kind !== 'ready') {
-    if (p.kind !== prevKind) card.classList.add('enter');
-  } else {
-    animate(card, [{ opacity: .6, filter: 'blur(4px)' }, { opacity: 1, filter: 'blur(0)' }], { duration: 400, easing: 'ease-out' });
+  // карточка конденсируется из света: из размытия и лёгкого пересвета — в резкость
+  if (!REDUCED) {
+    const m = motionOf(card, { origin: 'top center' });
+    if (p.kind === 'ready' && prevKind === 'loading') { m.from({ o: 0.4, b: 14, s: 0.99 }); m.to({ o: 1, b: 0, s: 1 }, { response: 0.7, damping: 0.95 }); }
+    else if (p.kind !== prevKind) { m.from({ o: 0, y: -8, s: 0.97, b: 8 }); m.to({ o: 1, y: 0, s: 1, b: 0 }, { response: 0.55, damping: 0.85 }); }
   }
-  updateTuners();
-}
-
-function h(markup) {
-  const t = document.createElement('template');
-  t.innerHTML = markup.trim();
-  return t.content.firstElementChild;
+  updateTuners(); updateControls();
 }
 
 function previewCard(d) {
@@ -650,29 +592,11 @@ function previewCard(d) {
   const thumb = d.thumbnail ? `<img src="${esc(d.thumbnail)}" alt="" referrerpolicy="no-referrer" decoding="async">` : artHtml(d.url, PLATFORM[d.platform] || '');
   const video = d.preview_url && dur ? `<video muted playsinline preload="metadata" src="${esc(d.preview_url)}"></video>` : '';
   const card = h(`<div class="preview">
-    <div class="pv-media">
-      ${thumb}${video}
-      <span class="pv-badge pf-${esc(d.platform)}">${svgUse(glyph(d.platform))}</span>
-      ${dur ? `<span class="pv-dur">${fmtTime(dur)}</span>` : ''}
-      ${video ? `<button class="pv-play" type="button" aria-label="Смотреть превью">${svgUse('#i-play')}</button>` : ''}
-    </div>
-    <div class="pv-body">
-      <h3 class="pv-title"></h3>
-      <p class="pv-meta">${chips.join('')}</p>
-      ${dur ? `<div class="range" style="--a:0%;--b:100%">
-        <div class="range-track${d.thumbnail ? '' : ' no-strip'}"></div>
-        <div class="range-shade l"></div><div class="range-shade r"></div>
-        <div class="range-sel"></div>
-        <div class="range-playhead"></div>
-        <div class="range-handle a" role="slider" tabindex="0" aria-label="Начало отрезка"><span class="range-bubble"></span></div>
-        <div class="range-handle b" role="slider" tabindex="0" aria-label="Конец отрезка"><span class="range-bubble"></span></div>
-      </div>
-      <div class="range-legend">
-        <label class="time-field"><span>с</span><input class="pv-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label>
-        <label class="time-field"><span>по</span><input class="pv-end" inputmode="decimal" placeholder="${fmtTime(dur)}" aria-label="Конец отрезка"></label>
-        <output class="clip-len"></output>
-        <button class="range-reset" type="button" hidden>Весь ролик</button>
-      </div>` : ''}
+    <div class="pv-media">${thumb}${video}<span class="pv-badge pf-${esc(d.platform)}">${svgUse(glyph(d.platform))}</span>${dur ? `<span class="pv-dur">${fmtTime(dur)}</span>` : ''}${video ? `<button class="pv-play" type="button" aria-label="Смотреть превью">${svgUse('#i-play')}</button>` : ''}</div>
+    <div class="pv-body"><h3 class="pv-title"></h3><p class="pv-meta">${chips.join('')}</p>
+      ${dur ? `<div class="range" style="--a:0%;--b:100%"><div class="range-ticks"></div><div class="range-track${d.thumbnail ? '' : ' no-strip'}"></div><div class="range-shade l"></div><div class="range-shade r"></div><div class="range-sel"></div><div class="range-playhead"></div>
+        <div class="range-handle a" role="slider" tabindex="0" aria-label="Начало отрезка"><span class="range-bubble"></span></div><div class="range-handle b" role="slider" tabindex="0" aria-label="Конец отрезка"><span class="range-bubble"></span></div></div>
+      <div class="range-legend"><label class="time-field glass"><span>с</span><input class="pv-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label><label class="time-field glass"><span>по</span><input class="pv-end" inputmode="decimal" placeholder="${fmtTime(dur)}" aria-label="Конец отрезка"></label><output class="clip-len"></output><button class="range-reset" type="button" hidden>Весь ролик</button></div>` : ''}
     </div></div>`);
   card.querySelector('.pv-title').textContent = d.title || d.url;
   card.querySelector('.pv-title').title = d.title || '';
@@ -683,10 +607,7 @@ function previewCard(d) {
       const track = card.querySelector('.range-track');
       if (track) track.style.setProperty('--strip', `url("${d.thumbnail.replace(/"/g, '%22')}")`);
     });
-    img.addEventListener('error', () => {
-      img.replaceWith(h(artHtml(d.url, PLATFORM[d.platform] || '')));
-      card.querySelector('.range-track')?.classList.add('no-strip');
-    });
+    img.addEventListener('error', () => { img.replaceWith(h(artHtml(d.url, PLATFORM[d.platform] || ''))); card.querySelector('.range-track')?.classList.add('no-strip'); });
   }
   if (dur) initRange(card, dur);
   return card;
@@ -695,17 +616,12 @@ function previewCard(d) {
 function initRange(card, d) {
   state.range = { a: 0, b: d, d };
   const range = card.querySelector('.range');
-  const ha = range.querySelector('.range-handle.a');
-  const hb = range.querySelector('.range-handle.b');
-  const inA = card.querySelector('.pv-start');
-  const inB = card.querySelector('.pv-end');
-  const out = card.querySelector('.clip-len');
-  const reset = card.querySelector('.range-reset');
-  const media = card.querySelector('.pv-media');
-  const video = media.querySelector('video');
+  const ha = range.querySelector('.range-handle.a'), hb = range.querySelector('.range-handle.b');
+  const inA = card.querySelector('.pv-start'), inB = card.querySelector('.pv-end');
+  const out = card.querySelector('.clip-len'), reset = card.querySelector('.range-reset');
+  const media = card.querySelector('.pv-media'), video = media.querySelector('video');
   const minGap = Math.min(1, d / 50);
   let videoOk = false;
-
   const render = (skipInput) => {
     const { a, b } = state.range;
     range.style.setProperty('--a', `${(a / d) * 100}%`);
@@ -713,15 +629,12 @@ function initRange(card, d) {
     ha.querySelector('.range-bubble').textContent = fmtTime(a);
     hb.querySelector('.range-bubble').textContent = fmtTime(b);
     for (const [el, v, label] of [[ha, a, 'Начало'], [hb, b, 'Конец']]) {
-      el.setAttribute('aria-valuemin', '0');
-      el.setAttribute('aria-valuemax', String(Math.round(d)));
-      el.setAttribute('aria-valuenow', String(Math.round(v)));
-      el.setAttribute('aria-valuetext', `${label}: ${fmtTime(v)}`);
+      el.setAttribute('aria-valuemin', '0'); el.setAttribute('aria-valuemax', String(Math.round(d)));
+      el.setAttribute('aria-valuenow', String(Math.round(v))); el.setAttribute('aria-valuetext', `${label}: ${fmtTime(v)}`);
     }
     if (skipInput !== inA) inA.value = a > 0.5 ? fmtTime(a) : '';
     if (skipInput !== inB) inB.value = b < d - 0.5 ? fmtTime(b) : '';
-    inA.parentElement.classList.remove('invalid');
-    inB.parentElement.classList.remove('invalid');
+    inA.parentElement.classList.remove('invalid'); inB.parentElement.classList.remove('invalid');
     const full = a <= 0.5 && b >= d - 0.5;
     out.textContent = full ? 'весь ролик' : `= ${fmtTime(b - a)}`;
     reset.hidden = full;
@@ -731,41 +644,56 @@ function initRange(card, d) {
     cancelAnimationFrame(seek.raf);
     seek.raf = requestAnimationFrame(() => {
       try { if (video.fastSeek) video.fastSeek(t); else video.currentTime = t; } catch { /* */ }
-      range.style.setProperty('--ph', `${(t / d) * 100}%`);
-      range.classList.add('has-playhead');
+      range.style.setProperty('--ph', `${(t / d) * 100}%`); range.classList.add('has-playhead');
     });
   };
   const setA = (t) => { state.range.a = Math.max(0, Math.min(t, state.range.b - minGap)); };
   const setB = (t) => { state.range.b = Math.min(d, Math.max(t, state.range.a + minGap)); };
-
-  let drag = null;
-  const timeAt = (clientX) => {
-    const r = range.getBoundingClientRect();
-    return Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * d;
-  };
+  // ручки на пружинах: инерция после отпускания, резиновая отдача у краёв
+  const sa = new Spring({ response: 0.5, damping: 1, epsilon: 0.01 }), sb = new Spring({ response: 0.5, damping: 1, epsilon: 0.01 });
+  sa.onUpdate = (v) => { setA(v); render(); }; sb.onUpdate = (v) => { setB(v); render(); };
+  let drag = null, lastX = 0, lastT = 0, vel = 0, over = 0;
+  const timeAt = (clientX) => { const r = range.getBoundingClientRect(); return ((clientX - r.left) / r.width) * d; };
   range.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
-    const t = timeAt(e.clientX);
-    const handle = e.target.closest('.range-handle')
-      || (Math.abs(t - state.range.a) <= Math.abs(t - state.range.b) ? ha : hb);
-    drag = handle;
-    handle.classList.add('dragging');
+    const t = Math.max(0, Math.min(d, timeAt(e.clientX)));
+    const handle = e.target.closest('.range-handle') || (Math.abs(t - state.range.a) <= Math.abs(t - state.range.b) ? ha : hb);
+    drag = handle; handle.classList.add('dragging');
     range.setPointerCapture(e.pointerId);
+    (handle === ha ? sa : sb).stop();
+    lastX = e.clientX; lastT = performance.now(); vel = 0; over = 0;
     if (!e.target.closest('.range-handle')) { (handle === ha ? setA : setB)(t); render(); seek(handle === ha ? state.range.a : state.range.b); }
     video?.pause();
     e.preventDefault();
   });
   range.addEventListener('pointermove', (e) => {
     if (!drag) return;
-    const t = timeAt(e.clientX);
-    if (drag === ha) setA(t); else setB(t);
+    const raw = timeAt(e.clientX);
+    const now = performance.now(), dt = Math.max(1, now - lastT);
+    vel = (raw - (drag === ha ? state.range.a + over : state.range.b + over)) / dt * 1000 * 0.6 + vel * 0.4;
+    lastX = e.clientX; lastT = now;
+    // резина за пределами ролика
+    over = raw < 0 ? rubber(raw, d * 0.08) : raw > d ? rubber(raw - d, d * 0.08) : 0;
+    const t = Math.max(0, Math.min(d, raw));
+    if (drag === ha) { setA(t); ha.style.setProperty('--ov', `${(over / d) * 100}%`); } else { setB(t); }
+    range.style.setProperty('--over', `${(over / d) * 100}%`);
     render();
     seek(drag === ha ? state.range.a : state.range.b);
   });
-  const end = () => { if (drag) { drag.classList.remove('dragging'); drag = null; } };
-  range.addEventListener('pointerup', end);
-  range.addEventListener('pointercancel', end);
-  for (const [el, set, key] of [[ha, setA, 'a'], [hb, setB, 'b']]) {
+  const end = () => {
+    if (!drag) return;
+    drag.classList.remove('dragging');
+    const s = drag === ha ? sa : sb;
+    const cur = drag === ha ? state.range.a : state.range.b;
+    // инерция: проецируем по скорости и мягко доезжаем; за краем — отдача обратно
+    const projected = Math.max(0, Math.min(d, cur + vel * 0.12));
+    s.snap(cur);
+    if (Math.abs(vel) > d * 0.15 || over) s.set(projected, { velocity: vel * 0.5 });
+    range.style.setProperty('--over', '0%');
+    drag = null; over = 0;
+  };
+  range.addEventListener('pointerup', end); range.addEventListener('pointercancel', end);
+  for (const [el, s, key] of [[ha, sa, 'a'], [hb, sb, 'b']]) {
     el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 10 : 1;
       let t = state.range[key];
@@ -775,7 +703,8 @@ function initRange(card, d) {
       else if (e.key === 'End') t = d;
       else return;
       e.preventDefault();
-      set(t); render(); seek(state.range[key]);
+      s.snap(state.range[key]); s.set(Math.max(0, Math.min(d, t)));
+      seek(t);
     });
   }
   const onInput = (input, set, fallback) => () => {
@@ -789,9 +718,8 @@ function initRange(card, d) {
   };
   inA.addEventListener('input', onInput(inA, setA, 0));
   inB.addEventListener('input', onInput(inB, setB, d));
-  reset.addEventListener('click', () => { state.range.a = 0; state.range.b = d; render(); });
+  reset.addEventListener('click', () => { sa.snap(state.range.a); sb.snap(state.range.b); sa.set(0); sb.set(d); });
   render();
-
   if (video) {
     video.addEventListener('loadeddata', () => { videoOk = true; media.classList.add('video-ready'); }, { once: true });
     video.addEventListener('error', () => { videoOk = false; video.remove(); media.querySelector('.pv-play')?.remove(); });
@@ -799,18 +727,14 @@ function initRange(card, d) {
       if (video.paused) return;
       const { a, b } = state.range;
       if (video.currentTime >= b - 0.05) video.currentTime = a;
-      range.style.setProperty('--ph', `${(video.currentTime / d) * 100}%`);
-      range.classList.add('has-playhead');
+      range.style.setProperty('--ph', `${(video.currentTime / d) * 100}%`); range.classList.add('has-playhead');
     });
     video.addEventListener('play', () => media.classList.add('playing'));
     video.addEventListener('pause', () => media.classList.remove('playing'));
     media.addEventListener('click', () => {
       if (!videoOk) return;
-      if (video.paused) {
-        const { a, b } = state.range;
-        if (video.currentTime < a || video.currentTime >= b - 0.1) video.currentTime = a;
-        video.play().catch(() => {});
-      } else video.pause();
+      if (video.paused) { const { a, b } = state.range; if (video.currentTime < a || video.currentTime >= b - 0.1) video.currentTime = a; video.play().catch(() => {}); }
+      else video.pause();
     });
   }
 }
@@ -819,8 +743,7 @@ function initRange(card, d) {
 
 const fileInput = $('#file-input');
 fileInput.addEventListener('change', () => { if (fileInput.files.length) uploadFiles([...fileInput.files]); fileInput.value = ''; });
-
-function uploadFiles(files) {
+function uploadFiles(files, folder = null) {
   let clip;
   try { clip = clipPayload(false); } catch (err) { toast(err.message, 'err'); return; }
   const fd = new FormData();
@@ -829,31 +752,33 @@ function uploadFiles(files) {
   fd.append('bitrate', state.bitrate);
   if (clip.start) fd.append('start', clip.start);
   if (clip.end) fd.append('end', clip.end);
+  const target = folder ?? explorer.saveFolder();
+  if (target) fd.append('folder', target);
   const total = files.reduce((s, f) => s + f.size, 0);
-  const t = toast(`Загружаю ${files.length > 1 ? `${files.length} файла` : `«${files[0].name}»`}…`, 'info', { timeout: 0 });
+  const t = toast(`Загружаю ${files.length > 1 ? `${files.length} ${plural(files.length, 'файл', 'файла', 'файлов')}` : `«${files[0].name}»`}…`, 'info', { timeout: 0 });
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/convert');
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) t.update(`Загружаю… ${Math.round((e.loaded / e.total) * 100)}% из ${fmtBytes(total)}`); };
   xhr.onload = () => {
     let data = null;
     try { data = JSON.parse(xhr.responseText); } catch { /* */ }
-    if (xhr.status >= 200 && xhr.status < 300) {
-      t.type('ok').update(files.length > 1 ? `В очереди на конвертацию: ${files.length}` : 'Файл в очереди на конвертацию').later(2600);
-      pollJobs();
-    } else {
-      t.type('err').update(detailText(data) || `Ошибка ${xhr.status}`).later(6000);
-    }
+    if (xhr.status >= 200 && xhr.status < 300) { t.type('ok').update(files.length > 1 ? `В очереди на конвертацию: ${files.length}` : 'Файл в очереди на конвертацию').later(2600); pollJobs(); }
+    else t.type('err').update(detailText(data) || `Ошибка ${xhr.status}`).later(6000);
   };
   xhr.onerror = () => { t.type('err').update('Сервер не отвечает — файл не загружен').later(6000); setServerDown(true); };
   xhr.send(fd);
 }
-
-/* перетаскивание файлов в любое место окна */
 let dragDepth = 0;
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
 window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; dragDepth++; $('#dragveil').hidden = false; });
-window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#dragveil').hidden = true; });
-window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) { $('#dragveil').hidden = true; explorer.clearDropHighlight(); } });
+window.addEventListener('dragover', (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault();
+  const folder = explorer.highlightDrop(e.clientX, e.clientY);
+  $('#dragveil-sub').textContent = folder != null ? `в папку «${folder.split('/').pop() || 'Хранилище'}»` : (explorer.saveFolder() ? `в «${explorer.currentName()}»` : '');
+  $('#dragveil').style.opacity = folder != null ? '0' : '';
+});
 window.addEventListener('drop', (e) => {
   if (!hasFiles(e)) {
     const text = e.dataTransfer?.getData('text');
@@ -862,29 +787,30 @@ window.addEventListener('drop', (e) => {
   }
   e.preventDefault();
   dragDepth = 0;
-  $('#dragveil').hidden = true;
+  $('#dragveil').hidden = true; $('#dragveil').style.opacity = '';
+  const folder = explorer.folderAt(e.clientX, e.clientY);
+  explorer.clearDropHighlight();
   const files = [...e.dataTransfer.files];
   if (!files.length) return;
-  if (state.tab !== 'file') switchTab('file');
-  uploadFiles(files);
+  if (folder == null && state.tab !== 'file') switchTab('file');
+  uploadFiles(files, folder);
 });
 
 /* ============================== очередь ============================== */
 
 const jobEls = new Map();
-let pollTimer = 0;
-let lastOrder = '';
-let seenDone = null;
-
+let pollTimer = 0, lastOrder = '', seenDone = null, pollBusy = false;
 async function pollJobs() {
   clearTimeout(pollTimer);
+  if (pollBusy) { pollTimer = setTimeout(pollJobs, 300); return; }
+  pollBusy = true;
   let jobs = null;
   try { jobs = await api('/api/jobs'); } catch { /* баннер покажет api() */ }
+  pollBusy = false;
   if (jobs) onJobs(jobs);
   const active = (jobs || state.jobs).some((j) => ACTIVE.has(j.status));
-  pollTimer = setTimeout(pollJobs, active ? 700 : 5000);
+  pollTimer = setTimeout(pollJobs, active ? 700 : (events.ok ? 15000 : 5000));
 }
-
 function onJobs(jobs) {
   const prev = new Map(state.jobs.map((j) => [j.id, j.status]));
   state.jobs = jobs;
@@ -899,13 +825,19 @@ function onJobs(jobs) {
   }
   renderJobs(jobs);
   if (!islandDemo) updateIsland(jobs, finished);
-  if (finished) loadLibrary();
+  // дыра живёт скоростью загрузки; завершение — вспышка фотонного кольца и джет (единственный громкий момент)
+  const dl = jobs.filter((j) => j.status === 'downloading');
+  const speed = dl.reduce((s, j) => s + (j.speed || 0), 0);
+  state.speed = speed;
+  const conv = jobs.some((j) => j.status === 'converting' || j.status === 'saving');
+  const energy = speed > 0 ? Math.min(1, Math.max(0.15, Math.log10(speed / 8e4) / 2.2)) : conv ? 0.35 : 0;
+  cosmos?.setEnergy(energy);
+  if (finished) { cosmos?.flash(1); explorer.refresh(); }
+  updateReadout();
 }
-
 function renderJobs(jobs) {
-  const list = $('#jobs');
-  const section = $('#queue');
-  if (section.hidden && jobs.length) { section.hidden = false; animate(section, ENTER, { duration: 600, easing: SPRING_SOFT }); }
+  const list = $('#jobs'), section = $('#queue');
+  if (section.hidden && jobs.length) { section.hidden = false; enter(section, { dy: 16, scale: 0.985, blur: 6, response: 0.7, damping: 0.95 }); }
   const ids = new Set(jobs.map((j) => j.id));
   const removed = [];
   for (const [id, el] of jobEls) if (!ids.has(id)) { removed.push(el); jobEls.delete(id); }
@@ -919,60 +851,56 @@ function renderJobs(jobs) {
       if (at !== el) list.insertBefore(el, at || null);
     });
   };
-  if (order !== lastOrder || removed.length) flip(list, mutate, removed);
-  else mutate();
+  if (order !== lastOrder || removed.length) flip(list, mutate, removed); else mutate();
   lastOrder = order;
   if (!jobs.length && !removed.length) section.hidden = true;
-  else if (!jobs.length) setTimeout(() => { if (!state.jobs.length) section.hidden = true; }, 360);
+  else if (!jobs.length) setTimeout(() => { if (!state.jobs.length) section.hidden = true; }, 420);
   const active = jobs.filter((j) => ACTIVE.has(j.status));
   const known = active.filter((j) => j.progress != null);
-  document.title = active.length
-    ? `(${known.length ? Math.round(known.reduce((s, j) => s + j.progress, 0) / known.length) : '…'}${known.length ? '%' : ''}) выдра`
-    : 'выдра';
+  document.title = active.length ? `(${known.length ? Math.round(known.reduce((s, j) => s + j.progress, 0) / known.length) : '…'}${known.length ? '%' : ''}) выдра` : 'выдра';
+  const done = jobs.filter((j) => j.status === 'done').length;
+  $('#queue-readout').textContent = [active.length ? `активно ${active.length}` : '', done ? `готово ${done}` : ''].filter(Boolean).join(' · ');
+  $('#clear-jobs').hidden = !jobs.some((j) => !ACTIVE.has(j.status));
 }
-
 function createJobEl(j) {
   const el = $('#job-tpl').content.firstElementChild.cloneNode(true);
   el.dataset.id = j.id;
+  el.querySelector('.job-bar').append(h('<div class="job-glow"></div>'));
   el.querySelector('.job-cancel').addEventListener('click', async () => {
     try { await api(`/api/jobs/${j.id}/cancel`, { method: 'POST' }); pollJobs(); } catch (err) { toast(err.message, 'err'); }
   });
+  el.querySelector('.job-retry').addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await api(`/api/jobs/${j.id}/retry`, { method: 'POST' }); toast('Пробую ещё раз', 'info', { timeout: 2000 }); pollJobs(); }
+    catch (err) { toast(err.status === 404 ? 'Повтор появится после обновления выдры' : err.message, err.status === 404 ? 'warn' : 'err'); }
+    finally { b.disabled = false; }
+  });
   return el;
 }
-
 function jobMeta(j) {
   const chips = [`<span class="meta-chip">${svgUse(glyph(j.platform))}${PLATFORM[j.platform] || 'Сайт'}</span>`];
   const mode = j.mode === 'mp3' ? `MP3 · ${j.bitrate}` : j.mode === 'both' ? 'MP4 + MP3' : 'MP4';
   const q = j.kind === 'url' && j.mode !== 'mp3' ? (j.quality === 'max' ? ' · макс' : ` · ${j.quality}p`) : '';
   chips.push(`<span class="meta-chip mono">${mode}${q}</span>`);
-  if (j.clip) {
-    const [s, e] = j.clip;
-    const label = e == null ? `с ${fmtTime(s)}` : (s ? `${fmtTime(s)}–${fmtTime(e)}` : `до ${fmtTime(e)}`);
-    chips.push(`<span class="meta-chip accent mono">${svgUse('#i-scissors')}${label}</span>`);
-  }
+  if (j.clip) { const [s, e] = j.clip; const label = e == null ? `с ${fmtTime(s)}` : (s ? `${fmtTime(s)}–${fmtTime(e)}` : `до ${fmtTime(e)}`); chips.push(`<span class="meta-chip accent mono">${svgUse('#i-scissors')}${label}</span>`); }
   if (j.count > 1) chips.push(`<span class="meta-chip mono">${j.index}/${j.count}</span>`);
   if (j.uploader) chips.push(`<span class="meta-chip">${esc(j.uploader)}</span>`);
+  if (j.folder) chips.push(`<span class="meta-chip">${svgUse('#i-folder')}${esc(String(j.folder).split('/').pop())}</span>`);
   return chips.join('');
 }
-
 function jobTitle(j) {
   if (j.title) return j.title;
   if (j.kind === 'file') return j.source;
   try { const u = new URL(j.source); return `${u.hostname.replace(/^www\./, '')}${u.pathname.length > 1 ? u.pathname : ''}${u.search}`; } catch { return j.source; }
 }
-
+const countdowns = new Map();
 function updateJobEl(el, j) {
   const active = ACTIVE.has(j.status);
   const indet = active && (j.progress == null || j.status === 'queued' || j.status === 'saving');
   el.className = `job st-${j.status}${active ? ' active' : ''}${indet ? ' indet' : ''}`;
   el.dataset.p = j.platform;
   const badge = el.querySelector('.job-badge');
-  if (badge.dataset.p !== j.platform) {
-    badge.dataset.p = j.platform;
-    badge.className = `job-badge pf-${j.platform}`;
-    badge.innerHTML = svgUse(glyph(j.platform));
-    el.querySelector('.job-thumb-icon use').setAttribute('href', glyph(j.platform));
-  }
+  if (badge.dataset.p !== j.platform) { badge.dataset.p = j.platform; badge.className = `job-badge pf-${j.platform}`; badge.innerHTML = svgUse(glyph(j.platform)); el.querySelector('.job-thumb-icon use').setAttribute('href', glyph(j.platform)); }
   const title = jobTitle(j);
   const t = el.querySelector('.job-title');
   if (t.textContent !== title) { t.textContent = title; t.title = title; }
@@ -980,42 +908,48 @@ function updateJobEl(el, j) {
   const metaEl = el.querySelector('.job-meta');
   if (metaEl.dataset.sig !== meta) { metaEl.dataset.sig = meta; metaEl.innerHTML = meta; }
   const p = j.status === 'done' ? 1 : (j.progress ?? 0) / 100;
-  el.querySelector('.job-fill').style.setProperty('--p', String(Math.max(0, Math.min(1, p))));
-  el.querySelector('.job-stage').textContent = j.count > 1 && active ? `${j.stage} · ${j.index} из ${j.count}` : j.stage;
+  el.querySelector('.job-bar').style.setProperty('--p', String(Math.max(0, Math.min(1, p))));
+  // стадия + живой отсчёт до автоповтора
+  const stage = el.querySelector('.job-stage');
+  clearInterval(countdowns.get(j.id));
+  if (j.retry_at && j.status === 'queued') {
+    const tick = () => {
+      const left = Math.max(0, Math.ceil(j.retry_at - Date.now() / 1000));
+      const attempt = j.attempt && j.max_attempts ? ` (попытка ${Math.min(j.attempt + 1, j.max_attempts)} из ${j.max_attempts})` : '';
+      stage.innerHTML = `Повтор через <span class="countdown">${left} с</span>${attempt}`;
+      if (!left) { clearInterval(countdowns.get(j.id)); pollJobs(); }
+    };
+    tick(); countdowns.set(j.id, setInterval(tick, 1000));
+  } else stage.textContent = j.count > 1 && active ? `${j.stage} · ${j.index} из ${j.count}` : j.stage;
   let nums = '';
-  if (j.status === 'downloading' && j.progress != null) {
-    nums = [`${Math.floor(j.progress)}%`, j.speed ? `${fmtBytes(j.speed)}/с` : '', j.eta != null ? `ещё ${fmtTime(j.eta)}` : ''].filter(Boolean).join(' · ');
-  } else if (j.status === 'converting' && j.progress != null) nums = `${Math.floor(j.progress)}%`;
+  if (j.status === 'downloading' && j.progress != null) nums = [`${Math.floor(j.progress)}%`, j.speed ? `${fmtBytes(j.speed)}/с` : '', j.eta != null ? `ещё ${fmtTime(j.eta)}` : ''].filter(Boolean).join(' · ');
+  else if (j.status === 'converting' && j.progress != null) nums = `${Math.floor(j.progress)}%`;
   else if (j.status === 'done') nums = fmtBytes((j.files || []).reduce((s, f) => s + (f.size || 0), 0));
+  else if (j.attempt > 1 && active) nums = `попытка ${j.attempt}${j.max_attempts ? ` из ${j.max_attempts}` : ''}`;
   el.querySelector('.job-nums').textContent = nums;
   const note = el.querySelector('.job-note');
-  const noteText = j.error || j.warning || '';
+  const noteText = j.error || j.warning || (j.resumed && active ? 'Продолжено после перезапуска выдры' : '');
   if (note.dataset.text !== noteText) {
     note.dataset.text = noteText;
     note.hidden = !noteText;
-    note.className = `job-note ${j.error ? 'err' : 'warn'}`;
-    note.innerHTML = noteText ? `${svgUse(j.error ? '#i-alert' : '#i-warn')}<span>${esc(noteText)}</span>` : '';
+    note.className = `job-note ${j.error ? 'err' : j.warning ? 'warn' : 'info'}`;
+    note.innerHTML = noteText ? `${svgUse(j.error ? '#i-alert' : j.warning ? '#i-warn' : '#i-info')}<span>${esc(noteText)}</span>` : '';
   }
+  el.querySelector('.job-retry').hidden = !(j.status === 'error' || j.status === 'cancelled');
   if (j.thumb && !el.querySelector('.job-thumb img')) {
-    const img = new Image();
-    img.alt = '';
-    img.decoding = 'async';
+    const img = new Image(); img.alt = ''; img.decoding = 'async';
     img.onload = () => el.querySelector('.job-thumb').append(img);
     img.src = `/api/jobs/${j.id}/thumbnail`;
   }
   const files = el.querySelector('.job-files');
   const sig = (j.files || []).map((f) => f.id || f.name).join('|');
-  if (files.dataset.sig !== sig) {
-    files.dataset.sig = sig;
-    files.replaceChildren(...(j.files || []).map(fileChip));
-  }
+  if (files.dataset.sig !== sig) { files.dataset.sig = sig; files.replaceChildren(...(j.files || []).map(fileChip)); }
 }
-
 function fileChip(f) {
   const isAudio = f.type === 'mp3';
   const chip = h(`<span class="file-chip">
     <span class="file-chip-label">${svgUse(isAudio ? '#i-wave' : '#i-film')}${esc(String(f.type || '').toUpperCase())} · ${fmtBytes(f.size)}</span>
-    <button class="icon-btn" type="button" data-a="play" title="${isAudio ? 'Слушать' : 'Смотреть'}" aria-label="${isAudio ? 'Слушать' : 'Смотреть'}">${svgUse('#i-play')}</button>
+    <button class="icon-btn" type="button" data-a="play" title="${isAudio ? 'Слушать здесь' : 'Смотреть здесь'}" aria-label="${isAudio ? 'Слушать здесь' : 'Смотреть здесь'}">${svgUse('#i-play')}</button>
     <button class="icon-btn" type="button" data-a="reveal" title="Показать в папке" aria-label="Показать в папке">${svgUse('#i-folder')}</button>
     <button class="icon-btn" type="button" data-a="open" title="Открыть в системном плеере" aria-label="Открыть в системном плеере">${svgUse('#i-external')}</button>
   </span>`);
@@ -1024,7 +958,7 @@ function fileChip(f) {
     if (!b || !f.id) return;
     if (b.dataset.a === 'play') {
       let item = state.library?.items.find((i) => i.id === f.id);
-      if (!item) { await loadLibrary(); item = state.library?.items.find((i) => i.id === f.id); }
+      if (!item) { state.library = await explorer.loadLibrary(); item = state.library?.items.find((i) => i.id === f.id); }
       if (item) openPlayer(item, $(`.tile[data-id="${CSS.escape(f.id)}"] .tile-media`));
       else toast('Файл ещё индексируется — секунду', 'info');
       return;
@@ -1033,23 +967,28 @@ function fileChip(f) {
   });
   return chip;
 }
-
 async function libraryAction(id, act) {
-  try {
-    await api(`/api/library/${encodeURIComponent(id)}/${act}`, { method: 'POST' });
-    toast(act === 'reveal' ? 'Открываю папку с файлом' : 'Открываю в системном плеере', 'info', { timeout: 2000 });
-  } catch (err) { toast(err.message, 'err'); }
+  const t = toast(act === 'reveal' ? 'Показываю в папке…' : 'Открываю в системном плеере…', 'info', { timeout: 2400 });
+  try { await api(`/api/library/${encodeURIComponent(id)}/${act}`, { method: 'POST' }); }
+  catch (err) { t.type('err').update(err.message || 'Не получилось открыть').later(5000); }
 }
+$('#clear-jobs').addEventListener('click', async () => { try { await api('/api/jobs/clear', { method: 'POST' }); pollJobs(); } catch (err) { toast(err.message, 'err'); } });
 
-$('#clear-jobs').addEventListener('click', async () => {
-  try { await api('/api/jobs/clear', { method: 'POST' }); pollJobs(); } catch (err) { toast(err.message, 'err'); }
-});
-
-/* ============================== Dynamic Island ============================== */
+/* ============================== Dynamic Island: пружины на --exp / --idle ============================== */
 
 const island = $('#island');
+const islandExp = new Spring({ response: 0.5, damping: 0.8, epsilon: 0.002 });
+const islandIdle = new Spring({ response: 0.45, damping: 0.95, epsilon: 0.002, value: 1 });
+islandExp.onUpdate = (v) => island.style.setProperty('--exp', v.toFixed(4));
+islandIdle.onUpdate = (v) => island.style.setProperty('--idle', v.toFixed(4));
 let islandHover = false, islandPinned = false, doneTimer = 0;
 const islandDemo = new URLSearchParams(location.search).get('island') === 'demo';
+function setIslandState(s) {
+  island.dataset.state = s;
+  islandIdle.set(s === 'idle' ? 1 : 0);
+  islandExp.set(s === 'expanded' ? 1 : 0);
+  $('#island-hit').tabIndex = s === 'idle' ? -1 : 0;
+}
 function updateIsland(jobs, finished) {
   const active = jobs.filter((j) => ACTIVE.has(j.status));
   if (active.length) {
@@ -1065,184 +1004,130 @@ function updateIsland(jobs, finished) {
     $('#island-bar').style.setProperty('--s', String((cur.progress ?? 0) / 100));
     $('#island-count').textContent = active.length > 1 ? `+${active.length - 1}` : '';
     const thumb = $('#island-thumb');
-    if (cur.thumb && thumb.dataset.id !== cur.id) {
-      thumb.dataset.id = cur.id;
-      thumb.innerHTML = `<img alt="" src="/api/jobs/${cur.id}/thumbnail">`;
-    } else if (!cur.thumb && thumb.dataset.id !== `g-${cur.platform}`) {
-      thumb.dataset.id = `g-${cur.platform}`;
-      thumb.innerHTML = svgUse(glyph(cur.platform));
-    }
-    island.dataset.state = islandHover || islandPinned ? 'expanded' : 'compact';
-    $('#island-hit').tabIndex = 0;
+    if (cur.thumb && thumb.dataset.id !== cur.id) { thumb.dataset.id = cur.id; thumb.innerHTML = `<img alt="" src="/api/jobs/${cur.id}/thumbnail">`; }
+    else if (!cur.thumb && thumb.dataset.id !== `g-${cur.platform}`) { thumb.dataset.id = `g-${cur.platform}`; thumb.innerHTML = svgUse(glyph(cur.platform)); }
+    setIslandState(islandHover || islandPinned ? 'expanded' : 'compact');
+    // спутник портала ускоряется вместе с загрузкой
+    $('#satellite').style.setProperty('--orbit', `${Math.max(2.5, 16 - (pct ?? 0) * 0.12).toFixed(1)}s`);
+    portal.classList.add('busy');
   } else if (finished) {
     islandPinned = false;
     $('#island-done-text').textContent = 'Готово';
-    island.dataset.state = 'done';
+    setIslandState('done');
     clearTimeout(doneTimer);
-    doneTimer = setTimeout(() => { if (!state.jobs.some((j) => ACTIVE.has(j.status))) island.dataset.state = 'idle'; }, 2200);
-  } else if (island.dataset.state !== 'done') {
-    island.dataset.state = 'idle';
-    $('#island-hit').tabIndex = -1;
-  }
+    doneTimer = setTimeout(() => { if (!state.jobs.some((j) => ACTIVE.has(j.status))) setIslandState('idle'); }, 2400);
+    portal.classList.remove('busy');
+  } else if (island.dataset.state !== 'done') { setIslandState('idle'); portal.classList.remove('busy'); }
 }
 const islandHit = $('#island-hit');
-islandHit.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; islandHover = true; if (island.dataset.state === 'compact') island.dataset.state = 'expanded'; });
-islandHit.addEventListener('pointerleave', () => { islandHover = false; if (island.dataset.state === 'expanded' && !islandPinned) island.dataset.state = 'compact'; });
+islandHit.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; islandHover = true; if (island.dataset.state === 'compact') setIslandState('expanded'); });
+islandHit.addEventListener('pointerleave', () => { islandHover = false; if (island.dataset.state === 'expanded' && !islandPinned) setIslandState('compact'); });
 islandHit.addEventListener('click', () => {
-  if (island.dataset.state === 'expanded') { islandPinned = false; island.dataset.state = 'compact'; $('#queue').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
-  else if (island.dataset.state === 'compact') { islandPinned = true; island.dataset.state = 'expanded'; }
-  else if (island.dataset.state === 'done') { $('.library').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
+  if (island.dataset.state === 'expanded') { islandPinned = false; setIslandState('compact'); $('#queue').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
+  else if (island.dataset.state === 'compact') { islandPinned = true; setIslandState('expanded'); }
+  else if (island.dataset.state === 'done') { $('#library').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
 });
+island.style.setProperty('--exp', '0'); island.style.setProperty('--idle', '1');
 
-/* ============================== хранилище ============================== */
+/* ============================== показания обсерватории (только реальные данные) ============================== */
 
-const tileEls = new Map();
-let libLoaded = false;
-let libOrder = '';
-
-async function loadLibrary() {
-  try {
-    state.library = await api('/api/library');
-  } catch { return; }
-  renderLibrary();
-  $('#foot-path').textContent = state.library.root || '';
+function updateReadout() {
+  const st = state.library?.stats;
+  $('#ro-count').textContent = st ? String(st.count ?? 0) : '—';
+  $('#ro-size').textContent = st ? fmtBytes(st.size || 0) : '—';
+  const active = state.jobs.filter((j) => ACTIVE.has(j.status)).length;
+  const a = $('#ro-active'); a.textContent = String(active); a.classList.toggle('live', active > 0);
+  const s = $('#ro-speed'); s.textContent = state.speed ? `${fmtBytes(state.speed)}/с` : '—'; s.classList.toggle('live', state.speed > 0);
+  if (st) $('#lib-readout').textContent = `${st.count ?? 0} ${plural(st.count ?? 0, 'файл', 'файла', 'файлов')} · ${fmtBytes(st.size || 0)}${st.videos != null ? ` · видео ${st.videos} · аудио ${st.audios ?? 0}` : ''}`;
 }
 
-function filteredItems() {
-  const items = state.library?.items || [];
-  const q = state.libsearch.trim().toLocaleLowerCase('ru');
-  return items.filter((it) => (state.libtype === 'all' || it.type === state.libtype)
-    && (state.libplatform === 'all' || it.platform === state.libplatform)
-    && (!q || `${it.title} ${it.uploader || ''} ${it.path}`.toLocaleLowerCase('ru').includes(q)));
-}
+/* ============================== плеер ============================== */
 
-function renderLibrary() {
-  const lib = state.library;
-  if (!lib) return;
-  const items = lib.items || [];
-  const st = lib.stats || {};
-  // статистика
-  const stats = $('#stats');
-  stats.hidden = !items.length;
-  if (items.length) {
-    const v = st.size_by_type?.video || 0, a = st.size_by_type?.audio || 0, total = v + a || 1;
-    $('#sb-video').style.flex = `${v / total} 1 0`;
-    $('#sb-audio').style.flex = `${a / total} 1 0`;
-    $('#sb-video').hidden = !v; $('#sb-audio').hidden = !a;
-    $('#stats-legend').innerHTML = `<span><b>${st.count ?? items.length}</b> ${plural(st.count ?? items.length, 'файл', 'файла', 'файлов')} · <b>${fmtBytes(st.size)}</b></span>`
-      + `<span><i style="background:linear-gradient(90deg,var(--c1),var(--c2))"></i>видео ${st.videos ?? 0} · ${fmtBytes(v)}</span>`
-      + `<span><i style="background:var(--c3)"></i>аудио ${st.audios ?? 0} · ${fmtBytes(a)}</span>`;
-    $('#lib-sub').textContent = 'Всё хранится у вас и смотрится без интернета';
-  }
-  renderPlatformChips(items);
-  // плитки
-  const grid = $('#library');
-  const shown = filteredItems();
-  const ids = new Set(shown.map((i) => i.id));
-  const removed = [];
-  for (const [id, el] of tileEls) if (!ids.has(id)) { removed.push(el); tileEls.delete(id); }
-  const order = shown.map((i) => i.id).join(',');
-  const initial = !libLoaded;
-  const mutate = () => {
-    shown.forEach((it, i) => {
-      let el = tileEls.get(it.id);
-      const sig = tileSig(it);
-      if (el && el.dataset.sig !== sig) { const fresh = tileEl(it); el.replaceWith(fresh); el = fresh; }
-      if (!el) { el = tileEl(it); if (initial) reveal(el, Math.min(i, 10)); }
-      tileEls.set(it.id, el);
-      el.classList.toggle('fresh', state.fresh.has(it.id));
-      const at = grid.children[i];
-      if (at !== el) grid.insertBefore(el, at || null);
-    });
-  };
-  if (!initial && (order !== libOrder || removed.length)) flip(grid, mutate, removed);
-  else { removed.forEach((el) => el.remove()); mutate(); }
-  libOrder = order;
-  libLoaded = true;
-  if (state.fresh.size) setTimeout(() => { state.fresh.clear(); $$('.tile.fresh').forEach((t) => t.classList.remove('fresh')); }, 5000);
-  // пустые состояния
-  const empty = $('#lib-empty');
-  empty.hidden = shown.length > 0;
-  if (!items.length) {
-    $('#lib-empty-title').textContent = 'Здесь появятся ваши видео и музыка';
-    $('#lib-empty-sub').textContent = 'Вставьте ссылку выше — файл сохранится в хранилище и будет доступен без интернета';
-  } else if (!shown.length) {
-    $('#lib-empty-title').textContent = 'Ничего не нашлось';
-    $('#lib-empty-sub').textContent = 'Попробуйте другой запрос или сбросьте фильтры';
+const player = $('#player');
+let playerItem = null, playerOrigin = null;
+function openPlayer(item, originEl) {
+  playerItem = item; playerOrigin = originEl || null;
+  const fill = () => { fillPlayer(item); if (!player.open) player.showModal(); };
+  const src = originEl?.querySelector('img, .art');
+  if (CAN_VT && src && !player.open) {
+    src.style.viewTransitionName = 'player-media';
+    const t = document.startViewTransition(() => { src.style.viewTransitionName = ''; fill(); });
+    t.finished.catch(() => {});
+  } else {
+    fill();
+    const box = player.querySelector('.player-box');
+    if (!REDUCED) { const m = motionOf(box); m.from({ y: 20, s: 0.96, o: 0, b: 8 }); m.to({ y: 0, s: 1, o: 1, b: 0 }, { response: 0.55, damping: 0.88 }); }
   }
 }
-
-function plural(n, one, few, many) {
-  const m10 = n % 10, m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
+function fillPlayer(item) {
+  const stage = $('#player-stage');
+  const isAudio = item.type === 'audio';
+  const media = libUrl(item.path);
+  const poster = item.poster ? libUrl(item.poster) : '';
+  if (isAudio) {
+    stage.innerHTML = `<div class="audio-view">${poster ? `<div class="bg" style="background-image:url('${esc(poster)}')"></div>` : ''}<div class="audio-cover">${poster ? `<img src="${esc(poster)}" alt="">` : artHtml(item.id)}</div><div class="eq paused" aria-hidden="true">${'<i></i>'.repeat(18)}</div><audio controls autoplay preload="auto" src="${esc(media)}"></audio></div>`;
+    const audio = stage.querySelector('audio'), eq = stage.querySelector('.eq');
+    audio.addEventListener('play', () => eq.classList.remove('paused'));
+    audio.addEventListener('pause', () => eq.classList.add('paused'));
+  } else stage.innerHTML = `<video controls autoplay playsinline preload="auto" ${poster ? `poster="${esc(poster)}"` : ''} src="${esc(media)}"></video>`;
+  $('#player-title').textContent = item.title;
+  const chips = [`<span class="meta-chip">${svgUse(glyph(item.platform))}${PLATFORM[item.platform] || ''}</span>`];
+  if (item.duration) chips.push(`<span class="meta-chip mono">${fmtTime(item.duration)}</span>`);
+  if (item.width && item.height) chips.push(`<span class="meta-chip mono">${item.width}×${item.height}</span>`);
+  chips.push(`<span class="meta-chip mono">${fmtBytes(item.size)}</span>`);
+  if (item.added) chips.push(`<span class="meta-chip">${fmtAgo(item.added)}</span>`);
+  if (item.uploader) chips.push(`<span class="meta-chip">${esc(item.uploader)}</span>`);
+  if (item.folder) chips.push(`<span class="meta-chip">${svgUse('#i-folder')}${esc(String(item.folder).split('/').pop())}</span>`);
+  $('#player-meta').innerHTML = chips.join('');
+  player.querySelector('[data-act="cinema"]').href = `${CINEMA_URL}#v=${encodeURIComponent(item.id)}`;
+  const dl = player.querySelector('[data-act="download"]');
+  dl.href = media; dl.setAttribute('download', item.path.split('/').pop());
+  const source = player.querySelector('[data-act="source"]');
+  source.hidden = !item.source;
+  if (item.source) source.href = item.source;
+  player.querySelector('.confirm').hidden = true;
+  player.querySelector('[data-act="delete"]').hidden = false;
 }
-
-function renderPlatformChips(items) {
-  const box = $('#platform-chips');
-  const counts = {};
-  for (const it of items) counts[it.platform] = (counts[it.platform] || 0) + 1;
-  const keys = ['youtube', 'tiktok', 'instagram', 'other', 'file'].filter((k) => counts[k]);
-  if (state.libplatform !== 'all' && !counts[state.libplatform]) state.libplatform = 'all';
-  const sig = keys.map((k) => `${k}:${counts[k]}`).join(',') + `|${state.libplatform}`;
-  if (box.dataset.sig === sig) return;
-  box.dataset.sig = sig;
-  box.hidden = keys.length < 2;
-  const chip = (k, label, n, icon) => `<button type="button" class="pchip" role="radio" data-p="${k}" aria-checked="${state.libplatform === k}">${icon || ''}${label}${n != null ? ` <span class="n">${n}</span>` : ''}</button>`;
-  box.innerHTML = chip('all', 'Все платформы', null) + keys.map((k) => chip(k, k === 'other' ? 'Другие' : k === 'file' ? 'Мои файлы' : PLATFORM[k], counts[k], svgUse(glyph(k)))).join('');
+async function closePlayer() {
+  if (!player.open) return;
+  const stage = $('#player-stage');
+  stage.querySelectorAll('video, audio').forEach((m) => m.pause());
+  const target = playerOrigin?.isConnected ? playerOrigin.querySelector('img, .art') : null;
+  const r = target?.getBoundingClientRect();
+  const visible = r && r.bottom > 0 && r.top < innerHeight;
+  if (CAN_VT && target && visible) {
+    const t = document.startViewTransition(() => { player.close(); target.style.viewTransitionName = 'player-media'; });
+    await t.finished.catch(() => {});
+    target.style.viewTransitionName = '';
+  } else {
+    player.classList.add('closing');
+    await exit(player.querySelector('.player-box'), { dy: 16, scale: 0.96 });
+    player.close();
+    player.classList.remove('closing');
+    motionOf(player.querySelector('.player-box')).from({ y: 0, s: 1, o: 1, b: 0 });
+  }
+  stage.replaceChildren();
 }
-$('#platform-chips').addEventListener('click', (e) => {
-  const b = e.target.closest('.pchip');
-  if (!b) return;
-  state.libplatform = b.dataset.p;
-  $$('.pchip').forEach((c) => c.setAttribute('aria-checked', String(c === b)));
-  $('#platform-chips').dataset.sig = '';
-  renderLibrary();
+player.addEventListener('cancel', (e) => { e.preventDefault(); closePlayer(); });
+player.addEventListener('click', (e) => { if (e.target === player || e.target.closest('[data-close]')) closePlayer(); });
+player.querySelector('.player-actions').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b || !playerItem) return;
+  const act = b.dataset.act;
+  if (act === 'cinema') { $('#player-stage').querySelectorAll('video, audio').forEach((m) => m.pause()); return; }
+  if (act === 'open' || act === 'reveal') { libraryAction(playerItem.id, act); return; }
+  if (act === 'delete') { b.hidden = true; const c = player.querySelector('.confirm'); c.hidden = false; enter(c, { dy: 0, scale: 0.9, blur: 0, response: 0.4, damping: 0.75 }); return; }
+  if (act === 'delete-no') { player.querySelector('.confirm').hidden = true; player.querySelector('[data-act="delete"]').hidden = false; return; }
+  if (act === 'delete-yes') {
+    try {
+      await api(`/api/library/${encodeURIComponent(playerItem.id)}`, { method: 'DELETE' });
+      playerOrigin = null;
+      await closePlayer();
+      toast('Файл перемещён в Корзину', 'ok');
+      explorer.refresh();
+    } catch (err) { toast(err.message, 'err'); }
+  }
 });
-let searchTimer = 0;
-$('#lib-search').addEventListener('input', (e) => {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { state.libsearch = e.target.value; renderLibrary(); }, 140);
-});
-
-const tileSig = (it) => [it.poster, it.title, it.duration, it.size, it.width, it.height, it.type].join('|');
-function tileAr(it) {
-  if (it.type === 'audio') return 1;
-  const ar = it.width && it.height ? it.width / it.height : 16 / 9;
-  return Math.max(0.72, Math.min(1.9, ar));
-}
-function tileEl(it) {
-  const isAudio = it.type === 'audio';
-  const poster = it.poster
-    ? `<img src="${esc(libUrl(it.poster))}" alt="" loading="lazy" decoding="async">`
-    : artHtml(it.id, isAudio ? 'MP3' : 'MP4');
-  const meta = [PLATFORM[it.platform] || '', fmtBytes(it.size), fmtAgo(it.added)].filter(Boolean).join(' · ');
-  const el = h(`<article class="tile" style="--ar:${tileAr(it)}">
-    <button class="tile-media" type="button">
-      ${poster}
-      <span class="tile-scrim"></span>
-      <span class="tile-pf pf-${esc(it.platform)}">${svgUse(glyph(it.platform))}</span>
-      ${it.duration ? `<span class="tile-dur">${fmtTime(it.duration)}</span>` : ''}
-      <span class="tile-play">${svgUse('#i-play')}</span>
-      <span class="tile-info"><p class="tile-title"></p><p class="tile-meta">${esc(meta)}</p></span>
-    </button>
-  </article>`);
-  el.dataset.id = it.id;
-  el.dataset.sig = tileSig(it);
-  const btn = el.querySelector('.tile-media');
-  btn.setAttribute('aria-label', `${isAudio ? 'Слушать' : 'Смотреть'}: ${it.title}`);
-  el.querySelector('.tile-title').textContent = it.title;
-  const img = el.querySelector('img');
-  if (img) img.addEventListener('error', () => img.replaceWith(h(artHtml(it.id, isAudio ? 'MP3' : 'MP4'))));
-  btn.addEventListener('click', () => {
-    const cur = state.library?.items.find((i) => i.id === it.id) || it;
-    openPlayer(cur, btn);
-  });
-  if (!isAudio) attachHoverPreview(btn, it);
-  return el;
-}
-
 function attachHoverPreview(btn, it) {
   let timer = 0, video = null;
   btn.addEventListener('pointerenter', (e) => {
@@ -1257,175 +1142,114 @@ function attachHoverPreview(btn, it) {
       const start = it.duration ? Math.min(it.duration * 0.15, 20) : 0;
       video.src = `${libUrl(it.path)}#t=${start.toFixed(1)}`;
       video.play().catch(() => {});
-    }, 380);
+    }, 420);
   });
-  btn.addEventListener('pointerleave', () => {
-    clearTimeout(timer);
-    btn.classList.remove('previewing');
-    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
-  });
+  btn.addEventListener('pointerleave', () => { clearTimeout(timer); btn.classList.remove('previewing'); if (video) { video.pause(); video.removeAttribute('src'); video.load(); } });
 }
 
-/* ============================== плеер ============================== */
+/* ============================== шторки и модальные окна: пружины + жест ============================== */
 
-const player = $('#player');
-let playerItem = null, playerOrigin = null;
-
-function openPlayer(item, originEl) {
-  playerItem = item;
-  playerOrigin = originEl || null;
-  const fill = () => {
-    fillPlayer(item);
-    if (!player.open) player.showModal();
-  };
-  const src = originEl?.querySelector('img, .art');
-  if (CAN_VT && src && !player.open) {
-    src.style.viewTransitionName = 'player-media';
-    const t = document.startViewTransition(() => { src.style.viewTransitionName = ''; fill(); });
-    t.finished.catch(() => {});
-  } else {
-    fill();
-    animate(player.querySelector('.player-box'), [{ opacity: 0, transform: 'translateY(20px) scale(.96)', filter: 'blur(8px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 600, easing: SPRING_SOFT });
-  }
-}
-
-function fillPlayer(item) {
-  const stage = $('#player-stage');
-  const isAudio = item.type === 'audio';
-  const media = libUrl(item.path);
-  const poster = item.poster ? libUrl(item.poster) : '';
-  if (isAudio) {
-    stage.innerHTML = `<div class="audio-view">
-      ${poster ? `<div class="bg" style="background-image:url('${esc(poster)}')"></div>` : ''}
-      <div class="audio-cover">${poster ? `<img src="${esc(poster)}" alt="">` : artHtml(item.id)}</div>
-      <div class="eq paused" aria-hidden="true">${'<i></i>'.repeat(18)}</div>
-      <audio controls autoplay preload="auto" src="${esc(media)}"></audio>
-    </div>`;
-    const audio = stage.querySelector('audio');
-    const eq = stage.querySelector('.eq');
-    audio.addEventListener('play', () => eq.classList.remove('paused'));
-    audio.addEventListener('pause', () => eq.classList.add('paused'));
-  } else {
-    stage.innerHTML = `<video controls autoplay playsinline preload="auto" ${poster ? `poster="${esc(poster)}"` : ''} src="${esc(media)}"></video>`;
-  }
-  $('#player-title').textContent = item.title;
-  const chips = [`<span class="meta-chip">${svgUse(glyph(item.platform))}${PLATFORM[item.platform] || ''}</span>`];
-  if (item.duration) chips.push(`<span class="meta-chip mono">${fmtTime(item.duration)}</span>`);
-  if (item.width && item.height) chips.push(`<span class="meta-chip mono">${item.width}×${item.height}</span>`);
-  chips.push(`<span class="meta-chip mono">${fmtBytes(item.size)}</span>`);
-  if (item.added) chips.push(`<span class="meta-chip">${fmtAgo(item.added)}</span>`);
-  if (item.uploader) chips.push(`<span class="meta-chip">${esc(item.uploader)}</span>`);
-  $('#player-meta').innerHTML = chips.join('');
-  player.querySelector('[data-act="cinema"]').href = `${CINEMA_URL}#v=${encodeURIComponent(item.id)}`;
-  const dl = player.querySelector('[data-act="download"]');
-  dl.href = media;
-  dl.setAttribute('download', item.path.split('/').pop());
-  const source = player.querySelector('[data-act="source"]');
-  source.hidden = !item.source;
-  if (item.source) source.href = item.source;
-  player.querySelector('.confirm').hidden = true;
-  player.querySelector('[data-act="delete"]').hidden = false;
-}
-
-async function closePlayer() {
-  if (!player.open) return;
-  const stage = $('#player-stage');
-  stage.querySelectorAll('video, audio').forEach((m) => m.pause());
-  const target = playerOrigin?.isConnected ? playerOrigin.querySelector('img, .art') : null;
-  const r = target?.getBoundingClientRect();
-  const visible = r && r.bottom > 0 && r.top < innerHeight;
-  if (CAN_VT && target && visible) {
-    const t = document.startViewTransition(() => { player.close(); target.style.viewTransitionName = 'player-media'; });
-    await t.finished.catch(() => {});
-    target.style.viewTransitionName = '';
-  } else {
-    player.classList.add('closing');
-    await animate(player.querySelector('.player-box'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(16px) scale(.96)', filter: 'blur(6px)' }], { duration: 260, easing: EASE_IN }).finished;
-    player.close();
-    player.classList.remove('closing');
-  }
-  stage.replaceChildren();
-}
-player.addEventListener('cancel', (e) => { e.preventDefault(); closePlayer(); });
-player.addEventListener('click', (e) => { if (e.target === player || e.target.closest('[data-close]')) closePlayer(); });
-player.querySelector('.player-actions').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-act]');
-  if (!b || !playerItem) return;
-  const act = b.dataset.act;
-  if (act === 'cinema') { $('#player-stage').querySelectorAll('video, audio').forEach((m) => m.pause()); return; }
-  if (act === 'open' || act === 'reveal') { libraryAction(playerItem.id, act); return; }
-  if (act === 'delete') { b.hidden = true; player.querySelector('.confirm').hidden = false; return; }
-  if (act === 'delete-no') { player.querySelector('.confirm').hidden = true; player.querySelector('[data-act="delete"]').hidden = false; return; }
-  if (act === 'delete-yes') {
-    try {
-      await api(`/api/library/${encodeURIComponent(playerItem.id)}`, { method: 'DELETE' });
-      const id = playerItem.id;
-      playerOrigin = null;
-      await closePlayer();
-      if (state.library) state.library.items = state.library.items.filter((i) => i.id !== id);
-      renderLibrary();
-      toast('Файл перемещён в Корзину', 'ok');
-      loadLibrary();
-    } catch (err) { toast(err.message, 'err'); }
-  }
-});
-
-/* ============================== шторки ============================== */
-
-const isPhone = () => matchMedia('(max-width: 680px)').matches;
 function openDrawer(dlg) {
   if (dlg.open) return;
   dlg.showModal();
   const box = dlg.querySelector('.drawer-box');
-  box.style.transform = '';
-  animate(box, isPhone()
-    ? [{ transform: 'translateY(100%)' }, { transform: 'none' }]
-    : [{ transform: 'translateX(calc(100% + 24px))', opacity: .7 }, { transform: 'none', opacity: 1 }],
-  { duration: 680, easing: SPRING_SOFT });
+  const m = motionOf(box);
+  if (REDUCED) { m.from({ x: 0, y: 0, o: 1 }); return; }
+  if (isPhone()) { m.from({ y: box.offsetHeight || innerHeight, x: 0, o: 1 }); m.to({ y: 0 }, { response: 0.6, damping: 0.9 }); }
+  else { m.from({ x: box.offsetWidth + 24, y: 0, o: 0.7 }); m.to({ x: 0, o: 1 }, { response: 0.6, damping: 0.88 }); }
 }
-async function closeDrawer(dlg, fromY = null) {
+async function closeDrawer(dlg, { velocity } = {}) {
   if (!dlg.open) return;
   const box = dlg.querySelector('.drawer-box');
+  const m = motionOf(box);
   dlg.classList.add('closing');
-  const from = fromY != null ? `translateY(${fromY}px)` : 'none';
-  await animate(box, isPhone()
-    ? [{ transform: from }, { transform: 'translateY(100%)' }]
-    : [{ transform: 'none', opacity: 1 }, { transform: 'translateX(calc(100% + 24px))', opacity: .6 }],
-  { duration: 300, easing: EASE_IN, fill: 'forwards' }).finished;
+  if (!REDUCED) {
+    if (isPhone()) await m.to({ y: box.offsetHeight + 40 }, { response: 0.42, damping: 1, velocity: { y: velocity || 0 } });
+    else await m.to({ x: box.offsetWidth + 24, o: 0.6 }, { response: 0.36, damping: 1 });
+  }
   dlg.close();
   dlg.classList.remove('closing');
-  box.getAnimations?.().forEach((a) => a.cancel());
-  box.style.transform = '';
+  m.from({ x: 0, y: 0, o: 1 });
 }
 for (const dlg of $$('dialog.drawer')) {
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); closeDrawer(dlg); });
   dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) closeDrawer(dlg); });
-  // смахнуть вниз, чтобы закрыть (на телефоне)
+  // смахнуть вниз, чтобы закрыть (телефон): жест передаёт скорость пружине
   const box = dlg.querySelector('.drawer-box');
   const handle = dlg.querySelector('.drawer-head');
   let startY = 0, lastY = 0, lastT = 0, v = 0, dragging = false;
   handle.addEventListener('pointerdown', (e) => {
     if (!isPhone() || e.target.closest('button')) return;
     dragging = true; startY = lastY = e.clientY; lastT = performance.now(); v = 0;
+    motionOf(box).stop();
     handle.setPointerCapture(e.pointerId);
   });
   handle.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const dy = e.clientY - startY;
-    const now = performance.now();
-    v = (e.clientY - lastY) / Math.max(1, now - lastT); lastY = e.clientY; lastT = now;
-    box.style.transform = `translateY(${dy > 0 ? dy : dy * 0.2}px)`;
+    const dy = e.clientY - startY, now = performance.now();
+    v = ((e.clientY - lastY) / Math.max(1, now - lastT)) * 1000 * 0.5 + v * 0.5; lastY = e.clientY; lastT = now;
+    motionOf(box).from({ y: dy > 0 ? dy : rubber(dy, 80) });
   });
   const release = (e) => {
     if (!dragging) return;
     dragging = false;
     const dy = e.clientY - startY;
-    if (dy > 110 || v > 0.6) { closeDrawer(dlg, Math.max(0, dy)); return; }
-    animate(box, [{ transform: `translateY(${dy}px)` }, { transform: 'none' }], { duration: 560, easing: SPRING });
-    box.style.transform = '';
+    if (dy > 110 || v > 600) { closeDrawer(dlg, { velocity: v }); return; }
+    motionOf(box).to({ y: 0 }, { response: 0.5, damping: 0.8, velocity: { y: v } });
   };
-  handle.addEventListener('pointerup', release);
-  handle.addEventListener('pointercancel', release);
+  handle.addEventListener('pointerup', release); handle.addEventListener('pointercancel', release);
+}
+function openModal(dlg) {
+  if (dlg.open) return;
+  dlg.showModal();
+  const box = dlg.querySelector('.modal-box, .palette-box');
+  if (!REDUCED) { const m = motionOf(box); m.from({ y: isPhone() ? 40 : 14, s: 0.97, o: 0, b: 6 }); m.to({ y: 0, s: 1, o: 1, b: 0 }, { response: 0.45, damping: 0.86 }); }
+}
+async function closeModal(dlg) {
+  if (!dlg.open) return;
+  dlg.classList.add('closing');
+  await exit(dlg.querySelector('.modal-box, .palette-box'), { dy: 10, scale: 0.97 });
+  dlg.close(); dlg.classList.remove('closing');
+  motionOf(dlg.querySelector('.modal-box, .palette-box')).from({ y: 0, s: 1, o: 1, b: 0 });
+}
+for (const dlg of $$('dialog.modal, dialog.palette')) {
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); closeModal(dlg); });
+  dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) closeModal(dlg); });
+}
+function confirmDialog({ title, text, yes = 'Удалить' }) {
+  const dlg = $('#confirm-dialog');
+  $('#confirm-title').textContent = title; $('#confirm-text').textContent = text; $('#confirm-yes').textContent = yes;
+  return new Promise((resolve) => {
+    const done = (v) => { resolve(v); $('#confirm-yes').removeEventListener('click', ok); dlg.removeEventListener('close', no); closeModal(dlg); };
+    const ok = () => done(true); const no = () => resolve(false);
+    $('#confirm-yes').addEventListener('click', ok);
+    dlg.addEventListener('close', no, { once: true });
+    openModal(dlg);
+  });
+}
+function moveDialog(tree, current) {
+  const dlg = $('#move-dialog');
+  const box = $('#move-tree');
+  let chosen = null;
+  const btn = $('#move-confirm');
+  btn.disabled = true;
+  const node = (n, depth) => {
+    const el = h(`<div class="tnode" role="treeitem" data-path="${esc(n.path)}"${n.platform ? ` data-platform="${esc(n.platform)}"` : ''}><span class="tw leaf">${svgUse('#i-chev-r')}</span>${svgUse(n.platform ? glyph(n.platform) : depth === 0 ? '#i-drive' : '#i-folder', 'ti')}<span class="tn"></span></div>`);
+    el.querySelector('.tn').textContent = n.name || 'Хранилище';
+    el.style.paddingLeft = `${8 + depth * 14}px`;
+    if (n.path === current) el.setAttribute('aria-disabled', 'true');
+    el.addEventListener('click', () => { if (n.path === current) return; chosen = n.path; box.querySelectorAll('[aria-current]').forEach((x) => x.removeAttribute('aria-current')); el.setAttribute('aria-current', 'true'); btn.disabled = false; });
+    const frag = document.createDocumentFragment(); frag.append(el);
+    for (const k of n.children || []) frag.append(node(k, depth + 1));
+    return frag;
+  };
+  box.replaceChildren(node(tree, 0));
+  return new Promise((resolve) => {
+    const done = () => { resolve(chosen); btn.removeEventListener('click', done); closeModal(dlg); };
+    btn.addEventListener('click', done);
+    dlg.addEventListener('close', () => resolve(null), { once: true });
+    openModal(dlg);
+  });
 }
 
 /* ---------- настройки ---------- */
@@ -1467,10 +1291,8 @@ async function applyLibrary(body, okText) {
   showPathError('');
   try {
     const s = await api('/api/settings/library', { method: 'POST', body });
-    renderSettings(s);
-    toast(okText, 'ok');
-    libLoaded = false; tileEls.clear(); $('#library').replaceChildren();
-    loadInfo(); loadLibrary();
+    renderSettings(s); toast(okText, 'ok');
+    loadInfo(); explorer.navigate('', { force: true });
     return true;
   } catch (err) { showPathError(err.message); return false; }
 }
@@ -1482,36 +1304,24 @@ $('#path-form').addEventListener('submit', async (e) => {
 });
 $('#reset-folder').addEventListener('click', () => applyLibrary({ reset: true }, 'Вернула папку по умолчанию'));
 $('#pick-folder').addEventListener('click', async (e) => {
-  const b = e.currentTarget;
-  const label = b.querySelector('span');
-  b.disabled = true; b.classList.add('busy');
-  b.querySelector('use').setAttribute('href', '#i-refresh');
+  const b = e.currentTarget, label = b.querySelector('span');
+  b.disabled = true; b.classList.add('busy'); b.querySelector('use').setAttribute('href', '#i-refresh');
   label.textContent = 'Окно выбора папки открыто на компьютере…';
   showPathError('');
   try {
     const r = await api('/api/settings/library/pick', { method: 'POST' });
     if (r?.cancelled) toast('Выбор папки отменён', 'info');
-    else {
-      renderSettings(r); toast('Хранилище переехало в выбранную папку', 'ok');
-      libLoaded = false; tileEls.clear(); $('#library').replaceChildren();
-      loadInfo(); loadLibrary();
-    }
+    else { renderSettings(r); toast('Хранилище переехало в выбранную папку', 'ok'); loadInfo(); explorer.navigate('', { force: true }); }
   } catch (err) { showPathError(err.message); }
-  finally {
-    b.disabled = false; b.classList.remove('busy');
-    b.querySelector('use').setAttribute('href', '#i-folder');
-    label.textContent = 'Выбрать…';
-  }
+  finally { b.disabled = false; b.classList.remove('busy'); b.querySelector('use').setAttribute('href', '#i-folder'); label.textContent = 'Выбрать…'; }
 });
-const openFolder = async () => { try { await api('/api/folder/open', { method: 'POST' }); } catch (err) { toast(err.message, 'err'); } };
+const openFolder = async () => { const t = toast('Открываю папку хранилища…', 'info', { timeout: 2200 }); try { await api('/api/folder/open', { method: 'POST' }); } catch (err) { t.type('err').update(err.message).later(5000); } };
 $('#open-folder').addEventListener('click', openFolder);
 $('#open-folder-2').addEventListener('click', openFolder);
 $('#cookie-input').addEventListener('change', async (e) => {
-  const f = e.target.files[0];
-  e.target.value = '';
+  const f = e.target.files[0]; e.target.value = '';
   if (!f) return;
-  const fd = new FormData();
-  fd.append('file', f, f.name);
+  const fd = new FormData(); fd.append('file', f, f.name);
   try { renderSettings(await api('/api/settings/cookies', { method: 'POST', form: fd })); toast('Cookies подключены', 'ok'); loadInfo(); }
   catch (err) { toast(err.message, 'err'); }
 });
@@ -1526,7 +1336,6 @@ const healthDlg = $('#health');
 $('#open-health').addEventListener('click', () => { openDrawer(healthDlg); if (!state.doctor) runDoctor(); else renderHealth(); });
 $('#recheck').addEventListener('click', () => runDoctor());
 $('#fix-all').addEventListener('click', (e) => fix('all', e.currentTarget));
-
 let doctorBusy = false;
 async function runDoctor() {
   if (doctorBusy) return;
@@ -1538,21 +1347,11 @@ async function runDoctor() {
     $('#health-summary').innerHTML = '<span class="sum-chip">Проверяю…</span>';
     $('#fix-all').disabled = true;
   }
-  try {
-    state.doctor = await api('/api/doctor');
-    renderHealth();
-  } catch (err) {
-    if (healthDlg.open) toast(err.message, 'err');
-  } finally {
-    doctorBusy = false;
-    btn.classList.remove('busy'); btn.disabled = false;
-  }
+  try { state.doctor = await api('/api/doctor'); renderHealth(); }
+  catch (err) { if (healthDlg.open) toast(err.message, 'err'); }
+  finally { doctorBusy = false; btn.classList.remove('busy'); btn.disabled = false; }
 }
-function summarize(checks) {
-  const s = { ok: 0, warn: 0, fail: 0 };
-  for (const c of checks) s[c.status] = (s[c.status] || 0) + 1;
-  return s;
-}
+function summarize(checks) { const s = { ok: 0, warn: 0, fail: 0 }; for (const c of checks) s[c.status] = (s[c.status] || 0) + 1; return s; }
 function renderHealth() {
   const d = state.doctor;
   if (!d) return;
@@ -1566,45 +1365,128 @@ function renderHealth() {
   $('#fix-all').disabled = !fixable.length;
   $('#fix-all span').textContent = fixable.length ? `Починить всё (${fixable.length})` : 'Всё в порядке';
   const icon = { ok: '#i-check', warn: '#i-warn', fail: '#i-x' };
-  $('#checks').innerHTML = d.checks.map((c, i) => `<li class="check ${c.status}" style="--i:${i}" data-id="${esc(c.id)}">
-    <span class="check-icon">${svgUse(icon[c.status] || '#i-info')}</span>
-    <p class="check-title">${esc(c.title)}</p>
-    ${c.fix && c.status !== 'ok' ? `<button class="btn" type="button" data-fix="${esc(c.id)}">${svgUse('#i-wrench')}<span>${esc(c.fix)}</span></button>` : ''}
-    <p class="check-detail">${esc(c.detail || '')}</p>
-    ${c.hint ? `<p class="check-hint">${esc(c.hint)}</p>` : ''}
-  </li>`).join('');
+  const list = $('#checks');
+  list.innerHTML = d.checks.map((c) => `<li class="check ${c.status}" data-id="${esc(c.id)}">
+    <span class="check-icon">${svgUse(icon[c.status] || '#i-info')}</span><p class="check-title">${esc(c.title)}</p>
+    ${c.fix && c.status !== 'ok' ? `<button class="glass btn" type="button" data-fix="${esc(c.id)}">${svgUse('#i-wrench')}<span>${esc(c.fix)}</span></button>` : ''}
+    <p class="check-detail">${esc(c.detail || '')}</p>${c.hint ? `<p class="check-hint">${esc(c.hint)}</p>` : ''}</li>`).join('');
+  if (!REDUCED) [...list.children].forEach((li, i) => enter(li, { dy: 10, scale: 0.985, blur: 4, delay: i * 40 }));
   updateBadge();
 }
 $('#checks').addEventListener('click', (e) => { const b = e.target.closest('[data-fix]'); if (b) fix(b.dataset.fix, b); });
 async function fix(id, btn) {
-  const label = btn.querySelector('span');
-  const old = label.textContent;
-  btn.disabled = true; btn.classList.add('busy');
-  label.textContent = 'Чиню…';
+  const label = btn.querySelector('span'), old = label.textContent;
+  btn.disabled = true; btn.classList.add('busy'); label.textContent = 'Чиню…';
   const allBtns = $$('#health [data-fix], #fix-all');
   allBtns.forEach((b) => { b.disabled = true; });
   try {
     const r = await api('/api/doctor/fix', { method: 'POST', body: { id } });
     for (const res of r.results || []) toast(res.message, res.ok ? 'ok' : 'err', { timeout: res.ok ? 4200 : 8000 });
     if (r.checks) { state.doctor = { checks: r.checks, summary: summarize(r.checks) }; renderHealth(); }
-    loadInfo(); loadLibrary();
-  } catch (err) {
-    toast(err.message, 'err', { timeout: 7000 });
-    label.textContent = old;
-  } finally {
-    btn.classList.remove('busy');
-    allBtns.forEach((b) => { if (b.isConnected) b.disabled = false; });
-    if (state.doctor) renderHealth();
-  }
+    loadInfo(); explorer.refresh();
+  } catch (err) { toast(err.message, 'err', { timeout: 7000 }); label.textContent = old; }
+  finally { btn.classList.remove('busy'); allBtns.forEach((b) => { if (b.isConnected) b.disabled = false; }); if (state.doctor) renderHealth(); }
 }
 function updateBadge() {
-  const d = state.doctor;
-  const badge = $('#health-badge');
+  const d = state.doctor, badge = $('#health-badge');
   if (!d) { badge.hidden = true; return; }
   const s = d.summary || summarize(d.checks);
   badge.hidden = !(s.warn || s.fail);
   badge.dataset.level = s.fail ? 'fail' : 'warn';
   $('#open-health').title = s.fail ? `Состояние системы: есть проблемы (${s.fail})` : s.warn ? 'Состояние системы: есть замечания' : 'Состояние системы: всё в порядке';
+}
+
+/* ============================== палитра команд, клавиши, «космос» ============================== */
+
+const paletteDlg = $('#palette');
+function commands() {
+  const list = [
+    { icon: '#i-clipboard', label: 'Вставить ссылку из буфера', hint: 'Ctrl+V', run: () => $('#paste').click() },
+    { icon: '#i-clapper', label: 'Открыть кинотеатр', run: () => window.open(CINEMA_URL, '_blank', 'noopener') },
+    { icon: '#i-pulse', label: 'Проверить систему', run: () => { openDrawer(healthDlg); runDoctor(); } },
+    { icon: '#i-sliders', label: 'Настройки', run: () => openSettings() },
+    { icon: html.dataset.theme === 'light' ? '#i-moon' : '#i-sun', label: html.dataset.theme === 'light' ? 'Тёмная тема' : 'Светлая тема', run: () => $('#theme').click() },
+    { icon: '#i-folder', label: 'Открыть папку хранилища', run: openFolder },
+    { icon: '#i-folder-plus', label: 'Новая папка', hint: 'Ctrl+Shift+N', run: () => explorer.newFolder() },
+    { icon: '#i-sweep', label: 'Убрать завершённые из очереди', run: () => $('#clear-jobs').click() },
+    { icon: '#i-keyboard', label: 'Горячие клавиши', hint: '?', run: () => openModal($('#cheats')) },
+    { icon: '#i-star', label: html.dataset.mono ? 'Вернуть цвет' : 'Режим «космос»', run: () => setMono(!html.dataset.mono) },
+  ];
+  const walk = (n, depth) => { if (depth > 0) list.push({ icon: n.platform ? glyph(n.platform) : '#i-folder', label: `Папка: ${n.name}`, hint: n.path, run: () => { explorer.navigate(n.path); $('#library').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth' }); } }); for (const k of n.children || []) walk(k, depth + 1); };
+  if (explorer.state.tree) walk(explorer.state.tree, 0);
+  return list;
+}
+let palItems = [], palIndex = 0;
+function renderPalette() {
+  const q = $('#palette-q').value.trim();
+  const urls = extractUrls(q);
+  const all = commands();
+  const ql = q.toLocaleLowerCase('ru');
+  palItems = urls.length ? [{ icon: '#i-arrow-down', label: `Скачать: ${urls[0]}`, run: () => acceptPastedText(q) }] : all.filter((c) => !ql || c.label.toLocaleLowerCase('ru').includes(ql) || (c.hint || '').toLocaleLowerCase('ru').includes(ql));
+  palIndex = 0;
+  const list = $('#palette-list');
+  list.innerHTML = palItems.length ? palItems.map((c, i) => `<li role="option" aria-selected="${i === 0}" data-i="${i}">${svgUse(c.icon)}<span></span>${c.hint ? `<small>${esc(c.hint)}</small>` : ''}</li>`).join('') : '<li class="p-empty">Ничего не нашлось</li>';
+  [...list.querySelectorAll('li[data-i]')].forEach((li, i) => { li.querySelector('span').textContent = palItems[i].label; });
+}
+function runPalette(i) { const c = palItems[i]; if (!c) return; closeModal(paletteDlg); setTimeout(() => c.run(), 60); }
+$('#palette-q').addEventListener('input', renderPalette);
+$('#palette-q').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    palIndex = (palIndex + (e.key === 'ArrowDown' ? 1 : -1) + palItems.length) % Math.max(1, palItems.length);
+    $$('#palette-list li[data-i]').forEach((li, i) => li.setAttribute('aria-selected', String(i === palIndex)));
+    $('#palette-list li[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') { e.preventDefault(); runPalette(palIndex); }
+});
+$('#palette-list').addEventListener('click', (e) => { const li = e.target.closest('li[data-i]'); if (li) runPalette(Number(li.dataset.i)); });
+function openPalette() { $('#palette-q').value = ''; renderPalette(); openModal(paletteDlg); setTimeout(() => $('#palette-q').focus(), 30); }
+$('#open-palette').addEventListener('click', openPalette);
+$('#open-cheats').addEventListener('click', () => openModal($('#cheats')));
+
+let typed = '';
+document.addEventListener('keydown', (e) => {
+  const typing = e.target.closest?.('input, textarea, select, [contenteditable]');
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K' || e.key === 'л' || e.key === 'Л')) { e.preventDefault(); if (paletteDlg.open) closeModal(paletteDlg); else openPalette(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'N' || e.key === 'n' || e.key === 'Т' || e.key === 'т')) { e.preventDefault(); explorer.newFolder(); return; }
+  if (typing) return;
+  if (e.key === '?' || (e.key === ',' && e.shiftKey && e.code === 'Slash')) { e.preventDefault(); openModal($('#cheats')); return; }
+  if (e.key === '/' ) { e.preventDefault(); $('#lib-search').focus(); return; }
+  if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    typed = (typed + e.key.toLowerCase()).slice(-6);
+    if (typed === 'космос' || typed === 'kosmos') { typed = ''; setMono(!html.dataset.mono); }
+  }
+});
+
+/* ============================== живые события с сервера ============================== */
+
+const events = { es: null, ok: false, tried: false };
+let syncTimer = 0, refreshTimer = 0;
+function blinkSync() {
+  const el = $('#sync');
+  el.classList.add('on');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => el.classList.remove('on'), 2200);
+}
+function connectEvents() {
+  if (events.es || !('EventSource' in window)) return;
+  try {
+    const es = new EventSource('/api/events');
+    events.es = es; events.tried = true;
+    es.addEventListener('open', () => { events.ok = true; });
+    es.addEventListener('library', () => { clearTimeout(refreshTimer); refreshTimer = setTimeout(() => { explorer.refresh().then(blinkSync); }, 250); });
+    es.addEventListener('jobs', () => pollJobs());
+    es.addEventListener('error', () => { if (es.readyState === EventSource.CLOSED) { es.close(); events.es = null; events.ok = false; } });
+  } catch { events.es = null; }
+}
+// запасной вариант: ревизия библиотеки по опросу
+let lastRev = null;
+async function pollRev() {
+  if (events.ok || document.hidden) return;
+  try {
+    const r = await api('/api/library/rev');
+    if (lastRev != null && r?.rev !== lastRev) { explorer.refresh().then(blinkSync); }
+    lastRev = r?.rev ?? lastRev;
+  } catch (err) { if (err.status === 404) { lastRev = null; } }
 }
 
 /* ============================== общее ============================== */
@@ -1616,61 +1498,83 @@ async function loadInfo() {
   if (i.library?.path) $('#foot-path').textContent = i.library.path;
   renderAbout();
 }
-
 let scrollRaf = 0;
-window.addEventListener('scroll', () => {
-  cancelAnimationFrame(scrollRaf);
-  scrollRaf = requestAnimationFrame(() => $('.topbar').classList.toggle('scrolled', scrollY > 8));
-}, { passive: true });
-window.addEventListener('resize', () => requestAnimationFrame(moveAllInks));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { pollJobs(); loadLibrary(); } });
+window.addEventListener('scroll', () => { cancelAnimationFrame(scrollRaf); scrollRaf = requestAnimationFrame(() => $('#topbar').classList.toggle('scrolled', scrollY > 8)); }, { passive: true });
+window.addEventListener('resize', () => requestAnimationFrame(() => moveAllInks({ immediate: true })));
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { pollJobs(); explorer.refresh(); } });
+
+/* появление при прокрутке: CSS scroll-driven, а где не поддерживается — наблюдатель */
+function initReveal() {
+  if (REDUCED) { $$('.rv').forEach((el) => el.classList.add('in')); return; }
+  const sdr = CSS.supports('animation-timeline', 'view()');
+  if (sdr) html.classList.add('sdr');
+  // герой — каскадом сразу после загрузки
+  $$('.hero .rv').forEach((el, i) => { el.style.setProperty('--i', el.dataset.i ?? i); requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in'))); });
+  if (sdr) return;
+  const io = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }, { rootMargin: '0px 0px -8% 0px' });
+  $$('.rv:not(.hero .rv)').forEach((el) => io.observe(el));
+  setTimeout(() => $$('.rv').forEach((el) => el.classList.add('in')), 2500);
+}
+
+const explorer = createExplorer({ $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, moveDialog, artHtml, attachHoverPreview });
+explorer.on('change', (d) => { state.library = explorer.state.library; updateReadout(); if (d) $('#foot-path').textContent = state.info?.library?.path || state.library?.root || $('#foot-path').textContent; });
+explorer.on('navigate', () => {
+  const folder = explorer.saveFolder();
+  $('#save-here-note').hidden = !folder;
+  if (folder) $('#save-here-name').textContent = folder.split('/').pop();
+  $('#save-here-wrap').hidden = !explorer.currentPath();
+});
+initPills($('.view-toggle'), (v) => explorer.setView(v));
 
 function init() {
-  document.body.classList.add('no-anim');
+  initCosmos();
   setMode(state.mode, { save: false });
+  initPills($('[data-name="mode"]'), (v) => setMode(v));
   initPills($('[data-name="quality"]'), (v) => { state.quality = v; savePrefs(); });
   initPills($('[data-name="bitrate"]'), (v) => { state.bitrate = v; savePrefs(); });
-  initPills($('[data-name="libtype"]'), (v) => { state.libtype = v; renderLibrary(); });
   setPill($('[data-name="quality"]'), state.quality);
   setPill($('[data-name="bitrate"]'), state.bitrate);
-  setPill($('[data-name="libtype"]'), 'all');
+  setPill($('.view-toggle'), explorer.state.view);
   switchTab('link', { animate: false });
   renderClipRow();
-  $$('.pills, .platform-chips').forEach(dragScroll);
-  requestAnimationFrame(() => { moveAllInks(); requestAnimationFrame(() => document.body.classList.remove('no-anim')); });
-  document.fonts?.ready.then(moveAllInks);
-
-  // въезд героя и консоли
-  [...$$('.hero > *'), $('.console'), $('.library')].forEach((el, i) => reveal(el, i));
+  updateControls();
+  requestAnimationFrame(() => moveAllInks({ immediate: true }));
+  document.fonts?.ready.then(() => moveAllInks({ immediate: true }));
+  initReveal();
+  $('#save-here-wrap').hidden = true;
 
   loadInfo();
-  loadLibrary();
+  explorer.load('');
   pollJobs();
-  setTimeout(runDoctor, 1200);
-  setInterval(() => { if (!document.hidden) loadLibrary(); }, 15000);
-
+  connectEvents();
+  setTimeout(runDoctor, 1500);
+  setInterval(pollRev, 10000);
+  setInterval(() => { if (!document.hidden && !events.ok) explorer.refresh(); }, 30000);
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 
-  // крючки для скриншотов и прямых ссылок: ?panel=settings|health, ?player=first
+  // крючки для скриншотов и прямых ссылок
   const q = new URLSearchParams(location.search);
   if (q.get('panel') === 'settings') openSettings();
   if (q.get('panel') === 'health') { openDrawer(healthDlg); runDoctor(); }
+  if (q.get('panel') === 'palette') openPalette();
   if (q.get('tab') === 'file') switchTab('file', { animate: false });
   if (q.get('url')) { urlBox.value = q.get('url'); onUrlInput(); }
+  if (q.get('folder') != null) explorer.navigate(q.get('folder'));
+  if (q.get('mono') === '1') setMono(true);
   if (q.get('island') === 'demo') {
-    // показ острова без реальной загрузки (для скриншотов)
     islandPinned = true;
     const demo = { id: 'demo', status: 'downloading', stage: 'Скачивание', progress: 62, speed: 4.2e6, eta: 7, platform: 'youtube', title: 'NASA Moon Base Update (Aug. 4, 2026)', thumb: false };
     const tick = () => updateIsland([demo, { ...demo, id: 'demo2', status: 'queued', progress: null }], null);
     tick(); setInterval(tick, 1000);
+    cosmos?.setEnergy(0.8);
   }
+  if (q.get('flash') === '1') setTimeout(() => cosmos?.flash(1), 800);
   if (q.get('player') === 'first') {
     const wait = setInterval(() => {
-      const first = state.library?.items?.[0];
+      const first = explorer.state.items?.[0];
       if (first) { clearInterval(wait); openPlayer(first, $(`.tile[data-id="${CSS.escape(first.id)}"] .tile-media`)); }
     }, 300);
     setTimeout(() => clearInterval(wait), 8000);
   }
 }
-
 init();

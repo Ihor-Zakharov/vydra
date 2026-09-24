@@ -3,8 +3,7 @@
 <папка>/
   YouTube/  TikTok/  Instagram/  Другие сайты/  Мои файлы/     отделы по соцсетям (системные папки)
     Видео/  Аудио/                                           тоже системные; внутри — любые свои папки
-  Кинотеатр.html      открывается двойным кликом, сервер не нужен
-  .vydra/             скрытая служебная папка: индекс, постеры, файлы кинотеатра
+  .vydra/             скрытая служебная папка: индекс и постеры
 
 Индекс (.vydra/library.json) лежит в самой папке, поэтому хранилище переносимо. Изменения, сделанные
 в Проводнике/Finder, подхватываются наблюдателем (опрос mtime папок: на /mnt/c из WSL inotify не видит
@@ -37,7 +36,8 @@ from .naming import save_unique
 log = logging.getLogger("library")
 
 SERVICE = ".vydra"
-CINEMA = "Кинотеатр.html"
+LEGACY_CINEMA = "Кинотеатр.html"  # офлайн-кинотеатр первых версий — больше не создаётся
+LEGACY_SERVICE_FILES = ("cinema.css", "cinema.js", "library.js")
 LAYOUT_VERSION = 2
 TYPE_DIRS = {"video": "Видео", "audio": "Аудио"}
 PLATFORM_DIRS = {
@@ -54,7 +54,6 @@ SYSTEM_FOLDERS = {p.casefold() for p in PLATFORM_DIRS.values()} | {
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v"}
 AUDIO_EXTS = {".mp3", ".m4a", ".aac", ".opus", ".ogg", ".wav", ".flac"}
 MEDIA_EXTS = VIDEO_EXTS | AUDIO_EXTS
-STATIC = Path(__file__).parent / "static"
 STALE_PARTIAL = 600  # .part и пустые заготовки старше 10 минут без изменений — мусор после сбоя
 
 _FORBIDDEN = set('<>:"/\\|?*')
@@ -195,6 +194,8 @@ class Library:
         self._queue: queue.Queue[str] = queue.Queue()
         self.rev = int(time.time() * 1000)  # растёт при любом изменении хранилища (SSE, кинотеатр)
         self._watching = threading.Event()
+        self._idle = threading.Event()  # снят, пока хранилище переезжает в другую папку
+        self._idle.set()
         threading.Thread(target=self._enrich_loop, name="library-enrich", daemon=True).start()
 
     # --- пути ----------------------------------------------------------------------------
@@ -283,30 +284,33 @@ class Library:
         for platform_dir in PLATFORM_DIRS.values():
             for type_dir in TYPE_DIRS.values():
                 (root / platform_dir / type_dir).mkdir(parents=True, exist_ok=True)
-        self._install_cinema()
+        self._remove_legacy_cinema()
         self.sweep_partials()
         with self._txn():
-            self._dirty = True  # library.js для кинотеатра должен существовать даже в пустой папке
+            if not (root / SERVICE / "library.json").is_file():
+                self._dirty = True  # пустой индекс — чтобы доктор видел, что хранилище создано
         self._bump()
 
-    def _install_cinema(self) -> None:
-        src = STATIC / "cinema"
-        service = self.root / SERVICE
-        pairs = [(src / "cinema.css", service / "cinema.css"), (src / "cinema.js", service / "cinema.js")]
-        pairs.append((src / "cinema.html", self.root / CINEMA))
-        pairs += [(f, service / "fonts" / f.name) for f in (STATIC / "fonts").iterdir() if f.is_file()]
-        for source, target in pairs:
-            if not source.is_file():
-                continue
+    def _remove_legacy_cinema(self) -> None:
+        """Убирает офлайн-кинотеатр, который создавали первые версии. Удаляется только наш
+        сгенерированный файл (узнаём по ссылкам на .vydra/cinema.js и .vydra/library.js) —
+        одноимённый файл пользователя не трогаем. Служебные файлы в .vydra — целиком наши."""
+        root = self.root
+        page = root / LEGACY_CINEMA
+        try:
+            if page.is_file() and page.stat().st_size < 256 * 1024:
+                text = page.read_text(encoding="utf-8", errors="replace")
+                if ".vydra/cinema.js" in text and ".vydra/library.js" in text:
+                    page.unlink()
+        except OSError as exc:
+            log.warning("не удалось убрать старый кинотеатр: %s", exc)
+        service = root / SERVICE
+        for name in LEGACY_SERVICE_FILES:
             try:
-                if target.is_file() and target.read_bytes() == source.read_bytes():
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                tmp = target.with_name(target.name + ".tmp")
-                shutil.copyfile(source, tmp)
-                os.replace(tmp, target)
-            except OSError as exc:  # файл кинотеатра открыт/заблокирован — обновим в следующий раз
-                log.warning("cinema file %s not updated: %s", target, exc)
+                (service / name).unlink(missing_ok=True)
+            except OSError:
+                pass
+        shutil.rmtree(service / "fonts", ignore_errors=True)
 
     def _hide(self, path: Path) -> None:
         try:
@@ -374,7 +378,6 @@ class Library:
         removed = 0
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
-            names = set(filenames)
             for name in filenames:
                 path = Path(dirpath) / name
                 try:
@@ -385,7 +388,7 @@ class Library:
                     continue
                 stale_part = name.endswith(".part")
                 stale_placeholder = (
-                    st.st_size == 0 and path.suffix.lower() in MEDIA_EXTS and f"{name}.part" not in names
+                    st.st_size == 0 and path.suffix.lower() in MEDIA_EXTS and not _fresh(path.with_name(name + ".part"), max_age)
                 )
                 if stale_part or stale_placeholder:
                     try:
@@ -412,6 +415,86 @@ class Library:
             self._poster_tried.clear()
         self.ensure_layout()
         self.scan(force=True)
+
+    def move_root(self, new: Path, progress: Callable[[int, int, str], None] | None = None) -> dict:
+        """Переносит хранилище в другую папку и переключается на неё.
+
+        Переносится то, что принадлежит хранилищу: отделы платформ, папки с медиафайлами (и пустые
+        папки, созданные в проводнике), медиафайлы из корня и служебная .vydra (индекс, постеры).
+        Посторонние файлы и папки без медиа остаются на месте — это важно, если хранилищем был,
+        например, весь «Загрузки». На одном диске — мгновенное переименование, между дисками —
+        копия во временный .part, сверка размера, переименование и только потом удаление исходника.
+        Совпадения имён — « (2)». Прерванный перенос продолжается повторным вызовом: журнал
+        переименований пишется в <новая папка>/.vydra/move-journal.txt по мере работы."""
+        if self.prefs.settings.fixed_library:
+            raise ValueError("Папка задана переменной окружения VD_LIBRARY_DIR — перенос выключен")
+        old = self.root
+        new = new.expanduser()
+        if not old.is_dir():
+            raise LibraryUnavailable(old)
+        if _same_path(old, new):
+            raise ValueError("Это и есть текущая папка хранилища")
+        if _inside(new, old):
+            raise ValueError("Новая папка находится внутри текущего хранилища — выберите другую")
+        try:
+            new.mkdir(parents=True, exist_ok=True)
+            probe = new / f".vydra-write-test-{uuid.uuid4().hex[:6]}"
+            probe.write_bytes(b"ok")
+            probe.unlink()
+        except OSError as exc:
+            raise ValueError(f"В эту папку нельзя записывать: {exc.strerror or exc}") from exc
+
+        self._idle.clear()
+        try:
+            with self._lock:
+                self._ensure_loaded()
+                old_items = [Item.from_dict(asdict(i)) for i in self._items.values()]
+            journal_path = new / SERVICE / "move-journal.txt"
+            journal_path.parent.mkdir(parents=True, exist_ok=True)
+            entries = _library_entries(old, old_items)
+            total = sum(_tree_size(e) for e in entries)
+            state = {"done": 0}
+            renamed: dict[str, str] = _read_journal(journal_path)
+
+            def report(name: str) -> None:
+                if progress:
+                    progress(state["done"], total, name)
+
+            with journal_path.open("a", encoding="utf-8") as journal:
+
+                def moved_file(src: Path, dst: Path, size: int) -> None:
+                    state["done"] += size
+                    old_rel, new_rel = src.relative_to(old).as_posix(), dst.relative_to(new).as_posix()
+                    if old_rel != new_rel:
+                        renamed[old_rel] = new_rel
+                        journal.write(f"{old_rel}\t{new_rel}\n")
+                        journal.flush()
+                    report(new_rel)
+
+                for entry in entries:
+                    _move_entry(entry, new / entry.name, moved_file, report)
+                _move_posters(old / SERVICE / "posters", new / SERVICE / "posters")
+
+            with self._lock:
+                self.prefs.set_library_dir(new)
+                self._loaded_root = None
+                self._poster_tried.clear()
+                self._ensure_loaded()  # индекс новой папки (если там уже было хранилище)
+                for item in old_items:
+                    item.path = renamed.get(item.path, item.path)
+                    if item.poster and not (new / item.poster).is_file():
+                        item.poster = None
+                    if item.id not in self._items:
+                        self._items[item.id] = item
+                self._dirty = True
+            self.ensure_layout()
+            _cleanup_old_root(old)
+            journal_path.unlink(missing_ok=True)
+        finally:
+            self._idle.set()
+        changes = self.scan(force=True)
+        self._bump()
+        return {"bytes": state["done"], "total": total, "renamed": len(renamed), "added": changes.get("added", 0)}
 
     # --- индекс --------------------------------------------------------------------------
 
@@ -453,8 +536,6 @@ class Library:
         }
         text = json.dumps(payload, ensure_ascii=False)
         atomic_write(service / "library.json", text, backup=True)
-        # Кинотеатр открывается через file://, где fetch запрещён, — поэтому данные ещё и скриптом
-        atomic_write(service / "library.js", f"window.VYDRA_LIBRARY = {text};\n")
         try:
             self._index_mtime = (service / "library.json").stat().st_mtime_ns
         except OSError:
@@ -498,6 +579,8 @@ class Library:
         """Сверяет индекс с папкой. Возвращает, что поменялось (для health-check).
 
         Недоступную папку (отключённый диск) не трогаем: иначе индекс решил бы, что все файлы удалены."""
+        if not self._idle.is_set():
+            return {}  # идёт переезд: исчезающие файлы — не повод чистить индекс
         with self._lock:
             if not force and time.monotonic() - self._last_scan < 3:
                 return {}
@@ -602,6 +685,7 @@ class Library:
         folder: str | None = None,
         clip: list | tuple | None = None,
     ) -> Item:
+        self._idle.wait(3600)  # хранилище переезжает — сохраним, когда закончит
         if not self.available():
             raise LibraryUnavailable(self.root)
         kind = kind_of(f"x.{ext}")
@@ -904,14 +988,11 @@ class Library:
             root = self.root
         missing = sum(1 for i in items if not (root / i.path).is_file())
         no_poster = sum(1 for i in items if i.type == "video" and not (i.poster and (root / i.poster).is_file()))
-        cinema_ok = (root / CINEMA).is_file() and (root / SERVICE / "cinema.js").is_file()
         index_ok = _read_index(root / SERVICE / "library.json") is not None
-        return {
-            "items": len(items), "missing": missing, "no_poster": no_poster, "cinema": cinema_ok, "index": index_ok,
-        }  # fmt: skip
+        return {"items": len(items), "missing": missing, "no_poster": no_poster, "index": index_ok}
 
     def rebuild(self) -> dict:
-        """Полная пересборка: структура, кинотеатр, пересканирование, заново все постеры."""
+        """Полная пересборка: структура папок, пересканирование, заново все постеры."""
         with self._lock:
             self._poster_tried.clear()
             self._loaded_root = None  # перечитать индекс (с восстановлением из .bak)
@@ -922,6 +1003,150 @@ class Library:
                     self._dirty = True
         self.ensure_layout()
         return self.scan(force=True)
+
+
+def _same_path(a: Path, b: Path) -> bool:
+    try:
+        return a.resolve() == b.resolve() or (a.exists() and b.exists() and os.path.samefile(a, b))
+    except OSError:
+        return False
+
+
+def _inside(child: Path, parent: Path) -> bool:
+    try:
+        return child.resolve().is_relative_to(parent.resolve())
+    except OSError:
+        return False
+
+
+def _has_media(path: Path) -> bool:
+    for _dirpath, _dirnames, filenames in os.walk(path):
+        if any(Path(n).suffix.lower() in MEDIA_EXTS for n in filenames):
+            return True
+    return False
+
+
+def _library_entries(root: Path, items: list[Item]) -> list[Path]:
+    """Что из корня принадлежит хранилищу и переезжает вместе с ним."""
+    indexed_top = {PurePosixPath(i.path).parts[0].casefold() for i in items if PurePosixPath(i.path).parts}
+    platform_dirs = {p.casefold() for p in PLATFORM_DIRS.values()}
+    entries = []
+    for entry in sorted(root.iterdir(), key=lambda e: e.name):
+        name = entry.name
+        if name.startswith(".") or name == LEGACY_CINEMA:
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            empty = not any(entry.iterdir())
+            if name.casefold() in platform_dirs or name.casefold() in indexed_top or empty or _has_media(entry):
+                entries.append(entry)
+        elif entry.is_file() and entry.suffix.lower() in MEDIA_EXTS:
+            entries.append(entry)
+    return entries
+
+
+def _tree_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    total = 0
+    for dirpath, _dirnames, filenames in os.walk(path):
+        for name in filenames:
+            try:
+                total += (Path(dirpath) / name).stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _move_entry(src: Path, dst: Path, moved_file, report) -> None:
+    """Файл или папку src → dst со слиянием папок и « (2)» для совпавших файлов."""
+    if src.is_dir():
+        if not dst.exists():
+            try:
+                size = _tree_size(src)
+                os.rename(src, dst)  # тот же диск — мгновенно, целиком
+                for dirpath, _dirnames, filenames in os.walk(dst):
+                    for name in filenames:
+                        moved = Path(dirpath) / name
+                        moved_file(src / moved.relative_to(dst), moved, moved.stat().st_size)
+                return
+            except OSError:
+                pass  # другой диск или занято — по одному файлу
+            if dst.exists() and not dst.is_dir():
+                dst = _unique_variant(dst, is_dir=True)
+        elif not dst.is_dir():
+            dst = _unique_variant(dst, is_dir=True)
+        dst.mkdir(parents=True, exist_ok=True)
+        for child in sorted(src.iterdir(), key=lambda e: e.name):
+            _move_entry(child, dst / child.name, moved_file, report)
+        try:
+            src.rmdir()
+        except OSError:
+            pass  # остался файл, который не удалось перенести, — папку не трогаем
+        return
+    target = dst if not dst.exists() else _unique_variant(dst, is_dir=False)
+    size = src.stat().st_size
+    try:
+        os.rename(src, target)
+    except OSError:
+        part = target.with_name(target.name + ".part")
+        shutil.copyfile(src, part)
+        if part.stat().st_size != size:
+            part.unlink(missing_ok=True)
+            raise OSError(errno.EIO, f"Копия «{src.name}» получилась неполной — исходник не тронут")
+        os.replace(part, target)
+        try:
+            src.unlink()
+        except OSError as exc:  # исходник занят — копия уже есть, ничего не потеряно
+            log.warning("не удалось удалить исходник %s после копирования: %s", src, exc)
+    moved_file(src, target, size)
+
+
+def _move_posters(src: Path, dst: Path) -> None:
+    if not src.is_dir():
+        return
+    dst.mkdir(parents=True, exist_ok=True)
+    for poster in src.iterdir():
+        target = dst / poster.name
+        if target.exists():
+            continue
+        try:
+            os.rename(poster, target)
+        except OSError:
+            try:
+                shutil.copyfile(poster, target)
+            except OSError:
+                pass
+
+
+def _read_journal(path: Path) -> dict[str, str]:
+    renamed: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            old, sep, new = line.partition("\t")
+            if sep:
+                renamed[old] = new
+    except OSError:
+        pass
+    return renamed
+
+
+def _cleanup_old_root(old: Path) -> None:
+    """После переезда: служебные файлы старой папки и пустые отделы. Чужие файлы не трогаем."""
+    shutil.rmtree(old / SERVICE, ignore_errors=True)
+    for platform_dir in PLATFORM_DIRS.values():
+        for type_dir in TYPE_DIRS.values():
+            try:
+                (old / platform_dir / type_dir).rmdir()
+            except OSError:
+                pass
+        try:
+            (old / platform_dir).rmdir()
+        except OSError:
+            pass
+    try:
+        old.rmdir()  # только если опустела
+    except OSError:
+        pass
 
 
 def _read_index(path: Path) -> list[Item] | None:
@@ -981,6 +1206,14 @@ def _snapshot(root: Path, hot: dict[str, float]) -> dict[str, tuple] | None:
     except OSError:
         pass
     return snap
+
+
+def _fresh(path: Path, max_age: float) -> bool:
+    """Файл есть и менялся недавно (например, .part, в который прямо сейчас копируют)."""
+    try:
+        return time.time() - path.stat().st_mtime < max_age
+    except OSError:
+        return False
 
 
 def _subdirs(path: Path) -> list[os.DirEntry]:

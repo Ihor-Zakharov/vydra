@@ -61,6 +61,8 @@ class Doctor:
             self._temp,
             self._cookies,
             self._shortcut,
+            self._terminal,
+            self._bridge,
         ]
         if network:
             checks.insert(3, self._network)
@@ -155,24 +157,22 @@ class Doctor:
         if not self.library.root.is_dir():
             if not self.library.available():
                 return Check(
-                    "library", "Хранилище и кинотеатр", "fail", "Папка хранилища недоступна — диск отключён?",
+                    "library", "Индекс хранилища", "fail", "Папка хранилища недоступна — диск отключён?",
                     hint="Подключите диск или выберите другую папку в настройках",
                 )  # fmt: skip
-            return Check("library", "Хранилище и кинотеатр", "warn", "Папка хранилища не создана", "Пересобрать")
+            return Check("library", "Индекс хранилища", "warn", "Папка хранилища не создана", "Пересобрать")
         self.library.scan(force=True)
         audit = self.library.audit()
         problems = []
         if not audit.get("index", True):
             problems.append("индекс повреждён (восстановится из копии)")
-        if not audit["cinema"]:
-            problems.append("нет файлов кинотеатра")
         if audit["missing"]:
             problems.append(f"пропало файлов: {audit['missing']}")
         if audit["no_poster"]:
             problems.append(f"без постера: {audit['no_poster']}")
         if problems:
-            return Check("library", "Хранилище и кинотеатр", "warn", "; ".join(problems).capitalize(), "Пересобрать")
-        return Check("library", "Хранилище и кинотеатр", "ok", f"Файлов: {audit['items']}, кинотеатр на месте")
+            return Check("library", "Индекс хранилища", "warn", "; ".join(problems).capitalize(), "Пересобрать")
+        return Check("library", "Индекс хранилища", "ok", f"Файлов: {audit['items']}, всё сходится с диском")
 
     def _temp(self) -> Check:
         work = self.settings.work_dir
@@ -202,6 +202,41 @@ class Doctor:
             return Check("shortcut", "Ярлык «Выдра»", "ok", system.display_path(path))
         return Check("shortcut", "Ярлык «Выдра»", "warn", "Ярлыка для запуска нет", "Создать ярлык")
 
+    def _terminal(self) -> Check:
+        from . import shell
+
+        status = shell.installed(self.settings.config_dir)
+        title = "Умные ссылки в терминале"
+        if not status:
+            return Check("terminal", title, "ok", "Поддерживаемых оболочек не найдено — работает буфер обмена")
+        missing = [name for name, ok in status.items() if not ok]
+        if missing:
+            return Check(
+                "terminal", title, "warn",
+                f"Не настроено для: {', '.join(missing)} — ссылки с & придётся брать в кавычки",
+                "Настроить", "Tab подсказывает команды, а кавычки вокруг ссылок ставятся сами",
+            )  # fmt: skip
+        return Check("terminal", title, "ok", f"Tab и кавычки вокруг ссылок: {', '.join(status)}")
+
+    def _bridge(self) -> Check:
+        from . import bridge
+
+        title = "Команды vydra/выдра в Windows"
+        state = bridge.status()
+        if not state.supported:
+            return Check("bridge", title, "ok", "Не нужен: команды доступны напрямую")
+        if not state.ok:
+            return Check(
+                "bridge", title, "warn", "В PowerShell и cmd команды vydra и выдра пока не работают", "Подключить",
+                "Выдра установлена в WSL; мост запускает её из Windows",
+            )  # fmt: skip
+        if not state.scripts_allowed:
+            return Check(
+                "bridge", title, "warn", f"PowerShell запрещает скрипты ({state.policy}) — работают .cmd-версии",
+                hint="Ссылки с & — в кавычках или из буфера. Разрешить: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned",
+            )  # fmt: skip
+        return Check("bridge", title, "ok", f"PowerShell и cmd: {system.display_path(state.folder)}")
+
     # --- починка -------------------------------------------------------------------------
 
     def fix(self, check_id: str, progress: tools.Progress | None = None) -> FixResult:
@@ -227,6 +262,15 @@ class Doctor:
         if check_id == "cookies":
             (self.settings.config_dir / "cookies.txt").unlink(missing_ok=True)
             return "Cookies удалены"
+        if check_id == "terminal":
+            from . import shell
+
+            done = shell.install(self.settings.config_dir)
+            return "Настроено: " + ", ".join(t.shell for t in done) + " — откройте новый терминал"
+        if check_id == "bridge":
+            from . import bridge
+
+            return "; ".join(bridge.install())
         if check_id == "shortcut":
             return tools.create_shortcut()
         raise ValueError(f"Для «{check_id}» починки нет")

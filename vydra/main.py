@@ -67,6 +67,7 @@ class DownloadRequest(BaseModel):
     folder: str | None = None  # папка хранилища для результата
     force: bool = False  # качать, даже если такой файл уже есть
     confirm_playlist: bool = False  # согласие на плейлист больше PLAYLIST_LIMIT роликов
+    auto_accept: bool = False  # «не выходит — вот вариант»: соглашаться без вопроса
 
     @field_validator("urls")
     @classmethod
@@ -119,12 +120,17 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
     doctor = Doctor(settings, library, protected=manager.protected_ids)
     stopping = threading.Event()
 
-    def prepare_library() -> None:
+    def prepare_layout() -> None:
         try:
-            library.ensure_layout()
-            library.scan(force=True)
+            library.ensure_layout()  # до приёма запросов: первый же ответ видит все отделы
         except OSError as exc:  # папка недоступна — покажет «Состояние системы»
             log.warning("хранилище недоступно: %s", exc)
+
+    def initial_scan() -> None:
+        try:
+            library.scan(force=True)
+        except OSError as exc:
+            log.warning("первичное сканирование не удалось: %s", exc)
         if watch:
             library.start_watching()
 
@@ -140,7 +146,8 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        threading.Thread(target=prepare_library, name="library-init", daemon=True).start()
+        await run_in_threadpool(prepare_layout)
+        threading.Thread(target=initial_scan, name="library-init", daemon=True).start()
         threading.Thread(target=freshness, name="ytdlp-freshness", daemon=True).start()
         log.info("выдра %s запущена, хранилище: %s", __version__, library.root)
         yield
@@ -303,7 +310,7 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
         for url in req.urls:
             job = Job(
                 kind="url", source=url, mode=req.mode, quality=req.quality, bitrate=req.bitrate, clip=clip,
-                folder=folder, confirm_playlist=req.confirm_playlist,
+                folder=folder, confirm_playlist=req.confirm_playlist, auto_accept=req.auto_accept,
             )  # fmt: skip
             existing = None if req.force else manager.find_existing(url, req.mode, clip)
             jobs.append(manager.add_existing(job, existing) if existing else manager.submit(job))
@@ -368,6 +375,19 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
+    class AnswerRequest(BaseModel):
+        option: str
+
+    @app.post("/api/jobs/{job_id}/answer")
+    def answer_job(job_id: str, req: AnswerRequest):
+        """Ответ на «не выходит — вот другой вариант — продолжить?»."""
+        try:
+            return manager.answer(job_id, req.option).public()
+        except KeyError as exc:
+            raise HTTPException(404, "Задача не найдена") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
     @app.get("/api/jobs/{job_id}/thumbnail")
     def job_thumbnail(job_id: str):
         job = manager.get(job_id)
@@ -400,6 +420,8 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
     def os_action(action, path: Path) -> dict:
         try:
             action(path)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "Файл не найден — возможно, его удалили или переместили") from exc
         except system.NotSupported as exc:
             raise HTTPException(501, str(exc)) from exc
         return {"ok": True}

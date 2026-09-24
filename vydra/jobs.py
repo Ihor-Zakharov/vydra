@@ -44,7 +44,8 @@ from .timecode import clip_label
 
 log = logging.getLogger("jobs")
 
-ACTIVE = {"queued", "downloading", "converting", "saving"}
+ACTIVE = {"queued", "downloading", "converting", "saving", "waiting"}  # waiting — ждём ответа пользователя
+QUESTION_TIMEOUT = 30 * 60  # без ответа полчаса — задачу останавливаем
 FINAL = {"done", "error", "cancelled"}
 TARGETS = {"mp4": ["mp4"], "mp3": ["mp3"], "both": ["mp4", "mp3"]}
 MAX_ATTEMPTS = 3
@@ -129,6 +130,12 @@ class Job:
     resumed: bool = False
     cancel: threading.Event = field(default_factory=threading.Event)
     interrupted: bool = False  # остановка сервера, а не отмена пользователем
+    auto_accept: bool = False  # на «не выходит — вот вариант» соглашаться без вопроса
+    notes: list[str] = field(default_factory=list)  # что пошло не по плану и что сделали вместо
+    decisions: dict = field(default_factory=dict)  # код вопроса → ответ: повторная попытка не переспрашивает
+    question: dict | None = None
+    answer: str | None = None
+    answered: threading.Event = field(default_factory=threading.Event)
 
     @property
     def active(self) -> bool:
@@ -166,9 +173,12 @@ class Job:
             "max_attempts": self.max_attempts,
             "retry_at": self.retry_at,
             "resumed": self.resumed,
+            "question": self.question,
+            "auto_accept": self.auto_accept,
+            "notes": list(self.notes),
         }
 
-    _TRANSIENT_FIELDS = {"cancel", "interrupted", "speed", "eta"}
+    _TRANSIENT_FIELDS = {"cancel", "interrupted", "speed", "eta", "question", "answer", "answered"}
 
     def record(self) -> dict:
         data = {f.name: getattr(self, f.name) for f in fields(self) if f.name not in self._TRANSIENT_FIELDS}
@@ -222,6 +232,59 @@ class _JobReporter(Reporter):
         self.job.stage = text
         self.job.progress = None
         self.job.speed = self.job.eta = None
+
+    def question(self, question: dict) -> str:
+        """«Не выходит — вот другой вариант — продолжить?» Блокирует поток задачи до ответа."""
+        job = self.job
+        options = {o["id"]: o["label"] for o in question["options"]}
+        remembered = job.decisions.get(question["code"])
+        if remembered in options:
+            return remembered
+        if job.auto_accept:
+            answer = question["default"]
+            job.notes.append(f"{question['title']} — {options[answer].lower()} (автоматически)")
+            job.decisions[question["code"]] = answer
+            self.manager.changed()
+            return answer
+        job.answer = None
+        job.answered.clear()
+        stage = job.stage
+        job.status, job.stage, job.progress, job.question = "waiting", question["title"], None, question
+        job.speed = job.eta = None
+        self.manager.changed()
+        log.info("job %s asks %s: %s", job.id, question["code"], question["message"])
+        deadline = time.monotonic() + QUESTION_TIMEOUT
+        try:
+            while not job.answered.wait(0.5):
+                if job.cancel.is_set():
+                    raise Cancelled
+                if time.monotonic() > deadline:
+                    job.cancel.set()
+                    raise Cancelled
+        finally:
+            job.question = None
+        answer = job.answer or "cancel"
+        if answer == "cancel":
+            job.cancel.set()
+            raise Cancelled
+        job.decisions[question["code"]] = answer
+        job.notes.append(f"{question['title']} — {options[answer].lower()}")
+        job.status, job.stage = "downloading", stage
+        self.manager.changed()
+        return answer
+
+    def note(self, text: str) -> None:
+        if text not in self.job.notes:
+            self.job.notes.append(text)
+            self.manager.changed()
+
+    def mode(self, mode: str) -> None:
+        self.job.mode = mode
+        self.manager.changed()
+
+    def clip(self, clip) -> None:
+        self.job.clip = tuple(clip) if clip else None
+        self.manager.changed()
 
 
 class JobManager:
@@ -357,6 +420,20 @@ class JobManager:
             job.speed = job.eta = None
         self.changed()
         self._pool.submit(self._run, job)
+        return job
+
+    def answer(self, job_id: str, option: str) -> Job:
+        """Ответ на вопрос задачи. KeyError — нет задачи, ValueError — она ни о чём не спрашивает."""
+        job = self._jobs.get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        question = job.question
+        if job.status != "waiting" or not question:
+            raise ValueError("Задача ни о чём не спрашивает")
+        if option not in {o["id"] for o in question["options"]}:
+            raise ValueError("Такого варианта нет")
+        job.answer = option
+        job.answered.set()
         return job
 
     def clear_finished(self) -> None:
@@ -577,6 +654,7 @@ class JobManager:
                 library_dir=self.library.root,
                 info_cache=self.info_cache,
                 confirm_playlist=job.confirm_playlist,
+                clip=job.clip,
             )
         finally:
             with self._lock:

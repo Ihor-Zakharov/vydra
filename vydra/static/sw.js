@@ -1,11 +1,14 @@
 // выдра — service worker. Оболочка открывается даже при выключенном сервере
 // (тогда интерфейс покажет баннер «Сервер не запущен»). API никогда не кэшируется.
-const SHELL = 'vydra-shell-v1';
+const SHELL = 'vydra-shell-v2';
 const POSTERS = 'vydra-posters-v1';
 const PRECACHE = [
   '/',
   '/static/styles.css',
   '/static/app.js',
+  '/static/spring.js',
+  '/static/cosmos.js',
+  '/static/explorer.js',
   '/static/fonts/fonts.css',
   '/static/manifest.webmanifest',
   '/static/icons/icon.svg',

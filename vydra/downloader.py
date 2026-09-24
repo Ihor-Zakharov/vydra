@@ -15,6 +15,7 @@ yt-dlp работает в отдельном процессе (python -m vydra.
 
 from __future__ import annotations
 
+import itertools
 import json
 import logging
 import os
@@ -25,6 +26,7 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +54,7 @@ INFO_KEYS = (
 STALL_DOWNLOAD = float(os.environ.get("VD_STALL_TIMEOUT", "120"))  # байты не идут дольше — зависло
 STALL_EXTRACT = float(os.environ.get("VD_EXTRACT_TIMEOUT", "300"))  # сайт молчит при извлечении
 SOCKET_TIMEOUT = 30
+WORKER_CMD = [sys.executable, "-m", "vydra.downloader"]  # тесты подменяют на поддельный воркер
 SPACE_MARGIN = 64 * 1024 * 1024
 
 
@@ -102,6 +105,13 @@ class Reporter:
     def item(self, info: dict, thumbnail: Path | None) -> None: ...
     def progress(self, percent: float | None, speed: float | None, eta: int | None) -> None: ...
     def stage(self, text: str) -> None: ...
+    def question(self, question: dict) -> str:
+        """Спросить пользователя; вернуть id варианта (или бросить Cancelled)."""
+        return question["default"]
+
+    def note(self, text: str) -> None: ...
+    def mode(self, mode: str) -> None: ...
+    def clip(self, clip) -> None: ...
 
 
 # --- классификация ошибок ----------------------------------------------------------------
@@ -128,6 +138,8 @@ _PERMANENT = [
 ]  # fmt: skip
 _TRANSIENT = [
     (("http error 429", "too many requests"), RATE_LIMITED_TEXT),
+    (("http error 403", "403: forbidden"),
+     "Сайт отказал в доступе (403) — повторю; если не поможет, обновите yt-dlp или добавьте cookies."),
     (("http error 5", "service unavailable", "bad gateway", "gateway time", "internal server error"),
      "Сайт временно не отвечает — повторю чуть позже."),
     (("unable to download webpage", "getaddrinfo", "timed out", "timeout", "connection reset", "network is unreachable",
@@ -174,6 +186,7 @@ def download(
     library_dir: Path | None = None,
     info_cache: Path | None = None,
     confirm_playlist: bool = False,
+    clip: tuple[float, float | None] | None = None,
 ) -> list[Downloaded]:
     work_dir.mkdir(parents=True, exist_ok=True)
     request = {
@@ -187,12 +200,13 @@ def download(
         "library_dir": str(library_dir) if library_dir else None,
         "info_file": str(cached_info(info_cache, url, cookies)) if info_cache and cached_info(info_cache, url, cookies) else None,
         "playlist_limit": None if confirm_playlist else PLAYLIST_LIMIT,
+        "clip": list(clip) if clip else None,  # только для проверки «отрезок за пределами ролика»
     }
     reporter.stage("Получаю информацию о видео")
     watch = _Watch()
     with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as stderr:
         proc = subprocess.Popen(
-            [sys.executable, "-m", "vydra.downloader"],
+            list(WORKER_CMD),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr,
@@ -207,8 +221,8 @@ def download(
         error: tuple[str, bool] | None = None
         try:
             assert proc.stdin is not None and proc.stdout is not None
-            proc.stdin.write(json.dumps(request))
-            proc.stdin.close()
+            proc.stdin.write(json.dumps(request) + "\n")
+            proc.stdin.flush()  # stdin остаётся открытым: по нему уходят ответы на вопросы
             for line in proc.stdout:
                 try:
                     msg = json.loads(line)
@@ -226,6 +240,20 @@ def download(
                     reporter.progress(msg.get("percent"), msg.get("speed"), msg.get("eta"))
                 elif kind == "stage":
                     reporter.stage(msg["text"])
+                elif kind == "question":
+                    phase, watch.phase = watch.phase, "waiting"  # ждём человека — это не зависание
+                    answer = reporter.question(msg["question"])
+                    watch.phase = phase
+                    watch.touch()
+                    watch.last_bytes = time.monotonic()
+                    proc.stdin.write(json.dumps({"answer": answer}) + "\n")
+                    proc.stdin.flush()
+                elif kind == "note":
+                    reporter.note(msg["text"])
+                elif kind == "mode":
+                    reporter.mode(msg["mode"])
+                elif kind == "clip":
+                    reporter.clip(msg.get("clip"))
                 elif kind == "done":
                     result = [
                         Downloaded(Path(i["path"]), i["info"], Path(i["thumbnail"]) if i.get("thumbnail") else None)
@@ -233,10 +261,17 @@ def download(
                     ]
                 elif kind == "error":
                     error = (msg["message"], bool(msg.get("transient")))
+                    if msg.get("raw"):
+                        log.warning("worker error for %s: %s", url, msg["raw"])
             proc.wait()
         finally:
             system.kill_tree(proc)  # на любой выход — никаких сирот (yt-dlp → ffmpeg)
             watch.finished.set()
+            try:
+                if proc.stdin:
+                    proc.stdin.close()
+            except OSError:
+                pass
         if cancel.is_set():
             raise Cancelled
         if watch.stalled:
@@ -389,7 +424,7 @@ def preview(
         raise DownloadFailed("Слишком много ссылок сразу — подождите пару секунд", transient=True)
     try:
         proc = subprocess.run(
-            [sys.executable, "-m", "vydra.downloader"],
+            list(WORKER_CMD),
             input=json.dumps(request),
             capture_output=True,
             text=True,
@@ -438,7 +473,7 @@ def _worker() -> None:
         except (BrokenPipeError, OSError):
             os._exit(3)  # сервер умер — выходим сразу, не качаем в пустоту
 
-    request = json.loads(sys.stdin.read())
+    request = json.loads(sys.stdin.readline())
     try:
         if request.get("info"):
             send(type="done", preview=_preview(request))
@@ -449,7 +484,7 @@ def _worker() -> None:
         return
     except Exception as exc:  # noqa: BLE001 — всё превращаем в понятное сообщение
         text, transient = classify(str(exc))
-        send(type="error", message=text, transient=transient)
+        send(type="error", message=text, transient=transient, raw=str(exc)[:500])
         return
     send(type="done", items=items)
 
@@ -592,18 +627,20 @@ def _run(req: dict, send) -> list[dict]:
     if req.get("ffmpeg"):
         opts["ffmpeg_location"] = req["ffmpeg"]
 
-    info = _load_info(req.get("info_file"))
+    cached = _load_info(req.get("info_file"))
+    # Один экземпляр YoutubeDL и на извлечение, и на загрузку: cookies, которые сайт ставит при
+    # извлечении (Instagram, TikTok), нужны и CDN — иначе 403
     with YoutubeDL(opts) as ydl:
-        if info is not None:
+        if cached is not None:
             try:
-                return _download_with(ydl, info, req, send, work_dir, errors)
+                # из кэша превью: 403 тут значит «ссылки протухли», а не «плохой формат» — без подбора замен
+                return _download_with(ydl, cached, req, send, work_dir, errors, fallback=False)
             except (NoSpace, _Permanent):
                 raise
             except Exception as exc:  # noqa: BLE001 — ссылки из превью протухли (403/410) — извлекаем заново
                 print(f"cached info failed, re-extracting: {exc}", file=sys.stderr)
                 send(type="phase", phase="extract")
-        info = _extract(req, logger)
-        return _download_with(ydl, info, req, send, work_dir, errors)
+        return _download_with(ydl, None, req, send, work_dir, errors)
 
 
 def _load_info(path: str | None) -> dict | None:
@@ -615,26 +652,42 @@ def _load_info(path: str | None) -> dict | None:
         return None
 
 
-def _extract(req: dict, logger) -> dict:
-    """Плейлисты извлекаются «плоско» (только список): так можно сосчитать ролики, не извлекая каждый."""
-    from yt_dlp import YoutubeDL
-
-    with YoutubeDL(_common_opts(req, logger) | {"extract_flat": "in_playlist"}) as flat:
-        return flat.extract_info(req["url"], download=False)
+def _is_playlist(info: dict) -> bool:
+    return info.get("_type") in ("playlist", "multi_video")
 
 
-def _download_with(ydl, info: dict, req: dict, send, work_dir: Path, errors: list[str]) -> list[dict]:
-    if info.get("_type") == "playlist":
-        entries = list(info.get("entries") or [])
-        info["entries"] = entries
-        limit = req.get("playlist_limit")
-        if limit and len(entries) > limit:
-            raise _Permanent(
-                f"Это плейлист из {len(entries)} роликов — подтвердите, что хотите скачать его целиком"
-            )
-    _check_space(info, work_dir, req.get("library_dir"), req["mode"])
+def _too_many(limit: int) -> _Permanent:
+    return _Permanent(f"Это плейлист больше чем из {limit} роликов — подтвердите, что хотите скачать его целиком")
+
+
+def _download_with(
+    ydl, info: dict | None, req: dict, send, work_dir: Path, errors: list[str], fallback: bool = True
+) -> list[dict]:
+    limit = req.get("playlist_limit")
+    if info is None:
+        raw = ydl.extract_info(req["url"], download=False, process=False)
+        if _is_playlist(raw):
+            # список роликов ленивый: чтобы понять «больше лимита», берём не больше limit+1 штук
+            if limit:
+                head = list(itertools.islice(iter(raw.get("entries") or []), limit + 1))
+                if len(head) > limit:
+                    raise _too_many(limit)
+                raw["entries"] = head
+            info = raw
+        else:
+            info = ydl.process_ie_result(raw, download=False)
+    if _is_playlist(info):
+        entries = info.get("entries")
+        if limit and isinstance(entries, list) and len(entries) > limit:
+            raise _too_many(limit)
+    else:
+        info = _review(ydl, info, req, send)
+        _check_space(info, work_dir, req.get("library_dir"), req["mode"])
     send(type="phase", phase="download")
-    info = ydl.process_ie_result(info, download=True)
+    if fallback and not _is_playlist(info):
+        info = _download_resilient(ydl, info, req, send)
+    else:
+        info = ydl.process_ie_result(info, download=True)
 
     entries = [e for e in info.get("entries") or [] if e] if info.get("_type") == "playlist" else [info]
     items = []
@@ -647,6 +700,172 @@ def _download_with(ydl, info: dict, req: dict, send, work_dir: Path, errors: lis
     if not items:
         raise RuntimeError(errors[-1] if errors else "По ссылке не нашлось видео")
     return items
+
+
+# --- «не выходит — вот другой вариант» ---------------------------------------------------
+
+# Ошибки конкретного файла-формата (а не сети): имеет смысл взять другой формат того же ролика
+FORMAT_PROBLEMS = (
+    "http error 403", "403: forbidden", "http error 404", "http error 410", "http error 416",
+    "requested format is not available", "did not get any data blocks",
+)  # fmt: skip
+CANCEL = {"id": "cancel", "label": "Отмена"}
+
+
+def _has_video(f: dict) -> bool:
+    return f.get("vcodec") != "none" and bool(f.get("height") or f.get("vcodec"))
+
+
+def _chosen(info: dict) -> dict:
+    """Что именно выбрано для загрузки: качество, есть ли видео/звук, водяной знак."""
+    parts = info.get("requested_formats") or [info]
+    video = next((f for f in parts if _has_video(f)), None)
+    audio = next((f for f in parts if f.get("acodec") != "none"), None)
+    side = 0
+    if video and video.get("height"):
+        side = min(video["height"], video.get("width") or video["height"])
+    return {
+        "ids": [f.get("format_id") for f in parts if f.get("format_id")],
+        "video": video is not None,
+        "audio": audio is not None,
+        "side": side,
+        "abr": (audio or {}).get("abr") or 0,
+        "watermarked": any("watermark" in (f.get("format_note") or "").lower() for f in parts),
+    }
+
+
+def _describe(c: dict) -> str:
+    if c["video"]:
+        quality = f"{c['side']}p" if c["side"] else "видео"
+        return quality if c["audio"] else f"{quality} без звука"
+    return f"звук {round(c['abr'])} кбит/с" if c["abr"] else "только звук"
+
+
+def _worse(alt: dict, old: dict) -> bool:
+    return bool(
+        (old["video"] and not alt["video"])
+        or (old["audio"] and not alt["audio"])
+        or (alt["side"] and old["side"] and alt["side"] < old["side"] * 0.9)
+        or (alt["watermarked"] and not old["watermarked"])
+        or (not old["video"] and alt["abr"] and old["abr"] and alt["abr"] < old["abr"] * 0.7)
+    )
+
+
+def _exclude(spec: str, ids: list[str]) -> str:
+    """Та же строка -f, но без уже не сработавших форматов."""
+    extra = "".join(f"[format_id!='{i}']" for i in ids if i)
+    return "/".join("+".join(atom + extra for atom in alt.split("+")) for alt in spec.split("/"))
+
+
+def _reselect(ydl, info: dict, spec: str, sort: list[str] | None = None) -> dict:
+    ydl.params["format"] = spec
+    if sort is not None:
+        ydl.params["format_sort"] = sort
+    ydl.format_selector = ydl.build_format_selector(spec)
+    fresh = {k: v for k, v in info.items() if k not in ("requested_formats", "requested_downloads")}
+    return ydl.process_ie_result(fresh, download=False)
+
+
+def _ask(send, code: str, title: str, message: str, options: list[dict]) -> str:
+    """Задать вопрос через протокол и ждать ответ на stdin. Нет ответа или «Отмена» — задача отменяется."""
+    default = next(o["id"] for o in options if o.get("primary"))
+    send(
+        type="question",
+        question={
+            "id": uuid.uuid4().hex[:8], "code": code, "title": title, "message": message,
+            "options": options, "default": default,
+        },
+    )  # fmt: skip
+    line = sys.stdin.readline()
+    try:
+        answer = (json.loads(line) or {}).get("answer") if line.strip() else None
+    except ValueError:
+        answer = None
+    if answer not in {o["id"] for o in options} or answer == "cancel":
+        raise _Permanent("Отменено")
+    return answer
+
+
+def _review(ydl, info: dict, req: dict, send) -> dict:
+    """До загрузки: если нужного варианта нет — сказать об этом и предложить замену."""
+    from .timecode import format_time
+
+    formats = info.get("formats") or []
+    chosen = _chosen(info)
+    mode, quality = req["mode"], req["quality"]
+    if mode in ("mp4", "both") and not chosen["video"] and not any(_has_video(f) for f in formats):
+        _ask(send, "no_video", "У этой ссылки нет видео", "Здесь только звук — могу сохранить его в MP3.",
+             [{"id": "mp3", "label": "Скачать MP3", "primary": True}, CANCEL])  # fmt: skip
+        req["mode"] = "mp3"
+        send(type="mode", mode="mp3")
+        info = _reselect(ydl, info, *format_spec("mp3", quality))
+        chosen = _chosen(info)
+    elif mode == "mp3" and not chosen["audio"] and not any(f.get("acodec") != "none" for f in formats):
+        _ask(send, "no_audio", "В ролике нет звука", "MP3 сделать не из чего — могу сохранить само видео.",
+             [{"id": "mp4", "label": "Скачать видео (MP4)", "primary": True}, CANCEL])  # fmt: skip
+        req["mode"] = "mp4"
+        send(type="mode", mode="mp4")
+        info = _reselect(ydl, info, *format_spec("mp4", quality))
+        chosen = _chosen(info)
+
+    if chosen["watermarked"]:
+        _ask(send, "watermarked", "Версии без водяного знака нет",
+             "Сайт сейчас отдаёт этот ролик только с водяным знаком.",
+             [{"id": "accept", "label": "Скачать с водяным знаком", "primary": True}, CANCEL])  # fmt: skip
+
+    if req["mode"] != "mp3" and quality != "max" and chosen["video"] and 0 < chosen["side"] < int(quality):
+        best = max((min(f["height"], f.get("width") or f["height"]) for f in formats
+                    if _has_video(f) and f.get("height")), default=0)  # fmt: skip
+        if best < int(quality):
+            send(type="note", text=f"{quality}p у ролика нет — качаю в лучшем доступном: {chosen['side']}p")
+
+    clip, duration = req.get("clip"), info.get("duration")
+    if clip and duration:
+        start, end = clip
+        if start >= duration:
+            _ask(send, "clip_beyond", "Отрезок за пределами ролика",
+                 f"Ролик длится {format_time(duration)}, а отрезок начинается с {format_time(start)}.",
+                 [{"id": "whole", "label": "Скачать ролик целиком", "primary": True}, CANCEL])  # fmt: skip
+            send(type="clip", clip=None)
+        elif end is not None and end > duration + 1:
+            send(type="note", text=f"Ролик короче отрезка — сохраню до конца ({format_time(duration)})")
+    return info
+
+
+def _why(exc: Exception) -> str:
+    code = re.search(r"http error (\d{3})", str(exc).lower())
+    return f"ошибка {code.group(1)}" if code else "сайт не отдал файл"
+
+
+def _download_resilient(ydl, info: dict, req: dict, send) -> dict:
+    """Качает выбранный вариант; если сайт не отдаёт именно этот формат — берёт следующий.
+    Равноценную замену — молча (с пометкой), заметно худшую — только с согласия."""
+    spec, tried = ydl.params["format"], []
+    for round_ in range(4):
+        try:
+            return ydl.process_ie_result(info, download=True)
+        except Exception as exc:  # noqa: BLE001 — DownloadError и его родня
+            if round_ == 3 or not any(p in str(exc).lower() for p in FORMAT_PROBLEMS):
+                raise
+            failed = _chosen(info)
+            tried += failed["ids"]
+            print(f"format {failed['ids']} failed ({exc}); trying another", file=sys.stderr)
+            try:
+                alt_info = _reselect(ydl, info, _exclude(spec, tried))
+            except Exception as none_left:  # noqa: BLE001
+                raise _Permanent(f"Сайт не отдаёт этот ролик ({_why(exc)}), других вариантов нет. "
+                                 "Попробуйте позже или обновите yt-dlp: выдра обновить") from none_left  # fmt: skip
+            alt = _chosen(alt_info)
+            if _worse(alt, failed):
+                _ask(send, "format_failed", "Этот вариант не скачивается",
+                     f"{_describe(failed).capitalize()} скачать не получилось ({_why(exc)}). "
+                     f"Есть другой вариант: {_describe(alt)}.",
+                     [{"id": "accept", "label": f"Скачать {_describe(alt)}", "primary": True}, CANCEL])  # fmt: skip
+            else:
+                send(type="note", text=f"{_describe(failed).capitalize()} не скачался ({_why(exc)}) — взял другой источник того же качества")  # noqa: E501
+            send(type="phase", phase="download")
+            info = alt_info
+    return info
 
 
 def estimate_size(info: dict) -> int:

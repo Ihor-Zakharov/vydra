@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import base64
+import errno
 import os
 import platform
 import shutil
@@ -182,26 +183,43 @@ def parse_user_path(text: str) -> Path:
 
 def open_path(path: Path) -> None:
     """Открыть файл программой по умолчанию или папку в файловом менеджере."""
+    _must_exist(path)
     if OS == "windows":
-        os.startfile(path)  # type: ignore[attr-defined]  # noqa: S606
+        try:
+            os.startfile(path)  # type: ignore[attr-defined]  # noqa: S606
+        except OSError as exc:  # нет программы для этого типа файла
+            raise NotSupported(f"Windows не знает, чем открыть «{path.name}»: {exc.strerror or exc}") from exc
     elif OS == "wsl":
         _spawn(["explorer.exe", _win(path)])
     elif OS == "mac":
         _spawn(["open", str(path)])
     else:
-        _spawn(["xdg-open", str(path)])
+        _spawn(["xdg-open", str(path)], hint="Не найден xdg-open — установите пакет xdg-utils")
 
 
 def reveal(path: Path) -> None:
-    """Показать файл выделенным в Проводнике / Finder."""
-    if OS == "windows":
-        _spawn(["explorer", f"/select,{path}"])
-    elif OS == "wsl":
-        _spawn(["explorer.exe", f"/select,{_win(path)}"])
+    """Показать файл или папку выделенными в Проводнике / Finder / файловом менеджере."""
+    _must_exist(path)
+    if OS in ("windows", "wsl"):
+        # «/select,» и путь — отдельными аргументами: так Проводник понимает пути с пробелами
+        _spawn(["explorer.exe" if OS == "wsl" else "explorer", "/select,", _win(path)])
     elif OS == "mac":
         _spawn(["open", "-R", str(path)])
     else:
-        _spawn(["xdg-open", str(path.parent)])
+        uri = path.resolve().as_uri()
+        shown = run(
+            ["gdbus", "call", "--session", "--dest", "org.freedesktop.FileManager1",
+             "--object-path", "/org/freedesktop/FileManager1",
+             "--method", "org.freedesktop.FileManager1.ShowItems", f"['{uri}']", ""],
+            timeout=5,
+        ) if shutil.which("gdbus") else None  # fmt: skip
+        if shown is None:
+            _spawn(["xdg-open", str(path.parent)], hint="Не найден xdg-open — установите пакет xdg-utils")
+
+
+def _must_exist(path: Path) -> None:
+    if not path.exists():
+        raise FileNotFoundError(errno.ENOENT, "Файл не найден — возможно, его удалили или переместили", str(path))
 
 
 def open_url(url: str) -> None:
@@ -270,18 +288,23 @@ def hide(path: Path) -> None:
 def _win(path: Path) -> str:
     win = to_windows(path)
     if not win:
-        raise NotSupported("Не удалось получить путь Windows")
+        raise NotSupported("Не удалось получить путь Windows — проверьте, что в WSL включён interop")
     return win
 
 
-def _spawn(cmd: list[str]) -> None:
+def _spawn(cmd: list[str], hint: str | None = None) -> None:
+    """Запустить GUI-программу и не ждать её (без окна консоли на Windows)."""
+    kwargs = child_flags() if OS == "windows" else {"start_new_session": True}
     try:
         subprocess.Popen(  # noqa: S603
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            cwd="/mnt/c" if OS == "wsl" else None,
-            start_new_session=OS != "windows",
+            cwd="/mnt/c" if OS == "wsl" and Path("/mnt/c").is_dir() else None,
+            **kwargs,
         )
     except OSError as exc:
-        raise NotSupported(f"Не удалось запустить {cmd[0]}: {exc}") from exc
+        if isinstance(exc, FileNotFoundError):
+            raise NotSupported(hint or f"Не найдена программа {cmd[0]}") from exc
+        raise NotSupported(f"Не удалось запустить {cmd[0]}: {exc.strerror or exc}") from exc

@@ -51,3 +51,28 @@ def make_clip(tmp_path: Path, settings: Settings):
         return out
 
     return make
+
+
+@pytest.fixture(autouse=True)
+def no_real_trash(monkeypatch):
+    """Тесты не должны складывать файлы в настоящую Корзину пользователя."""
+    import vydra.system
+
+    def fake_trash(path: Path) -> None:
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+    monkeypatch.setattr(vydra.system, "trash", fake_trash)
+
+
+def wait_for(predicate, timeout: float = 10.0, interval: float = 0.02) -> bool:
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return predicate()

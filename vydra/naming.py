@@ -11,6 +11,7 @@ import unicodedata
 from pathlib import Path
 
 MAX_STEM = 100
+MAX_STEM_BYTES = 180
 _RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
 _REPLACE = str.maketrans({":": " -", "/": "-", "\\": "-", "|": "-", '"': "'", "<": "(", ">": ")", "?": "", "*": ""})
 _GENERIC_TITLE = re.compile(r"^(video|reel|post) by \S+$", re.IGNORECASE)
@@ -25,6 +26,8 @@ def safe_stem(text: str, fallback: str = "video") -> str:
     text = re.sub(r"\s+", " ", text).strip()
     if len(text) > MAX_STEM:
         text = text[:MAX_STEM].rsplit(" ", 1)[0] if " " in text[:MAX_STEM] else text[:MAX_STEM]
+    while len(text.encode("utf-8")) > MAX_STEM_BYTES:  # эмодзи — по 4 байта, а имя в ext4/APFS — до 255 байт
+        text = text[:-1]
     text = text.rstrip(" .-")
     if not text:
         return fallback

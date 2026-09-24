@@ -72,6 +72,10 @@ class FileLock:
         self._fh = None
         self._locked = False
 
+    @property
+    def acquired(self) -> bool:
+        return self._locked
+
     def __enter__(self) -> FileLock:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,8 +90,9 @@ class FileLock:
                 self._locked = True
                 return self
             except BlockingIOError:
-                if time.monotonic() > deadline:
-                    log.warning("lock %s is busy for %.0fs — continuing without it", self.path, self.timeout)
+                if time.monotonic() >= deadline:
+                    if self.timeout:
+                        log.warning("lock %s is busy for %.0fs — continuing without it", self.path, self.timeout)
                     return self
                 time.sleep(0.05)
             except OSError as exc:  # ФС без поддержки блокировок

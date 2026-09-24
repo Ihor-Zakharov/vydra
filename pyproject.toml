@@ -23,6 +23,10 @@ dev = [
 
 [project.scripts]
 vydra = "vydra.cli:main"
+"выдра" = "vydra.cli:main"
+# набрано не в той раскладке: «выдра» латиницей и «vydra» кириллицей
+dslhf = "vydra.cli:main"
+"мнвкф" = "vydra.cli:main"
 
 [build-system]
 requires = ["hatchling"]

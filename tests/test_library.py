@@ -1,18 +1,36 @@
 import json
 
 from conftest import needs_ffmpeg
-from vydra.library import CINEMA, SERVICE
+from vydra.library import LEGACY_CINEMA, SERVICE
 
 
-def test_layout_and_cinema(library):
+def test_layout(library):
     root = library.root
     for platform in ("YouTube", "TikTok", "Instagram", "Другие сайты", "Мои файлы"):
         assert (root / platform / "Видео").is_dir() and (root / platform / "Аудио").is_dir()
-    assert (root / CINEMA).is_file()
-    assert (root / SERVICE / "fonts" / "fonts.css").is_file()
-    text = (root / SERVICE / "library.js").read_text(encoding="utf-8")
-    assert text.startswith("window.VYDRA_LIBRARY = ")
-    assert json.loads(text.removeprefix("window.VYDRA_LIBRARY = ").rstrip(";\n"))["items"] == []
+    assert not (root / LEGACY_CINEMA).exists()  # офлайн-кинотеатр больше не создаётся
+    assert json.loads((root / SERVICE / "library.json").read_text(encoding="utf-8"))["items"] == []
+    assert not (root / SERVICE / "library.js").exists() and not (root / SERVICE / "fonts").exists()
+
+
+def test_legacy_cinema_is_removed_but_user_files_are_kept(settings):
+    from vydra.config import Prefs
+    from vydra.library import Library
+    from vydra.media import Media
+
+    root = settings.default_library
+    (root / SERVICE / "fonts").mkdir(parents=True)
+    ours = '<script src=".vydra/library.js"></script><script src=".vydra/cinema.js"></script>'
+    (root / LEGACY_CINEMA).write_text(ours, encoding="utf-8")
+    for name in ("cinema.js", "cinema.css", "library.js"):
+        (root / SERVICE / name).write_text("x", encoding="utf-8")
+    Library(Prefs(settings), Media(settings)).ensure_layout()
+    assert not (root / LEGACY_CINEMA).exists() and not (root / SERVICE / "cinema.js").exists()
+    assert not (root / SERVICE / "fonts").exists()
+
+    (root / LEGACY_CINEMA).write_text("<h1>мой собственный файл</h1>", encoding="utf-8")
+    Library(Prefs(settings), Media(settings)).ensure_layout()
+    assert (root / LEGACY_CINEMA).read_text(encoding="utf-8") == "<h1>мой собственный файл</h1>"
 
 
 @needs_ffmpeg
@@ -37,11 +55,11 @@ def test_scan_picks_up_manual_files_and_forgets_deleted(library, make_clip):
 
 def test_resolve_blocks_traversal(library):
     assert library.resolve("../../etc/passwd") is None
-    assert library.resolve(CINEMA) is not None
+    assert library.resolve(f"{SERVICE}/library.json") is not None
 
 
 def test_change_root(library, tmp_path):
     new_root = tmp_path / "Кино"
     library.set_root(new_root)
     assert library.root == new_root
-    assert (new_root / CINEMA).is_file()
+    assert (new_root / "TikTok" / "Видео").is_dir()

@@ -176,26 +176,7 @@ def create_shortcut() -> str:
         raise RuntimeError("Не нашёл рабочий стол")
 
     if system.WINDOWS_LIKE:
-        icon = _windows_icon(icon_png)
-        if system.OS == "wsl":
-            distro = os.environ.get("WSL_DISTRO_NAME", "")
-            exe, args = "wsl.exe", f'-d "{distro}" --cd ~ -e "{sys.executable}" -m vydra ui'
-        else:
-            exe, args = sys.executable, "-m vydra ui"
-        win_target = system.to_windows(target)
-        script = f"""
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut({system.ps_quote(win_target or "")})
-$s.TargetPath = {system.ps_quote(exe)}
-$s.Arguments = {system.ps_quote(args)}
-$s.WindowStyle = 7
-$s.Description = 'Выдра — скачать видео без водяных знаков'
-{f"$s.IconLocation = {system.ps_quote(icon)}" if icon else ""}
-$s.Save()
-"""
-        system.powershell(script)
-        if not target.exists():
-            raise RuntimeError("Не удалось создать ярлык")
-        return f"Ярлык создан: {system.display_path(target)}"
+        return _windows_shortcut(target, _windows_icon(icon_png))
 
     if system.OS == "mac":
         target.write_text(f'#!/bin/bash\nexec "{sys.executable}" -m vydra ui\n', encoding="utf-8")
@@ -215,6 +196,73 @@ $s.Save()
         copy.chmod(0o755)
         system.run(["gio", "set", str(copy), "metadata::trusted", "true"])
     return f"Ярлык создан: {target}"
+
+
+SHORTCUT_DESCRIPTION = "Выдра — скачать видео без водяных знаков"
+
+
+def shortcut_command() -> tuple[str, str]:
+    """(программа, аргументы) ярлыка. В WSL — через wsl.exe; имя дистрибутива без кавычек (пробелов в нём не бывает)."""
+    python = sys.executable
+    quoted_python = f'"{python}"' if " " in python else python
+    if system.OS == "wsl":
+        distro = os.environ.get("WSL_DISTRO_NAME", "")
+        prefix = f"-d {distro} " if distro else ""
+        return r"C:\Windows\System32\wsl.exe", f"{prefix}--cd ~ -e {quoted_python} -m vydra ui"
+    return python, "-m vydra ui"
+
+
+def _windows_shortcut(target: Path, icon: str | None) -> str:
+    """Ярлык .lnk с кириллическим именем и описанием.
+
+    WScript.Shell не умеет символы вне ANSI-кодировки (имя «Выдра.lnk» превращается в «?????»),
+    поэтому: WScript.Shell создаёт файл под ASCII-именем с ASCII-заглушками → все поля (в т.ч.
+    Unicode) пишет Shell.Application → проверяем, прочитав ярлык обратно → и только потом атомарно
+    переименовываем в «Выдра.lnk». Старый рабочий ярлык заменяется лишь проверенным новым."""
+    import json
+    import uuid
+
+    desktop = target.parent
+    tmp = desktop / f"vydra-shortcut-{uuid.uuid4().hex[:8]}.lnk"
+    win_desktop, win_tmp = system.to_windows(desktop), system.to_windows(tmp)
+    if not win_desktop or not win_tmp:
+        raise RuntimeError("Не удалось получить путь рабочего стола Windows")
+    exe, args = shortcut_command()
+    create = f"""
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut({system.ps_quote(win_tmp)})
+$s.TargetPath = 'C:\\Windows\\explorer.exe'
+$s.WindowStyle = 7
+$s.Save()
+"""
+    fill = f"""
+$folder = (New-Object -ComObject Shell.Application).NameSpace({system.ps_quote(win_desktop)})
+$link = $folder.ParseName({system.ps_quote(tmp.name)}).GetLink
+$link.Path = {system.ps_quote(exe)}
+$link.Arguments = {system.ps_quote(args)}
+$link.Description = {system.ps_quote(SHORTCUT_DESCRIPTION)}
+$link.ShowCommand = 2
+{f"$link.SetIconLocation({system.ps_quote(icon)}, 0)" if icon else ""}
+$link.Save()
+$check = $folder.ParseName({system.ps_quote(tmp.name)}).GetLink
+[Console]::Out.Write((@{{path = $check.Path; args = $check.Arguments; desc = $check.Description}} | ConvertTo-Json -Compress))
+"""
+    try:
+        system.powershell(create)
+        if not tmp.is_file():
+            raise RuntimeError("Windows не дал создать ярлык на рабочем столе")
+        raw = system.powershell(fill)
+        try:
+            saved = json.loads(raw or "{}")
+        except ValueError:
+            saved = {}
+        if saved.get("args") != args or saved.get("desc") != SHORTCUT_DESCRIPTION:
+            raise RuntimeError("Ярлык записался с ошибкой — проверка не прошла")
+        from .fsutil import replace
+
+        replace(tmp, target)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return f"Ярлык создан: {system.display_path(target)}"
 
 
 def _windows_icon(png: Path) -> str | None:

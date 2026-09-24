@@ -1,8 +1,14 @@
-"""Консольная выдра: `vydra --help`. Без аргументов — интерактивный режим."""
+"""Консольная выдра: `выдра --help` / `vydra --help`. Без аргументов — интерактивный режим.
+
+Командную строку перед разбором нормализует vydra.argv: русские команды и ключи
+(`выдра скачать <ссылка> -ф мп3`), набор не в той раскладке (`-а ьз3` → `-f mp3`)
+и ссылка без команды (`выдра <ссылка>` → скачать). Без ссылки ссылки берутся из буфера обмена.
+"""
 
 from __future__ import annotations
 
 import dataclasses
+import os
 import shutil
 import signal
 import socket
@@ -11,7 +17,7 @@ import threading
 import time
 import urllib.request
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Annotated
 
 import typer
@@ -27,10 +33,10 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
-from . import __version__, system, tools
+from . import __version__, argv, clipboard, diagnostics, system, tools
 from .config import Prefs, Settings
 from .jobs import Job, JobManager, detect_platform
-from .library import CINEMA, PLATFORM_DIRS, TYPE_DIRS, Library
+from .library import PLATFORM_DIRS, TYPE_DIRS, Library
 from .media import Media
 from .timecode import clip_label, format_time, parse_clip, parse_range
 
@@ -52,6 +58,9 @@ class Fmt(str, Enum):
     mp4 = "mp4"
     mp3 = "mp3"
     both = "both"
+    мп4 = "мп4"
+    мп3 = "мп3"
+    оба = "оба"
 
 
 class Quality(str, Enum):
@@ -60,6 +69,7 @@ class Quality(str, Enum):
     q720 = "720"
     q480 = "480"
     q360 = "360"
+    макс = "макс"
 
 
 class Bitrate(str, Enum):
@@ -69,27 +79,57 @@ class Bitrate(str, Enum):
     b128 = "128"
 
 
-HELP = """[bold]Скачивает видео с YouTube, TikTok, Instagram и сотен сайтов — без водяных знаков, сразу в MP4 или MP3.[/]
+def fmt_value(value: Fmt | str) -> str:
+    return argv.FORMAT_VALUES[getattr(value, "value", value)]
 
-[dim]Примеры:[/]
-  [cyan]vydra[/]                               [dim]интерактивный режим[/]
-  [cyan]vydra d[/] [green]<ссылка>[/]                    [dim]скачать видео в MP4[/]
-  [cyan]vydra d[/] [green]<ссылка>[/][yellow] -f mp3 -b 320[/]      [dim]только звук[/]
-  [cyan]vydra d[/] [green]<ссылка>[/][yellow] --clip 1:00-5:00[/]   [dim]отрезок с 1-й по 5-ю минуту[/]
-  [cyan]vydra info[/] [green]<ссылка>[/]                 [dim]что будет скачано (план)[/]
-  [cyan]vydra ui[/]                            [dim]веб-интерфейс в браузере[/]
-  [cyan]vydra doctor --fix[/]                  [dim]проверить и починить всё[/]
 
-[dim]Автодополнение по Tab:[/] [cyan]vydra completion[/] [dim](bash, zsh, fish, PowerShell)[/]"""
+def quality_value(value: Quality | str) -> str:
+    return argv.QUALITY_VALUES[getattr(value, "value", value)]
+
+
+_EXAMPLES = [
+    ("выдра", "", "", "интерактивный режим"),
+    ("выдра скачать", "'<ссылка>'", "", "видео в MP4"),
+    ("выдра скачать", "'<ссылка>'", "-ф мп3 -б 320", "только звук"),
+    ("выдра скачать", "'<ссылка>'", "-о 1:00-5:00", "отрезок с 1-й по 5-ю минуту"),
+    ("vydra d", "'<ссылка>'", "-f both -q 720", "то же латиницей"),
+    ("выдра инфо", "'<ссылка>'", "", "что будет скачано (план)"),
+    ("выдра папка", "", "", "где лежат файлы, сменить папку"),
+    ("выдра интерфейс", "", "", "веб-интерфейс в браузере"),
+    ("выдра доктор", "", "--починить", "проверить и починить всё"),
+]
+
+
+def _examples() -> str:
+    plain = [" ".join(x for x in (c, u, o) if x) for c, u, o, _ in _EXAMPLES]
+    width = max(len(p) for p in plain) + 3
+    lines = []
+    for (cmd, url, opts, desc), text in zip(_EXAMPLES, plain, strict=True):
+        markup = f"[cyan]{cmd}[/]" + (f" [green]{url}[/]" if url else "") + (f" [yellow]{opts}[/]" if opts else "")
+        lines.append(f"  {markup}{' ' * (width - len(text))}[dim]{desc}[/]")
+    return "\n".join(lines)
+
+
+HELP = f"""[bold]Скачивает видео с YouTube, TikTok, Instagram и сотен сайтов — без водяных знаков, сразу в MP4 или MP3.[/]
+
+[dim]Проще всего:[/] скопируйте ссылку в браузере и запустите [cyan]выдра скачать[/] [yellow]-ф мп3[/]
+[dim](ссылка возьмётся из буфера обмена).[/]
+
+[dim]Примеры (vydra и выдра — одна и та же программа):[/]
+{_examples()}
+
+[yellow]Ссылку берите в кавычки[/] [dim]— в bash, zsh и PowerShell символ & из адреса YouTube ломает команду.
+Или скопируйте ссылку и не указывайте её вовсе. После[/] [cyan]выдра автодополнение[/] [dim]кавычки ставятся сами,
+а Tab подсказывает команды и ключи. Раскладку переключать не нужно: -а ьз3 = -f mp3.[/]"""
 
 app = typer.Typer(
     name="vydra",
     help=HELP,
     rich_markup_mode="rich",
-    context_settings={"help_option_names": ["-h", "--help"]},
+    context_settings={"help_option_names": ["-h", "--help", "--справка", "--помощь"]},
     invoke_without_command=True,
     no_args_is_help=False,
-    add_completion=False,  # своя команда completion — с русской справкой
+    add_completion=False,  # своя команда completion — для vydra и выдра, с умными ссылками
     pretty_exceptions_show_locals=False,
 )
 
@@ -169,6 +209,27 @@ def quoted(value: str, style: str = "#e6d9a8") -> Text:
     return Text(f'"{value}"', style=style)
 
 
+def file_uri(path: Path) -> str:
+    """file:// для ссылки в терминале; в WSL — из пути Windows, чтобы Ctrl+клик в Windows Terminal открыл файл."""
+    if system.OS == "wsl" and (win := system.to_windows(path)) and len(win) > 2 and win[1] == ":":
+        return PureWindowsPath(win).as_uri()
+    try:
+        return path.resolve().as_uri()
+    except ValueError:
+        return ""
+
+
+def linked(path: Path, style: str = "", label: str | None = None) -> Text:
+    """Полный путь (как его показывает ОС), кликабельный в современных терминалах."""
+    uri = file_uri(path)
+    text = label or system.display_path(path)
+    return Text(text, style=f"{style} link {uri}".strip() if uri else style)
+
+
+def rel_folder(folder: str) -> str:
+    return folder.replace("/", "\\") if system.WINDOWS_LIKE else folder
+
+
 # --- окружение ---------------------------------------------------------------------------
 
 
@@ -181,13 +242,14 @@ class Env:
 
 def make_env(out: Path | None = None) -> Env:
     settings = Settings.from_env()
+    diagnostics.setup_logging(settings)  # подробности и ошибки — в журнал, а не поверх прогресс-баров
     if out is not None:
         settings = dataclasses.replace(settings, fixed_library=out.expanduser().resolve())
     library = Library(Prefs(settings), Media(settings))
     try:
         library.ensure_layout()
     except OSError as exc:
-        raise fail(f"Папка хранилища недоступна: {exc}", "Проверьте путь: vydra folder") from exc
+        raise fail(f"Папка хранилища недоступна: {exc}", "Проверьте путь: выдра папка") from exc
     return Env(settings, library, JobManager(settings, library))
 
 
@@ -195,16 +257,69 @@ def resolve_clip(clip: str | None, start: str | None, end: str | None):
     try:
         return parse_range(clip) if clip else parse_clip(start, end)
     except ValueError as exc:
-        raise fail(str(exc), "Примеры: --clip 1:00-5:00, --from 90 --to 2:30") from exc
+        raise fail(str(exc), "Примеры: -о 1:00-5:00, --с 90 --по 2:30") from exc
+
+
+def links_or_clipboard(urls: list[str] | None) -> list[str]:
+    """Ссылки из аргументов, а если их нет — из буфера обмена."""
+    if urls:
+        return [_normalize(u) for u in urls]
+    found = clipboard.links()
+    if not found:
+        raise fail(
+            "Ссылка не указана, а в буфере обмена ссылки нет",
+            "Скопируйте ссылку в браузере и повторите: выдра скачать -ф мп3 — или укажите её в кавычках: "
+            "выдра скачать 'https://…' -ф мп3",
+        )
+    for link in found:
+        console.print(Text("  Ссылка из буфера: ", style="dim") + Text(link, style="cyan"))
+    return [_normalize(u) for u in found]
 
 
 # --- прогресс ----------------------------------------------------------------------------
+
+
+def ask(job: Job) -> str | None:
+    """Вопрос задачи в терминале. Enter — вариант по умолчанию, «д»/«н» — да/нет."""
+    question = job.question or {}
+    options = question.get("options") or []
+    if not options:
+        return None
+    default = question.get("default") or next((o["id"] for o in options if o.get("primary")), options[0]["id"])
+    console.print()
+    console.print(Text("  ? ", style="bold #7c5cff") + Text(question.get("title") or "Нужно решение", style="bold"))
+    console.print(Text(f"    {(job.title or job.source)[:80]}", style="dim"))
+    if question.get("message"):
+        console.print(Text(f"    {question['message']}"))
+    for n, option in enumerate(options, 1):
+        line = Text(f"    {n}) ", style="bold") + Text(option["label"], style="bold" if option["id"] == default else "")
+        if option["id"] == default:
+            line.append("  ← Enter", style="dim")
+        if option.get("hint"):
+            line.append(f"\n       {option['hint']}", style="dim")
+        console.print(line)
+    others = [o["id"] for o in options if o["id"] != default]
+    while True:
+        try:
+            raw = Prompt.ask(Text("    Выбор", style="bold"), default="", show_default=False).strip().lower()
+        except EOFError:
+            return default
+        if raw in ("", "д", "да", "y", "yes", "l", "lf"):
+            return default
+        if raw in ("н", "нет", "n", "no", "ytn") and len(others) == 1:
+            return others[0]
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]["id"]
+        if raw in {o["id"] for o in options}:
+            return raw
+        console.print(Text(f"    Введите номер от 1 до {len(options)} или просто Enter", style="yellow"))
 
 
 def run_jobs(env: Env, jobs: list[Job]) -> int:
     """Живой прогресс всех задач, итог в стиле `terraform apply`. Возвращает код выхода."""
     started = time.monotonic()
     reported: set[str] = set()
+    asked: set[tuple[str, str]] = set()
     interrupted = False
 
     def row(job: Job) -> Table:
@@ -233,7 +348,11 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
             pulse_style=color,
         )
         stats = Text(f" {job.progress:>3.0f}%" if job.progress is not None else "  ···", style="bold")
-        stats.append(f"  {job.stage}", style="#9aa4b2")
+        stage = job.stage
+        if job.retry_at and job.status == "queued":
+            left = max(0, int(job.retry_at - time.time()))
+            stage = f"повтор через {left} с · попытка {job.attempt} из {job.max_attempts}"
+        stats.append(f"  {stage}", style="#9aa4b2" if not job.retry_at else "yellow")
         if job.speed:
             stats.append(f" · {size(job.speed)}/с", style="dim")
         if job.eta:
@@ -246,14 +365,17 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
     def report(job: Job) -> None:
         took = seconds((job.finished or time.time()) - job.created)
         if job.status == "done":
+            root = env.library.root
             for f in job.files:
-                kind = "video" if f["type"] == "mp4" else "audio"
+                kind = "видео" if f["type"] == "mp4" else "аудио"
+                path = root / f["path"]
+                folder = f.get("folder") or str(Path(f["path"]).parent.as_posix())
                 console.print(
-                    Text("  + ", style="bold green")
-                    + Text(f"{kind} ", style="bold")
-                    + quoted(f["path"])
-                    + Text(f"  {size(f['size'])} · за {took}", style="dim")
-                )
+                    Text("  + ", style="bold green") + Text(kind, style="bold")
+                    + Text(f"  {size(f['size'])} · за {took} · папка ", style="dim")
+                    + linked(path.parent, "cyan", rel_folder(folder))
+                )  # fmt: skip
+                console.print(Text("    ") + linked(path, "#e6d9a8"))
             if job.warning:
                 console.print(Text("  ! ", style="bold yellow") + Text(job.warning, style="yellow"))
         elif job.status == "error":
@@ -263,6 +385,8 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
             )  # fmt: skip
         elif job.status == "cancelled":
             console.print(Text("  ○ ", style="dim") + Text(f"{job.title or job.source} — отменено", style="dim"))
+        for note in getattr(job, "notes", None) or []:
+            console.print(Text("    · ", style="dim") + Text(note, style="#9aa4b2"))
 
     def view() -> Group:
         active = [j for j in jobs if j.id not in reported]
@@ -279,6 +403,24 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
         with Live(view(), console=console, refresh_per_second=12, transient=True) as live:
             while True:
                 for job in jobs:
+                    question = getattr(job, "question", None)
+                    if job.status == "waiting" and question and (job.id, question.get("id")) not in asked:
+                        asked.add((job.id, question.get("id")))
+                        live.stop()
+                        signal.signal(signal.SIGINT, signal.default_int_handler)
+                        try:
+                            choice = ask(job)
+                        except KeyboardInterrupt:
+                            choice = None
+                            on_sigint()
+                        finally:
+                            signal.signal(signal.SIGINT, on_sigint)
+                        if choice is not None:
+                            try:
+                                env.manager.answer(job.id, choice)
+                            except (KeyError, ValueError) as exc:
+                                console.print(Text(f"    ! {exc}", style="yellow"))
+                        live.start()
                     if not job.active and job.id not in reported:
                         reported.add(job.id)
                         live.stop()
@@ -293,40 +435,83 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
         env.manager.shutdown()
 
     done = [j for j in jobs if j.status == "done"]
+    failed = [j for j in jobs if j.status == "error"]
     files = [f for j in done for f in j.files]
-    errors = sum(1 for j in jobs if j.status == "error")
     elapsed = time.monotonic() - started
     console.print()
     if interrupted:
         console.print(Text("Отменено.", style="bold yellow"), Text(f"Готовых файлов: {len(files)}", style="dim"))
         return 130
-    summary = Text("Готово! " if not errors else "Готово с ошибками. ", style="bold green" if not errors else "bold yellow")
+    if not files:
+        reason = failed[0].error if failed else "ничего не получилось"
+        console.print(Text("Не удалось скачать: ", style="bold red") + Text(reason or "", style="red"))
+        log_path = diagnostics.log_dir(env.settings) / diagnostics.LOG_NAME
+        console.print(Text("Подробности в журнале: ", style="dim") + linked(log_path, "dim"))
+        return 1
+    ok = not failed
+    summary = Text("Готово! " if ok else "Готово с ошибками. ", style="bold green" if ok else "bold yellow")
     summary.append(plural(len(files), "файл создан", "файла создано", "файлов создано"), style="bold")
-    summary.append(f", {plural(errors, 'ошибка', 'ошибки', 'ошибок')}", style="red" if errors else "")
+    if failed:
+        summary.append(f", {plural(len(failed), 'ошибка', 'ошибки', 'ошибок')}", style="red")
     summary.append(f" · {size(sum(f['size'] for f in files))} за {seconds(elapsed)}", style="dim")
     console.print(summary)
-    if files:
-        console.print(
-            Text("Хранилище: ", style="dim") + Text(system.display_path(env.library.root), style="cyan")
-            + Text("   кинотеатр: ", style="dim") + Text("vydra cinema", style="cyan")
-        )  # fmt: skip
-    return 1 if errors and not done else 0
+    console.print(Text("Хранилище: ", style="dim") + linked(env.library.root, "cyan"))
+    return 0 if ok else 1
 
 
 # --- команды: основное -------------------------------------------------------------------
 
-UrlsArg = Annotated[list[str], typer.Argument(help="Ссылки на видео (можно несколько)", show_default=False)]
-FmtOpt = Annotated[Fmt, typer.Option("--format", "-f", help="Что сохранить: mp4, mp3 или both (оба)")]
-QualityOpt = Annotated[Quality, typer.Option("--quality", "-q", help="Качество видео (по меньшей стороне)")]
-BitrateOpt = Annotated[Bitrate, typer.Option("--bitrate", "-b", help="Битрейт MP3, кбит/с")]
-ClipOpt = Annotated[str | None, typer.Option("--clip", "-c", help="Отрезок: [yellow]1:00-5:00[/], [yellow]90-150[/], [yellow]1:00-[/] (до конца)", show_default=False)]  # noqa: E501
-FromOpt = Annotated[str | None, typer.Option("--from", "-s", help="Начало отрезка (1:00, 90, 1м30с)", show_default=False)]
-ToOpt = Annotated[str | None, typer.Option("--to", "-e", help="Конец отрезка", show_default=False)]
-OutOpt = Annotated[Path | None, typer.Option("--out", "-o", help="Другая папка-хранилище для этой загрузки", show_default=False, file_okay=False)]  # noqa: E501
+UrlsArg = Annotated[
+    list[str] | None,
+    typer.Argument(help="Ссылки на видео (можно несколько). Нет ссылки — возьму из буфера обмена", show_default=False),
+]
+FmtOpt = Annotated[
+    Fmt,
+    typer.Option("--format", "-f", "--формат", "-ф", case_sensitive=False,
+                 help="Что сохранить: mp4/мп4 — видео, mp3/мп3 — только звук, both/оба — оба файла"),
+]  # fmt: skip
+QualityOpt = Annotated[
+    Quality,
+    typer.Option("--quality", "-q", "--качество", "-к", case_sensitive=False,
+                 help="Качество видео (по меньшей стороне): max/макс, 1080, 720, 480, 360"),
+]  # fmt: skip
+BitrateOpt = Annotated[Bitrate, typer.Option("--bitrate", "-b", "--битрейт", "-б", help="Битрейт MP3, кбит/с")]
+ClipOpt = Annotated[
+    str | None,
+    typer.Option("--clip", "-c", "--отрезок", "-о", show_default=False,
+                 help="Отрезок: [yellow]1:00-5:00[/], [yellow]90-150[/], [yellow]1:00-[/] (до конца)"),
+]  # fmt: skip
+FromOpt = Annotated[str | None, typer.Option("--from", "-s", "--с", "--от", help="Начало отрезка (1:00, 90, 1м30с)", show_default=False)]  # noqa: E501
+ToOpt = Annotated[str | None, typer.Option("--to", "-e", "--по", "--до", help="Конец отрезка", show_default=False)]
+OutOpt = Annotated[
+    Path | None,
+    typer.Option("--out", "-o", "--выход", "--куда", help="Другая папка-хранилище для этой загрузки",
+                 show_default=False, file_okay=False),
+]  # fmt: skip
+FolderOpt = Annotated[
+    str | None,
+    typer.Option("--folder", "-F", "--папка", show_default=False,
+                 help="Папка внутри хранилища, например [yellow]\"TikTok/Танцы\"[/]"),
+]  # fmt: skip
+YesOpt = Annotated[
+    bool,
+    typer.Option("--yes", "-y", "--да", "-д", help="Не задавать вопросов: соглашаться с вариантом по умолчанию"),
+]
+ForceOpt = Annotated[bool, typer.Option("--force", "--заново", help="Скачать ещё раз, даже если уже есть в хранилище")]
+PlaylistOpt = Annotated[bool, typer.Option("--yes-playlist", "--весь-плейлист", help="Разрешить плейлист больше 50 роликов")]  # noqa: E501
+
+
+def _auto_accept(yes: bool) -> bool:
+    if yes:
+        return True
+    if not sys.stdin.isatty():
+        console.print(Text("  Терминала для вопросов нет — соглашаюсь с вариантами по умолчанию (как -y)", style="dim"))
+        return True
+    return False
 
 
 def download(
-    urls: UrlsArg,
+    urls: UrlsArg = None,
     fmt: FmtOpt = Fmt.mp4,
     quality: QualityOpt = Quality.q1080,
     bitrate: BitrateOpt = Bitrate.b192,
@@ -334,28 +519,66 @@ def download(
     start: FromOpt = None,
     end: ToOpt = None,
     out: OutOpt = None,
+    folder: FolderOpt = None,
+    yes: YesOpt = False,
+    force: ForceOpt = False,
+    yes_playlist: PlaylistOpt = False,
 ) -> None:
     """Скачать видео или звук по ссылке. [dim](синонимы: скачать, d)[/]"""
+    mode, qual = fmt_value(fmt), quality_value(quality)
     cut = resolve_clip(clip, start, end)
+    links = links_or_clipboard(urls)
+    auto = _auto_accept(yes)
     env = make_env(out)
-    banner(f"{MODE_LABEL[fmt.value]} · {quality.value if fmt != Fmt.mp3 else bitrate.value + ' кбит/с'}")
+    folder_rel = _folder(env, folder)
+    banner(f"{MODE_LABEL[mode]} · {qual if mode != 'mp3' else bitrate.value + ' кбит/с'}")
     console.print()
-    jobs = [
-        env.manager.submit(
-            Job(kind="url", source=_normalize(u), mode=fmt.value, quality=quality.value, bitrate=int(bitrate.value),
-                clip=cut)  # fmt: skip
-        )
-        for u in urls
-    ]
+    jobs = []
+    for url in links:
+        job = Job(kind="url", source=url, mode=mode, quality=qual, bitrate=int(bitrate.value), clip=cut,
+                  folder=folder_rel, confirm_playlist=yes_playlist)  # fmt: skip
+        if hasattr(job, "auto_accept"):
+            job.auto_accept = auto
+        existing = None if force else env.manager.find_existing(url, mode, cut)
+        if existing:
+            for f in existing:
+                kind = "видео" if f["type"] == "mp4" else "аудио"
+                console.print(
+                    Text("  = ", style="bold blue") + Text(kind, style="bold")
+                    + Text("  уже в хранилище — повторно не качаю (--заново — скачать ещё раз)", style="dim")
+                )  # fmt: skip
+                console.print(Text("    ") + linked(env.library.root / f["path"], "#e6d9a8"))
+            continue
+        jobs.append(env.manager.submit(job))
+    if not jobs:
+        env.manager.shutdown()
+        console.print(Text("\nНечего делать: всё уже скачано.", style="bold green"))
+        raise typer.Exit(0)
     raise typer.Exit(run_jobs(env, jobs))
 
 
-def info(url: Annotated[str, typer.Argument(help="Ссылка на видео", show_default=False)]) -> None:
+def _folder(env: Env, folder: str | None) -> str | None:
+    if not folder:
+        return None
+    from .library import FsError, validate_rel
+
+    try:
+        rel = validate_rel(folder.replace("\\", "/"))
+    except FsError as exc:
+        raise fail(str(exc)) from exc
+    if rel and not env.library.folder_exists(rel):
+        env.manager.shutdown()
+        raise fail(f"Папки «{rel}» нет в хранилище", "Создайте её в интерфейсе или в Проводнике")
+    return rel or None
+
+
+def info(url: Annotated[str | None, typer.Argument(help="Ссылка на видео (нет — из буфера обмена)", show_default=False)] = None) -> None:  # noqa: E501
     """Показать, что будет скачано — как [bold]terraform plan[/]. [dim](синонимы: инфо, plan)[/]"""
     from .downloader import DownloadFailed, preview
 
     settings = Settings.from_env()
-    url = _normalize(url)
+    diagnostics.setup_logging(settings)
+    url = links_or_clipboard([url] if url else None)[0]
     banner("план")
     with console.status(Text("Смотрю, что там по ссылке…", style="dim"), spinner="dots"):
         try:
@@ -381,19 +604,17 @@ def info(url: Annotated[str, typer.Argument(help="Ссылка на видео",
     if data.get("playlist"):
         rows.insert(1, (" ", "роликов", Text(str(data.get("count") or "?"), style="cyan")))
     root = Prefs(settings).library_dir
-    folder = PLATFORM_DIRS.get(platform, PLATFORM_DIRS["other"])
+    platform_dir = PLATFORM_DIRS.get(platform, PLATFORM_DIRS["other"])
     rows += [
-        ("+", "файл mp4", Text(f"{TYPE_DIRS['video']}/{folder}/…mp4", style="green")),
-        ("+", "файл mp3", Text("(если выбрать -f mp3 или both)", style="dim italic")),
-        ("+", "размер", Text("(станет известен после загрузки)", style="dim italic")),
+        ("+", "видео", linked(root / platform_dir / TYPE_DIRS["video"], "green")),
+        ("+", "аудио", linked(root / platform_dir / TYPE_DIRS["audio"], "green")),
     ]
     console.print(attr_table(rows))
     console.print()
     console.print(
         Text("План: ", style="bold") + Text("1 к скачиванию", style="green") + Text(", 0 к изменению, 0 к удалению.")
     )
-    console.print(Text(f"Хранилище: {system.display_path(root)}", style="dim"))
-    console.print(Text("Скачать: ", style="dim") + Text(f"vydra d {data.get('url') or url}", style="cyan"))
+    console.print(Text("Скачать: ", style="dim") + Text(f"выдра скачать '{data.get('url') or url}'", style="cyan"))
 
 
 def convert(
@@ -404,52 +625,72 @@ def convert(
     start: FromOpt = None,
     end: ToOpt = None,
     out: OutOpt = None,
+    folder: FolderOpt = None,
+    yes: YesOpt = False,
 ) -> None:
     """Сконвертировать свои файлы в MP4/MP3 (можно вырезать отрезок). [dim](синоним: конвертировать)[/]"""
+    mode = fmt_value(fmt)
     cut = resolve_clip(clip, start, end)
+    auto = _auto_accept(yes)
     env = make_env(out)
-    banner(f"конвертер · {MODE_LABEL[fmt.value]}")
+    folder_rel = _folder(env, folder)
+    banner(f"конвертер · {MODE_LABEL[mode]}")
     console.print()
     jobs = []
     for file in files:
         copy = env.manager.new_upload_dir() / file.name
         shutil.copyfile(file, copy)
-        jobs.append(
-            env.manager.submit(
-                Job(kind="file", source=file.name, mode=fmt.value, bitrate=int(bitrate.value), clip=cut, input_path=copy)
-            )
-        )
+        job = Job(kind="file", source=file.name, mode=mode, bitrate=int(bitrate.value), clip=cut, input_path=copy,
+                  folder=folder_rel)  # fmt: skip
+        if hasattr(job, "auto_accept"):
+            job.auto_accept = auto
+        jobs.append(env.manager.submit(job))
     raise typer.Exit(run_jobs(env, jobs))
 
 
 def ui(
-    port: Annotated[int, typer.Option("--port", "-p", help="Порт веб-интерфейса")] = 8765,
-    no_browser: Annotated[bool, typer.Option("--no-browser", help="Не открывать браузер")] = False,
+    port: Annotated[int, typer.Option("--port", "-p", "--порт", help="Порт веб-интерфейса")] = 8765,
+    no_browser: Annotated[bool, typer.Option("--no-browser", "--без-браузера", help="Не открывать браузер")] = False,
 ) -> None:
     """Запустить веб-интерфейс и открыть его в браузере. [dim](синонимы: интерфейс, web)[/]"""
-    import os
-
     import uvicorn
 
-    url = f"http://localhost:{port}"
-    if _alive(port):
+    from .fsutil import FileLock
+
+    base = Settings.from_env()
+    lock = FileLock(base.work_dir / f"ui-{port}.lock", timeout=0)
+    lock.__enter__()
+    if _alive(port) or not lock.acquired:  # выдра уже запущена (или запускается) — просто открываем
+        for _ in range(100):
+            if _alive(port):
+                break
+            time.sleep(0.1)
+        lock.__exit__(None, None, None)
+        url = f"http://localhost:{port}"
         banner("уже запущена")
         console.print(Text(f"  {url}", style="bold cyan"))
         if not no_browser:
             system.open_url(url)
         return
     if _port_busy(port):
-        raise fail(f"Порт {port} занят другой программой", f"Запустите на другом: vydra ui --port {port + 1}")
+        lock.__exit__(None, None, None)
+        free = next((p for p in range(port + 1, port + 21) if not _port_busy(p) and not _alive(p)), None)
+        if free is None:
+            raise fail(f"Порт {port} и соседние заняты другими программами", "Укажите свой: выдра интерфейс --порт 9000")
+        console.print(Text(f"  Порт {port} занят другой программой — запускаю на {free}", style="yellow"))
+        port = free
+        lock = FileLock(base.work_dir / f"ui-{port}.lock", timeout=0)
+        lock.__enter__()
 
+    url = f"http://localhost:{port}"
     os.environ["VD_PORT"] = str(port)
     settings = Settings.from_env()
     root = Prefs(settings).library_dir
     body = Table.grid(padding=(0, 2))
     body.add_column(style="#9aa4b2")
     body.add_column()
-    body.add_row("Интерфейс", Text(url, style="bold cyan underline"))
-    body.add_row("Хранилище", Text(system.display_path(root), style="cyan"))
-    body.add_row("Кинотеатр", Text(f"{url}/lib/{CINEMA}", style="cyan"))
+    body.add_row("Интерфейс", Text(url, style=f"bold cyan underline link {url}"))
+    body.add_row("Хранилище", linked(root, "cyan"))
     body.add_row("", "")
     body.add_row("", Text("Не закрывайте это окно — выдра работает, пока оно открыто. Остановить: Ctrl+C", style="dim"))
     console.print()
@@ -467,23 +708,28 @@ def ui(
                 time.sleep(0.1)
 
         threading.Thread(target=opener, daemon=True).start()
-    uvicorn.run(
-        "vydra.main:create_app",
-        factory=True,
-        host="127.0.0.1",
-        port=port,
-        log_level="warning",
-        access_log=False,
-    )
+    try:
+        uvicorn.run(
+            "vydra.main:create_app",
+            factory=True,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            access_log=False,
+            timeout_graceful_shutdown=3,  # открытые вкладки (SSE) не должны задерживать остановку
+        )
+    finally:
+        lock.__exit__(None, None, None)
 
 
 # --- команды: хранилище ------------------------------------------------------------------
 
 
 def list_items(
-    kind: Annotated[str | None, typer.Option("--type", "-t", help="video или audio", show_default=False)] = None,
-    search: Annotated[str | None, typer.Option("--search", "-s", help="Поиск по названию", show_default=False)] = None,
-    limit: Annotated[int, typer.Option("--limit", "-n", help="Сколько показать")] = 25,
+    kind: Annotated[str | None, typer.Option("--type", "-t", "--тип", help="video/видео или audio/аудио", show_default=False)] = None,  # noqa: E501
+    search: Annotated[str | None, typer.Option("--search", "-s", "--поиск", help="Поиск по названию", show_default=False)] = None,  # noqa: E501
+    limit: Annotated[int, typer.Option("--limit", "-n", "--сколько", help="Сколько показать")] = 25,
+    paths: Annotated[bool, typer.Option("--paths", "--пути", help="Показать полные пути файлов")] = False,
 ) -> None:
     """Что лежит в хранилище. [dim](синонимы: список, ls)[/]"""
     settings = Settings.from_env()
@@ -491,42 +737,53 @@ def list_items(
     items = library.items()
     stats = library.stats()
     if kind:
-        items = [i for i in items if i["type"] == kind]
+        wanted = {"video": "video", "видео": "video", "audio": "audio", "аудио": "audio"}.get(kind.lower(), kind)
+        items = [i for i in items if i["type"] == wanted]
     if search:
         items = [i for i in items if search.lower() in (i["title"] or "").lower()]
     banner("хранилище")
+    console.print(Text("  ") + linked(library.root, "cyan"))
     if not items:
-        console.print(Text("\n  Пусто. Скачайте что-нибудь: ", style="dim") + Text("vydra d <ссылка>", style="cyan"))
+        console.print(Text("\n  Пусто. Скачайте что-нибудь: ", style="dim") + Text("выдра скачать -ф мп3", style="cyan"))
         return
-    table = Table(box=box.SIMPLE_HEAD, header_style="bold #9aa4b2", pad_edge=False, expand=False)
-    table.add_column("", width=2)
-    table.add_column("Название", max_width=max(24, console.width - 58), overflow="ellipsis", no_wrap=True)
-    table.add_column("Откуда", no_wrap=True, min_width=11)
-    table.add_column("Длина", justify="right", style="cyan", no_wrap=True, min_width=5)
-    table.add_column("Размер", justify="right", no_wrap=True, min_width=8)
-    table.add_column("Добавлено", style="dim", no_wrap=True, min_width=10)
-    for item in items[:limit]:
-        icon = Text("▶", style="#7c5cff") if item["type"] == "video" else Text("♪", style="#00d4ff")
-        table.add_row(
-            icon, item["title"], badge(item["platform"]), format_time(item["duration"]) if item["duration"] else "—",
-            size(item["size"]), ago(item["added"]),
-        )  # fmt: skip
-    console.print(table)
+    if paths:
+        for item in items[:limit]:
+            icon = Text("▶ ", style="#7c5cff") if item["type"] == "video" else Text("♪ ", style="#00d4ff")
+            console.print(Text("  ") + icon + linked(library.root / item["path"]))
+    else:
+        table = Table(box=box.SIMPLE_HEAD, header_style="bold #9aa4b2", pad_edge=False, expand=False)
+        table.add_column("", width=2)
+        table.add_column("Название", max_width=max(24, console.width - 58), overflow="ellipsis", no_wrap=True)
+        table.add_column("Папка", no_wrap=True, max_width=24, overflow="ellipsis", style="dim")
+        table.add_column("Длина", justify="right", style="cyan", no_wrap=True, min_width=5)
+        table.add_column("Размер", justify="right", no_wrap=True, min_width=8)
+        table.add_column("Добавлено", style="dim", no_wrap=True, min_width=10)
+        for item in items[:limit]:
+            icon = Text("▶", style="#7c5cff") if item["type"] == "video" else Text("♪", style="#00d4ff")
+            title = Text(item["title"], style=f"link {file_uri(library.root / item['path'])}")
+            table.add_row(
+                icon, title, rel_folder(item.get("folder") or ""),
+                format_time(item["duration"]) if item["duration"] else "—", size(item["size"]), ago(item["added"]),
+            )  # fmt: skip
+        console.print(table)
     console.print(
         Text(f"  {stats['videos']} видео · {stats['audios']} аудио · {size(stats['size'])}", style="dim")
-        + (Text(f"   (показано {limit} из {len(items)})", style="dim") if len(items) > limit else Text(""))
+        + (Text(f"   (показано {limit} из {len(items)}, все: --сколько 1000)", style="dim") if len(items) > limit else Text(""))
     )
 
 
 def folder(
-    path: Annotated[str | None, typer.Argument(help="Новая папка-хранилище (например D:\\Кино)", show_default=False)] = None,
-    reset: Annotated[bool, typer.Option("--reset", help="Вернуть папку по умолчанию")] = False,
-    pick: Annotated[bool, typer.Option("--pick", help="Выбрать в системном окне")] = False,
-    open_: Annotated[bool, typer.Option("--open", help="Открыть в файловом менеджере")] = False,
+    path: Annotated[str | None, typer.Argument(help="Новая папка-хранилище (например D:\\Видео)", show_default=False)] = None,
+    move: Annotated[bool, typer.Option("--move", "--перенести", help="Перенести уже скачанное в новую папку")] = False,
+    reset: Annotated[bool, typer.Option("--reset", "--сброс", help="Вернуть папку по умолчанию")] = False,
+    pick: Annotated[bool, typer.Option("--pick", "--выбрать", help="Выбрать в системном окне")] = False,
+    open_: Annotated[bool, typer.Option("--open", "--открыть", help="Открыть в файловом менеджере")] = False,
 ) -> None:
-    """Показать или сменить папку-хранилище. [dim](синоним: папка)[/]"""
+    """Где лежат файлы; сменить папку (с --перенести — вместе со скачанным). [dim](синоним: папка)[/]"""
     settings = Settings.from_env()
+    diagnostics.setup_logging(settings)
     library = Library(Prefs(settings), Media(settings))
+    banner("хранилище")
     new: Path | None = None
     try:
         if reset:
@@ -537,46 +794,84 @@ def folder(
                 raise fail("Выбор отменён", code=0)
         elif path:
             new = system.parse_user_path(path)
-        if new is not None:
-            old = library.root
-            library.set_root(new)
-            console.print(
-                Text("  ~ ", style="bold yellow") + Text("хранилище ", style="bold") + quoted(system.display_path(old), "dim")
-                + Text(" → ", style="bold yellow") + quoted(system.display_path(new))
-            )  # fmt: skip
     except (ValueError, system.NotSupported) as exc:
         raise fail(str(exc)) from exc
 
-    library.ensure_layout()
+    if new is not None:
+        if settings.fixed_library:
+            raise fail("Папка задана переменной окружения VD_LIBRARY_DIR — здесь её не сменить")
+        old = library.root
+        try:
+            if move and old.is_dir():
+                _move_with_progress(library, new)
+            else:
+                library.set_root(new)
+        except (ValueError, OSError) as exc:
+            raise fail(str(exc)) from exc
+        console.print(
+            Text("  ~ ", style="bold yellow") + Text("хранилище ", style="bold") + quoted(system.display_path(old), "dim")
+            + Text(" → ", style="bold yellow") + linked(new, "#e6d9a8")
+        )  # fmt: skip
+        if not move and any(old.glob("*/*/*")):
+            console.print(Text("    Уже скачанное осталось в старой папке. Перенести: ", style="dim")
+                          + Text(f"выдра папка \"{system.display_path(new)}\" --перенести", style="cyan"))  # fmt: skip
+        console.print()
+
+    try:
+        library.ensure_layout()
+    except OSError as exc:
+        raise fail(f"Папка хранилища недоступна: {exc}") from exc
     library.scan(force=True)
-    root = library.root
-    tree = Tree(Text(system.display_path(root), style="bold cyan"), guide_style="#3a4150")
-    items = library.items()
-    for kind, dirname in TYPE_DIRS.items():
-        branch = tree.add(Text(dirname, style="bold"))
-        for platform, sub in PLATFORM_DIRS.items():
-            count = sum(1 for i in items if i["type"] == kind and i["platform"] == platform)
-            if count:
-                branch.add(Text(sub) + Text(f"  {count}", style="dim"))
-    tree.add(Text(CINEMA, style="#e6d9a8") + Text("  офлайн-кинотеатр, открывается двойным кликом", style="dim"))
-    tree.add(Text(".vydra/", style="dim") + Text("  служебное: индекс и постеры", style="dim"))
-    banner("хранилище")
-    console.print(tree)
+    _print_layout(library)
     if settings.fixed_library:
         console.print(Text("  Папка задана переменной VD_LIBRARY_DIR", style="dim"))
     if open_:
-        system.open_path(root)
+        try:
+            system.open_path(library.root)
+        except (OSError, system.NotSupported) as exc:
+            raise fail(str(exc)) from exc
 
 
-def cinema() -> None:
-    """Открыть офлайн-кинотеатр. [dim](синоним: кинотеатр)[/]"""
-    settings = Settings.from_env()
-    library = Library(Prefs(settings), Media(settings))
-    library.ensure_layout()
-    library.scan(force=True)
-    target = library.root / CINEMA
-    console.print(Text("▶ ", style="bold #7c5cff") + Text(f"Открываю кинотеатр: {system.display_path(target)}"))
-    system.open_path(target)
+def _print_layout(library: Library) -> None:
+    root = library.root
+    items = library.items()
+    tree = Tree(linked(root, "bold cyan"), guide_style="#3a4150")
+    for platform, platform_dir in PLATFORM_DIRS.items():
+        mine = [i for i in items if (i.get("folder") or "").split("/")[0].casefold() == platform_dir.casefold()]
+        branch = tree.add(badge(platform) + Text(f"  {platform_dir}", style="bold") + Text(
+            f"  {plural(len(mine), 'файл', 'файла', 'файлов')}" if mine else "", style="dim"))  # fmt: skip
+        for type_key, type_dir in TYPE_DIRS.items():
+            count = sum(1 for i in mine if i["type"] == type_key)
+            branch.add(linked(root / platform_dir / type_dir, "", type_dir) + Text(f"  {count}" if count else "", style="dim"))
+    own = sorted({(i.get("folder") or "").split("/")[0] for i in items} - set(PLATFORM_DIRS.values()) - {""})
+    for name in own:
+        count = sum(1 for i in items if (i.get("folder") or "").split("/")[0] == name)
+        tree.add(Text(f"{name}/", style="bold") + Text(f"  {count}", style="dim"))
+    tree.add(Text(".vydra/", style="dim") + Text("  служебное: индекс и постеры", style="dim"))
+    console.print(tree)
+    console.print()
+    console.print(Text("  Куда что попадает: ", style="dim") + Text("<Платформа>/Видео", style="cyan")
+                  + Text(" и ", style="dim") + Text("<Платформа>/Аудио", style="cyan")
+                  + Text("; своя папка — ключ ", style="dim") + Text("--папка \"TikTok/Танцы\"", style="cyan"))  # fmt: skip
+    console.print(Text("  Сменить: ", style="dim") + Text("выдра папка \"D:\\Видео\" --перенести", style="cyan"))
+
+
+def _move_with_progress(library: Library, new: Path) -> None:
+    started = time.monotonic()
+    with Live(Text("  Переношу…", style="dim"), console=console, transient=True, refresh_per_second=10) as live:
+
+        def progress(done: int, total: int, name: str) -> None:
+            bar = ProgressBar(total=total or 1, completed=done, width=30, complete_style="#7c5cff", style="#2a2f3a")
+            line = Table.grid(padding=(0, 1))
+            line.add_row("  ", bar, Text(f"{size(done)} из {size(total)}", style="dim"),
+                         Text(name[-50:], style="dim", no_wrap=True))  # fmt: skip
+            live.update(line)
+
+        result = library.move_root(new, progress)
+    console.print(
+        Text("  ✓ ", style="bold green") + Text(f"Перенесено {size(result['bytes'])} за {seconds(time.monotonic() - started)}")
+        + (Text(f", переименовано из-за совпадений: {result['renamed']}", style="dim") if result["renamed"] else Text(""))
+    )
 
 
 # --- команды: обслуживание ---------------------------------------------------------------
@@ -585,18 +880,27 @@ STATUS_ICON = {"ok": ("✓", "green"), "warn": ("!", "yellow"), "fail": ("✗", 
 
 
 def doctor(
-    fix: Annotated[bool, typer.Option("--fix", help="Починить всё, что можно")] = False,
-    offline: Annotated[bool, typer.Option("--offline", help="Не проверять сеть")] = False,
+    fix: Annotated[bool, typer.Option("--fix", "--починить", help="Починить всё, что можно")] = False,
+    offline: Annotated[bool, typer.Option("--offline", "--без-сети", help="Не проверять сеть")] = False,
+    report: Annotated[bool, typer.Option("--report", "--отчёт", "--отчет", help="Собрать zip-отчёт для поддержки (без cookies)")] = False,  # noqa: E501
 ) -> None:
     """Проверить систему и починить неполадки. [dim](синонимы: доктор, health)[/]"""
     from .health import Doctor, summary
 
     settings = Settings.from_env()
+    diagnostics.setup_logging(settings)
     library = Library(Prefs(settings), Media(settings))
     doc = Doctor(settings, library)
     banner("доктор")
     with console.status(Text("Проверяю систему…", style="dim"), spinner="dots"):
         checks = doc.run(network=not offline)
+    if report:
+        extra = {"stats": library.stats(), "audit": library.audit(), "root": system.display_path(library.root)}
+        target = Path.cwd() / time.strftime("vydra-report-%Y%m%d-%H%M.zip")
+        target.write_bytes(diagnostics.build_report(settings, [c.public() for c in checks], extra))
+        console.print(Text("  + ", style="bold green") + Text("отчёт ") + linked(target, "#e6d9a8"))
+        console.print(Text("  Внутри версии, результаты проверки и журналы. Cookies и ссылки с токенами туда не попадают.", style="dim"))
+        return
 
     def show(checks) -> None:
         table = Table.grid(padding=(0, 2))
@@ -609,7 +913,7 @@ def doctor(
             if c.hint:
                 detail.append(f"\n{c.hint}", style="dim")
             if c.fix and c.status != "ok" and not fix:
-                detail.append(f"\n→ vydra doctor --fix  ({c.fix.lower()})", style="dim cyan")
+                detail.append(f"\n→ выдра доктор --починить  ({c.fix.lower()})", style="dim cyan")
             table.add_row(Text(f" {icon}", style=f"bold {color}"), c.title, detail)
         console.print()
         console.print(table)
@@ -683,26 +987,54 @@ class Shell(str, Enum):
     zsh = "zsh"
     fish = "fish"
     powershell = "powershell"
-    pwsh = "pwsh"
 
 
 def completion(
-    shell: Annotated[Shell | None, typer.Option("--shell", help="Оболочка (по умолчанию — текущая)", show_default=False)] = None,
-    show: Annotated[bool, typer.Option("--show", help="Только показать скрипт, не устанавливать")] = False,
+    shell_name: Annotated[Shell | None, typer.Option("--shell", "--оболочка", help="Только для этой оболочки", show_default=False)] = None,  # noqa: E501
+    show: Annotated[bool, typer.Option("--show", "--показать", help="Показать скрипт, ничего не устанавливая")] = False,
+    uninstall: Annotated[bool, typer.Option("--uninstall", "--удалить", help="Убрать автодополнение и умные ссылки")] = False,  # noqa: E501
 ) -> None:
-    """Включить автодополнение команд по Tab. [dim](синоним: автодополнение)[/]"""
-    from typer import _completion_shared as tc
+    """Tab-подсказки и умные ссылки (кавычки ставятся сами). [dim](синоним: автодополнение)[/]"""
+    from . import shell
 
-    name = shell.value if shell else tc._get_shell_name()
+    settings = Settings.from_env()
     if show:
-        print(tc.get_completion_script(prog_name="vydra", complete_var="_VYDRA_COMPLETE", shell=name or "bash"))
+        print(shell.script(shell_name.value if shell_name else (shell.detect_shell() or "bash")))
         return
+    if uninstall:
+        removed = shell.uninstall(settings.config_dir)
+        for path in removed:
+            console.print(Text("  - ", style="bold red") + Text(system.display_path(path)))
+        console.print(Text("  Готово." if removed else "  Нечего убирать.", style="dim"))
+        return
+    targets = shell.install(settings.config_dir, [shell_name.value] if shell_name else None)
+    if not targets:
+        raise fail("Не нашёл поддерживаемых оболочек", "Поддерживаются bash, zsh, fish и PowerShell")
+    for target in targets:
+        where = target.rc or target.script
+        console.print(Text("  + ", style="bold green") + Text(f"{target.shell}: ") + Text(str(where), style="#e6d9a8"))
+    console.print(Text("  Откройте новый терминал: Tab подсказывает команды и ключи, а ссылки с & можно не брать в кавычки.",
+                       style="dim"))  # fmt: skip
+    if system.OS == "wsl":
+        console.print(Text("  Для PowerShell и cmd в Windows: ", style="dim") + Text("выдра мост", style="cyan"))
+
+
+def bridge_cmd(
+    uninstall: Annotated[bool, typer.Option("--uninstall", "--удалить", help="Убрать команды из Windows")] = False,
+) -> None:
+    """WSL: команды vydra и выдра в PowerShell и cmd Windows. [dim](синоним: мост)[/]"""
+    from . import bridge
+
+    banner("мост WSL → Windows")
     try:
-        installed, path = tc.install(shell=name, prog_name="vydra", complete_var="_VYDRA_COMPLETE")
-    except (typer.Exit, SystemExit) as exc:
-        raise fail(f"Оболочка «{name}» не поддерживается", "Поддерживаются bash, zsh, fish и PowerShell") from exc
-    console.print(Text("  + ", style="bold green") + Text(f"автодополнение для {installed}: ") + quoted(str(path)))
-    console.print(Text("  Откройте новый терминал — и жмите Tab после «vydra ».", style="dim"))
+        if uninstall:
+            removed = bridge.uninstall()
+            console.print(Text(f"  - убрано: {', '.join(removed) or 'ничего'}", style="dim"))
+            return
+        for message in bridge.install():
+            console.print(Text("  + ", style="bold green") + Text(message))
+    except bridge.BridgeError as exc:
+        raise fail(str(exc)) from exc
 
 
 # --- интерактивный режим -----------------------------------------------------------------
@@ -712,17 +1044,26 @@ def interactive() -> None:
     from .downloader import DownloadFailed, preview
 
     banner("интерактивный режим")
-    console.print(Text("  Вставьте ссылку и нажмите Enter. Пустая строка или Ctrl+C — выход. Все команды: vydra --help", style="dim"))
+    console.print(Text("  Вставьте ссылку и нажмите Enter (кавычки не нужны). Пустая строка или Ctrl+C — выход.", style="dim"))
     settings = Settings.from_env()
+    diagnostics.setup_logging(settings)
     last = {"fmt": "1", "quality": "1080", "bitrate": "192"}
+    offered: set[str] = set()
     while True:
         console.print()
+        found = [link for link in clipboard.links() if link not in offered][:1]
+        label = Text("Ссылка", style="bold #7c5cff")
+        if found:
+            label += Text(f" [Enter — из буфера: {found[0][:60]}]", style="dim")
         try:
-            raw = Prompt.ask(Text("Ссылка", style="bold #7c5cff") + Text(" ›", style="dim"), default="", show_default=False)
+            raw = Prompt.ask(label + Text(" ›", style="dim"), default="", show_default=False)
         except (KeyboardInterrupt, EOFError):
             console.print()
             return
-        urls = raw.split()
+        urls = clipboard.extract_links(raw) or raw.split()
+        if not raw.strip() and found:
+            urls = found
+            offered.update(found)
         if not urls:
             return
         try:
@@ -748,7 +1089,7 @@ def interactive() -> None:
             mode = {"1": "mp4", "2": "mp3", "3": "both"}[choice]
             quality, bitrate = last["quality"], last["bitrate"]
             if mode != "mp3":
-                quality = Prompt.ask(Text("Качество", style="bold"), choices=[q.value for q in Quality], default=quality)
+                quality = Prompt.ask(Text("Качество", style="bold"), choices=["max", "1080", "720", "480", "360"], default=quality)
             if mode != "mp4":
                 bitrate = Prompt.ask(Text("MP3, кбит/с", style="bold"), choices=[b.value for b in Bitrate], default=bitrate)
             while True:
@@ -767,10 +1108,10 @@ def interactive() -> None:
         last.update(fmt=choice, quality=quality, bitrate=bitrate)
         console.print()
         env = make_env()
-        jobs = [
-            env.manager.submit(Job(kind="url", source=u, mode=mode, quality=quality, bitrate=int(bitrate), clip=cut))
-            for u in urls
-        ]
+        jobs = []
+        for u in urls:
+            job = Job(kind="url", source=u, mode=mode, quality=quality, bitrate=int(bitrate), clip=cut)
+            jobs.append(env.manager.submit(job))
         run_jobs(env, jobs)
         console.print(Rule(style="#2a2f3a"))
 
@@ -779,28 +1120,31 @@ def interactive() -> None:
 
 MAIN, STORE, SERVICE, RU = "Основное", "Хранилище", "Обслуживание", "По-русски"
 COMMANDS = [
-    (download, "download", ["скачать", "d"], MAIN),
-    (info, "info", ["инфо", "plan"], MAIN),
-    (convert, "convert", ["конвертировать"], MAIN),
-    (ui, "ui", ["интерфейс", "web"], MAIN),
-    (list_items, "list", ["список", "ls"], STORE),
-    (folder, "folder", ["папка"], STORE),
-    (cinema, "cinema", ["кинотеатр"], STORE),
-    (doctor, "doctor", ["доктор", "health"], SERVICE),
-    (update, "update", ["обновить"], SERVICE),
-    (shortcut, "shortcut", ["ярлык"], SERVICE),
-    (completion, "completion", ["автодополнение"], SERVICE),
+    (download, "download", MAIN),
+    (info, "info", MAIN),
+    (convert, "convert", MAIN),
+    (ui, "ui", MAIN),
+    (list_items, "list", STORE),
+    (folder, "folder", STORE),
+    (doctor, "doctor", SERVICE),
+    (update, "update", SERVICE),
+    (shortcut, "shortcut", SERVICE),
+    (completion, "completion", SERVICE),
+    (bridge_cmd, "bridge", SERVICE),
 ]
-for func, name, _, panel in COMMANDS:
+for func, name, panel in COMMANDS:
     app.command(name, rich_help_panel=panel)(func)
-for func, name, aliases, panel in COMMANDS:  # синонимы вторым проходом — панель «По-русски» будет последней
-    for alias in aliases:
-        cyrillic = any("а" <= ch <= "я" for ch in alias)
+for func, name, panel in COMMANDS:  # синонимы вторым проходом — панель «По-русски» будет последней
+    for alias in argv.COMMAND_ALIASES[name][1:]:
+        cyrillic = any("а" <= ch.lower() <= "я" or ch == "ё" for ch in alias)
+        primary = cyrillic and alias == next(
+            (a for a in argv.COMMAND_ALIASES[name][1:] if any("а" <= c <= "я" for c in a)), None
+        )
         app.command(
             alias,
             rich_help_panel=RU if cyrillic else panel,
             help=f"→ [cyan]{name}[/]",
-            hidden=not cyrillic,  # короткие латинские синонимы работают, но не мозолят глаза в справке
+            hidden=not primary,  # в справке — по одному русскому имени на команду
         )(func)
 
 
@@ -813,7 +1157,7 @@ def _version(value: bool) -> None:
 @app.callback()
 def _root(
     ctx: typer.Context,
-    version: Annotated[bool, typer.Option("--version", "-V", help="Версия", callback=_version, is_eager=True)] = False,
+    version: Annotated[bool, typer.Option("--version", "-V", "--версия", help="Версия", callback=_version, is_eager=True)] = False,  # noqa: E501
 ) -> None:
     if ctx.invoked_subcommand is None:
         interactive()
@@ -867,4 +1211,11 @@ def main() -> None:
                 stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
             except (AttributeError, ValueError):
                 pass
-    app()
+    args = sys.argv[1:]
+    if not os.environ.get("_VYDRA_COMPLETE"):  # при автодополнении строку разбирает сам Click
+        normalized = argv.normalize(args)
+        args = normalized.args
+        if normalized.hint:
+            err.print(Text(f"  {normalized.hint}", style="dim"))
+    # complete_var задан явно: из «выдра» Typer вывел бы _ВЫДРА_COMPLETE — недопустимое имя переменной в bash
+    app(args=args, prog_name=Path(sys.argv[0]).stem or "vydra", complete_var="_VYDRA_COMPLETE")
