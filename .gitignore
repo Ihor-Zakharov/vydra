@@ -6,3 +6,7 @@ __pycache__/
 .env
 .env.*
 cookies.txt
+.sprint/
+.claude/state/
+.claude/worktrees/
+.claude/settings.local.json
