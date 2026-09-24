@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": ["Bash(uv run pytest:*)", "Bash(uv run vydra:*)", "Bash(uv run uvicorn:*)", "Bash(uv run --with playwright:*)",
+              "Bash(python3 tools/sprint.py:*)", "Bash(python3 tools/ui_rig.py:*)", "Bash(python3 tools/e2e.py:*)",
+              "Bash(curl -s:*)", "Bash(ss -ltnp:*)", "Bash(node --check:*)", "Bash(ffprobe:*)", "Bash(git add:*)",
+              "Bash(git commit:*)", "Bash(git merge:*)", "Bash(git worktree list:*)"],
+    "ask": ["Bash(git push:*)"],
+    "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/cookies.txt)"]
+  },
+  "hooks": {
+    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session_start.py", "timeout": 10}]}],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_bash.py", "timeout": 10}]},
+      {"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/guard_write.py", "timeout": 10}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Edit|Write|MultiEdit", "hooks": [{"type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_edit_check.py", "timeout": 60}]}
+    ]
+  }
+}
