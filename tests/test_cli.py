@@ -63,3 +63,18 @@ def test_usage_error_translations():
     assert t("Got unexpected extra argument(s) (x y)") == "Лишнее в команде: x y"
     assert t("Option '-f' requires an argument.") == "Ключу -f нужно значение"
     assert t("что-то новое") == "что-то новое"
+
+
+def test_tab_completion_answers_for_bash_and_zsh():
+    """Классы оболочек Typer регистрирует только при add_completion=True — без них Tab отвечал
+    «Shell bash not supported» (так было и в выпущенной версии)."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ, COMP_WORDS="vydra st", COMP_CWORD="1", _VYDRA_COMPLETE="complete_bash")
+    out = subprocess.run([sys.executable, "-m", "vydra"], env=env, capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0 and "stop" in out.stdout.split(), out.stderr
+    env = dict(os.environ, _TYPER_COMPLETE_ARGS="vydra d -f ", _VYDRA_COMPLETE="complete_zsh")
+    out = subprocess.run([sys.executable, "-m", "vydra"], env=env, capture_output=True, text=True, timeout=30)
+    assert out.returncode == 0 and "mp3" in out.stdout, out.stderr

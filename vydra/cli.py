@@ -1722,6 +1722,20 @@ def _russian_errors() -> None:
 _russian_errors()
 
 
+def _enable_completion() -> None:
+    """Tab-подсказки. Классы оболочек Typer регистрирует, только когда включена его собственная команда
+    автодополнения (add_completion=True), а у нас своя (`vydra completion`) — без этого вызова оболочка получала
+    «Shell bash not supported» и Tab молчал."""
+    try:
+        from typer._completion_classes import completion_init
+    except ImportError:  # другие версии Typer
+        return
+    completion_init()
+
+
+_enable_completion()
+
+
 def main() -> None:
     _russian_help_option()
     if sys.platform == "win32":
