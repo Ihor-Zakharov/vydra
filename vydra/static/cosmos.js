@@ -2,12 +2,13 @@
 // поверх — глубина планами и тихое движение (docs/design/DIRECTION.md §4, §5).
 //
 // Слои (сзади вперёд): «чистый план» (звёзды, туманность, световая плоскость-«океан» из scene/plate.webp; честно линзируется,
-// «океан» — в перспективе и с волнами) → процедурные звёзды → средняя пыль → туман (спиральный вихрь, подсвечен кольцом,
+// «океан» — в перспективе и с волнами) → рассыпь тусклых звёзд → процедурные звёзды → пара заметных звёзд (обе — под звёзды
+// плана, выдаёт их только параллакс) → средняя пыль → туман (спиральный вихрь, подсвечен кольцом,
 // лучи и объёмные тени) → туман на горизонте → ореол (плато + многоступенчатый спад, нити, тонкие концентрические кольца,
 // латеральная хроматическая аберрация) → плоскость-горизонт (пятно света, отражение кольца) → анаморфный блик → тон-маппинг →
 // ядро-сфера (в экранных значениях) → фотонное кольцо → ближний план (боке, клочья тумана) → дизеринг.
 // Параметры — CSS-токены --bh-* на .cosmos-wrap (читаются при resize и по readTokens()). Токены глубины (--bh-par, --bh-sea-persp,
-// --bh-waves, --bh-mist, --bh-near, --bh-dust) в 0 возвращают эталон 09:37 попиксельно (ворота §5.6).
+// --bh-waves, --bh-mist, --bh-near, --bh-dust) и звёзд (--bh-specks, --bh-pair) в 0 возвращают эталон 09:37 попиксельно (ворота §5.6).
 //
 // API: createCosmos(canvas, { reduced, seed, resScale }) →
 //   { ok, setAccent(hex, amt), setPointer(x, y), setScroll(v), setEnergy(v), pulse('go' | 'done'), pause(), resume(), resize(),
@@ -49,6 +50,9 @@ uniform float uWaves;      // волны по «океану» 0..1
 uniform float uMist;       // туман на горизонте и воздушная перспектива 0..1
 uniform float uNear;       // ближний план: боке и клочья тумана 0..1
 uniform float uDust;       // средняя пыль 0..1
+uniform vec4  uSpecks;     // рассыпь тусклых звёзд: x — яркость, y — плотность (доля ячеек), z — оттенок 0..1, w — параллакс (доля размаха)
+uniform vec4  uPairA[3];   // пара заметных звёзд: xy — место от центра дыры (доли R, вверх +), z — параллакс (доля размаха), w — яркость
+uniform float uPairS[3];   // их размер: σ ядра, доли H
 uniform float uInvert;
 uniform float uSeed;
 uniform sampler2D uFarTex;
@@ -85,6 +89,28 @@ float stars(vec2 q, float cell, float density, float sigmaPx, float upp, float b
     float d = length(q - c) / upp;
     float s = sigmaPx * (0.7 + 0.6 * h2.z);
     acc += b * tw * (exp(-d * d / (2.0 * s * s)) + 0.04 * exp(-d / (s * 4.0)));
+  }
+  return acc;
+}
+
+// рассыпь тусклых звёзд: как stars(), но медленнее мерцает, а у части звёзд — розовый или голубой оттенок на грани различимости
+vec3 specks(vec2 q, float cell, float density, float sigmaPx, float upp, float bright, float hue){
+  vec2 g = floor(q / cell);
+  vec3 acc = vec3(0.0);
+  for (int j = -1; j <= 1; j++)
+  for (int i = -1; i <= 1; i++){
+    vec2 id = g + vec2(i, j);
+    vec3 h = hash33(vec3(id, 23.0));
+    if (h.x > density) continue;
+    vec2 c = (id + 0.12 + 0.76 * h.yz) * cell;
+    vec3 h2 = hash33(vec3(id + 37.0, 29.0));
+    float b = pow(h2.x, 2.6) * bright;
+    float tw = 1.0 + 0.10 * sin(uTime * (0.15 + 0.5 * h2.y) + TAU * h2.z);
+    float d = length(q - c) / upp;
+    float s = sigmaPx * (0.85 + 0.3 * h2.z);
+    float lum = b * tw * (exp(-d * d / (2.0 * s * s)) + 0.04 * exp(-d / (s * 1.8)));
+    vec3 tint = h2.y < 0.6 ? vec3(1.0) : (h2.y < 0.8 ? vec3(1.0, 0.86, 0.93) : vec3(0.86, 0.92, 1.0));   // 60 % белых, 20 % розоватых, 20 % голубоватых
+    acc += lum * mix(vec3(1.0), tint, hue);
   }
   return acc;
 }
@@ -183,7 +209,7 @@ void main(){
       float xg = sig * 0.5;                                         // 0 у горизонта … ≈1 у нижнего края окна
       float a = 0.40 * uPersp;
       float sig2 = 2.0 * xg * (1.0 + a) / (1.0 + a * xg);          // у горизонта штрихи плотнее и мельче, у края — крупнее
-      float hx = mix(1.0, 1.0 - 0.06 * uPersp, clamp(xg, 0.0, 1.0));  // у края штрихи чуть длиннее (сильнее — светлеет угол с показаниями)
+      float hx = mix(1.0, 1.0 - 0.06 * min(uPersp, 1.2), clamp(xg, 0.0, 1.0));  // у края штрихи чуть длиннее (сильнее — светлеет угол с показаниями)
       if (uWaves > 0.0) {
         // волны в «глубине» воды z ~ 1/σ: к горизонту мельче, плотнее и медленнее. Зыбь (14 с) + две ряби (11 и 17 с)
         float zi = 1.0 / (sig + 0.08);
@@ -191,7 +217,8 @@ void main(){
         float w1 = 45.0 * zi + 2.6 * ql.x * zi - t * TAU / 11.0;
         float w2 = 29.0 * zi - 4.1 * ql.x * zi - t * TAU / 17.0 + 1.7;
         float amp = uWaves * min(sig, 2.4) * smoothstep(0.2, 0.9, sig);
-        sig2 += amp * (0.028 * sin(w0) + 0.009 * sin(w1) + 0.004 * sin(w2));
+        float rip = min(uWaves, 1.0) / uWaves;                      // рябь не сильнее эталона: выше выборка складывается (швы у гребней)
+        sig2 += amp * (0.028 * sin(w0) + rip * (0.009 * sin(w1) + 0.004 * sin(w2)));
         waveHi = uWaves * smoothstep(0.3, 1.4, sig) * (0.10 * cos(w0) + 0.06 * cos(w1) + 0.03 * cos(w2));
       }
       ql = vec2(ql.x * hx, yPl - sig2);
@@ -216,6 +243,24 @@ void main(){
   S += stars(qss + par * 0.40 + uSeed, 0.070, 0.20, 0.95, uppq, 0.20, 2.0);
   S += stars(qss + par * 0.70 + uSeed, 0.200, 0.22, 1.30, uppq, 0.80, 3.0);
   L += S * uStars * clamp(1.0 / max(abs(lensS), 0.3), 0.7, 1.8);
+
+  // рассыпь тусклых звёзд — дальше всех (параллакс слабее неба), под линией горизонта гаснет, в колонке текста её нет
+  vec3 SP = vec3(0.0);
+  if (uSpecks.x > 0.0) {
+    float spM = smoothstep(0.30, 0.55, fc.x / uRes.x) * smoothstep(-0.05, 0.30, ylF);
+    if (spM > 0.0) SP = specks(qss + par * uSpecks.w + uSeed * 1.7, 0.034, uSpecks.y, max(0.0015 * H, 0.65), uppq, 0.26 * uSpecks.x, uSpecks.z) * spM;
+  }
+
+  // пара заметных звёзд — как звёзды плана: мягкое ядро и короткое свечение, без лучей; у каждой своя глубина
+  for (int k = 0; k < 3; k++) {
+    vec4 a = uPairA[k];
+    if (a.w <= 0.0) continue;
+    vec2 d = P - a.xy * uR + par * a.z * H;
+    float s = max(uPairS[k] * H, 0.75);
+    float r2 = dot(d, d);
+    float tw = 1.0 + 0.05 * sin(t * (0.21 + 0.13 * float(k)) + 1.7 * float(k));
+    L += a.w * tw * (exp(-r2 / (2.0 * s * s)) + 0.06 * exp(-sqrt(r2) / (s * 2.5)));
+  }
 
   // ---------- средний план: пыль — медленно дрейфует ----------
   if (uDust > 0.0) {
@@ -330,7 +375,7 @@ void main(){
               * uFlare * (0.85 + 0.15 * sin(t * 0.37));
 
   // ---------- сборка (HDR) ----------
-  col = vec3(L) + fogCol + halo + kayma + vec3(pr) + vec3(planeL + mistL) * ice + vec3(flare) * vec3(0.92, 0.96, 1.0);
+  col = vec3(L) + SP + fogCol + halo + kayma + vec3(pr) + vec3(planeL + mistL) * ice + vec3(flare) * vec3(0.92, 0.96, 1.0);
   // широкая диффузия: всё рядом с кольцом чуть приподнято (свет рассеивается в воздухе)
   col += vec3(0.020 / (1.0 + (e / 0.8) * (e / 0.8))) * be * breath * ice;
 
@@ -403,7 +448,17 @@ const DEF = {
   halo: 1.0, band: 0.22, ca: 1.0, beam: 160, beamAmt: 0.32, lens: 0.8,
   fog: 1.0, rays: 1.0, plane: 1.0, planeY: 1.45, far: 0.85, stars: 0.4, flare: 1.0, inner: 1.0, fib: 0.85,
   par: 1, persp: 1, waves: 1, mist: 1, near: 1, dust: 1,
+  specks: 1, specksN: 0.24, specksHue: 1, specksPar: 0.10, pair: 1, pairPar: 1,
 };
+// пара заметных звёзд (их три, но третья — едва заметная): место от центра дыры в долях R (x вправо, y вверх) — правее колонки
+// текста и выше «океана»; глубина — доля размаха параллакса (дыра 0, небо плана 0,15, «рассыпь» --bh-specks-par); яркость — в
+// линейном свете сцены (самая яркая звезда плана ≈ 0,5); размер — σ ядра в долях H (звезда плана — σ ≈ 0,0015–0,002 H; меньше 0,75 px холста не бывает — иначе мерцает при параллаксе).
+// Сила всей пары — --bh-pair, размах глубин — --bh-pair-par.
+const PAIR = [
+  { x: 2.30, y: 1.90, depth: 0.90, amp: 0.55, size: 0.0016 },
+  { x: -1.55, y: 2.95, depth: 0.55, amp: 0.42, size: 0.0015 },
+  { x: 3.30, y: -0.35, depth: 0.30, amp: 0.32, size: 0.0014 },
+];
 const OPEN = 1.8;          // появление сцены, с: кольцо — за первые 40 %, всё остальное — плавно к концу (§4.2)
 const POSTER_T = 14.0;     // «время постера»: нити уже закручены, кадр без движения выглядит собранным (§4.5)
 const PACE = 1.15;         // темп сцены: волны, нити, кольцо — на 15 % живее эталона (просьба пользователя); кадр постера не меняется
@@ -485,7 +540,7 @@ export function createCosmos(canvas, opts = {}) {
   const U = {};
   for (const n of ['uRes', 'uH', 'uTime', 'uPar', 'uParAmt', 'uScroll', 'uC', 'uR', 'uHalo', 'uBand', 'uCA', 'uBeam', 'uBeamAmt', 'uLensE',
     'uTint', 'uTintAmt', 'uSwell', 'uEnergy', 'uFog', 'uRays', 'uPlane', 'uPlaneY', 'uFar', 'uStars', 'uFlare',
-    'uInner', 'uFib', 'uPersp', 'uWaves', 'uMist', 'uNear', 'uDust', 'uInvert', 'uSeed', 'uFarTex', 'uFarMap', 'uFarAnchor', 'uHasFar',
+    'uInner', 'uFib', 'uPersp', 'uWaves', 'uMist', 'uNear', 'uDust', 'uSpecks', 'uPairA', 'uPairS', 'uInvert', 'uSeed', 'uFarTex', 'uFarMap', 'uFarAnchor', 'uHasFar',
     'uExpo', 'uExpoRing']) U[n] = gl.getUniformLocation(prog, n);
   const seed = opts.seed ?? 0.37;
   api.ok = true;
@@ -530,6 +585,9 @@ export function createCosmos(canvas, opts = {}) {
       flare: num(cs, '--bh-flare', DEF.flare), inner: num(cs, '--bh-inner', DEF.inner), fib: num(cs, '--bh-fib', DEF.fib),
       par: num(cs, '--bh-par', DEF.par), persp: num(cs, '--bh-sea-persp', DEF.persp), waves: num(cs, '--bh-waves', DEF.waves),
       mist: num(cs, '--bh-mist', DEF.mist), near: num(cs, '--bh-near', DEF.near), dust: num(cs, '--bh-dust', DEF.dust),
+      specks: num(cs, '--bh-specks', DEF.specks), specksN: num(cs, '--bh-specks-n', DEF.specksN),
+      specksHue: num(cs, '--bh-specks-hue', DEF.specksHue), specksPar: num(cs, '--bh-specks-par', DEF.specksPar),
+      pair: num(cs, '--bh-pair', DEF.pair), pairPar: num(cs, '--bh-pair-par', DEF.pairPar),
     };
     const key = JSON.stringify(n);
     if (key === tokKey) return false;
@@ -595,6 +653,9 @@ export function createCosmos(canvas, opts = {}) {
     gl.uniform1f(U.uMist, tok.mist);
     gl.uniform1f(U.uNear, api._lite ? 0 : tok.near);
     gl.uniform1f(U.uDust, api._lite ? 0 : tok.dust);
+    gl.uniform4f(U.uSpecks, api._lite ? 0 : tok.specks, tok.specksN, tok.specksHue, tok.specksPar);
+    gl.uniform4fv(U.uPairA, PAIR.flatMap((s) => [s.x, s.y, s.depth * tok.pairPar, s.amp * tok.pair]));
+    gl.uniform1fv(U.uPairS, PAIR.map((s) => s.size));
     gl.uniform1f(U.uInvert, api.invert);
     gl.uniform1f(U.uSeed, seed);
     gl.uniform1i(U.uFarTex, 0);
