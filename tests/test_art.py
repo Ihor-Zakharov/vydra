@@ -34,7 +34,8 @@ def test_art_is_fast():
 
 
 @pytest.mark.parametrize(("cols", "rows", "expected"), [
-    (120, 40, (120, 10)), (300, 80, (180, 16)), (100, 20, (100, 8)), (47, 40, None), (120, 15, None),
+    (120, 40, (116, 10)), (140, 40, (136, 10)), (300, 80, (180, 16)), (100, 20, (97, 8)), (47, 40, None),
+    (120, 15, None),
 ])  # fmt: skip
 def test_size_is_a_quarter_of_the_screen(cols, rows, expected):
     assert art.size_for(cols, rows) == expected
@@ -124,3 +125,15 @@ def test_art_setting_does_not_disturb_server_prefs(cfg, tmp_path):
     assert prefs.library_dir == tmp_path / "Кино" and prefs.console_art is False
     prefs.set_library_dir(tmp_path / "Музыка")
     assert prefs.console_art is False
+
+
+def test_art_leaves_room_on_the_right_and_fades_at_both_ends():
+    """Пользователь: заставка не должна упираться в правый край окна, а горизонт — обрываться (скриншот 25.09)."""
+    cols, rows = art.size_for(140, 40)
+    assert 140 - cols >= 3
+    scene = art.Scene(cols, rows * 2)
+    y = int(scene.horizon)
+    lum = [max(scene.pixel(x, y)) for x in range(cols)]
+    assert max(lum[0], lum[1], lum[-2], lum[-1]) < art.CLEAR  # у самых краёв — фон терминала
+    assert lum[cols // 4] > 2 * lum[1] and lum[cols - 8] > lum[-1]  # к краям гаснет плавно, а не обрывается
+    assert all(len(ANSI.sub("", line)) == cols for line in art.render(cols, rows, "truecolor"))

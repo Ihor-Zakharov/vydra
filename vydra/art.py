@@ -22,6 +22,8 @@ import os
 MIN_ROWS, MAX_ROWS = 8, 16
 MIN_COLS = 48  # уже — без заставки
 MAX_COLS = 180
+RIGHT_GAP = 0.03  # доля ширины окна справа без заставки
+EDGE_FADE = 0.14  # на такой доле ширины у каждого края горизонт мягко гаснет
 SHADES = "  ·░▒▓█"
 
 
@@ -40,7 +42,8 @@ def size_for(cols: int, rows: int) -> tuple[int, int] | None:
     """(ширина, высота) заставки в символах или None — окно слишком маленькое."""
     if cols < MIN_COLS or rows < 16:
         return None
-    return min(cols, MAX_COLS), max(MIN_ROWS, min(MAX_ROWS, rows // 4))
+    # справа оставляем ~3 % окна пустыми: заставка не упирается в край (просьба пользователя по скриншоту)
+    return min(cols - max(2, round(cols * RIGHT_GAP)), MAX_COLS), max(MIN_ROWS, min(MAX_ROWS, rows // 4))
 
 
 def color_mode(color_system: str | None) -> str | None:
@@ -93,6 +96,8 @@ class Scene:
         for xi in range(w):
             dx = xi + 0.5 - self.cx
             under = 0.1 + 0.9 * math.exp(-((dx / (w * 0.2)) ** 2))
+            fade = max(3.0, w * EDGE_FADE)  # концы полосы не обрываются, а гаснут к обоим краям
+            under *= _smooth(0.0, fade, xi + 0.5) * _smooth(0.0, fade, w - xi - 0.5)
             spread = math.exp(-((dx / (self.r * 2.6)) ** 2)) * (0.6 + 0.4 * _hash(int((xi + 0.5) * 0.5), 7))
             self.cols.append((under, spread))
         self.step = max(1.6, self.r * 0.2)
