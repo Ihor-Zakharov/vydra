@@ -13,7 +13,7 @@
   --bh-fog: 1; --bh-rays: 1; --bh-plane: 1; --bh-plane-y: 1.45; --bh-far: .85; --bh-stars: .4; --bh-flare: 1; --bh-inner: 1; --bh-fib: .85;
   /* S1d — глубина поверх эталона (все 0 → эталон попиксельно): параллакс планов, перспектива и волны «океана»,
      туман на горизонте, ближний план, средняя пыль */
-  --bh-par: 1; --bh-sea-persp: 1; --bh-waves: 1; --bh-mist: 1; --bh-near: 1; --bh-dust: 1;
+  --bh-par: 1.2; --bh-sea-persp: 1.2; --bh-waves: 1.2; --bh-mist: 1.2; --bh-near: 1.2; --bh-dust: 1.2;
 }
 .cosmos { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 /* затемнение под колонкой текста (§6) */
