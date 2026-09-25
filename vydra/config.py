@@ -130,6 +130,18 @@ class Prefs:
             self._write(data)
 
     @property
+    def lang(self) -> str | None:
+        """Язык консоли (`vydra lang`): en / ru; None — не выбран (английский)."""
+        value = self._read().get("lang")
+        return value if value in ("en", "ru") else None
+
+    def set_lang(self, lang: str) -> None:
+        with self._lock:
+            data = self._read()
+            data["lang"] = lang
+            self._write(data)
+
+    @property
     def previous_library_dir(self) -> Path | None:
         """Прежняя папка хранилища — откуда переносить «уже скачанное» после смены папки."""
         value = self._read().get("previous_library_dir")

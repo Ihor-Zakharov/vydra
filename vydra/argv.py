@@ -151,6 +151,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "uninstall": Opt(("--uninstall", "--удалить")),
     },
     "bridge": {"uninstall": Opt(("--uninstall", "--удалить"))},
+    "lang": {},
 }
 GLOBAL_OPTS = {
     "version": Opt(("--version", "-V", "--версия")),
@@ -173,6 +174,7 @@ COMMAND_ALIASES = {
     "shortcut": ("shortcut", "ярлык"),
     "completion": ("completion", "автодополнение"),
     "bridge": ("bridge", "мост"),
+    "lang": ("lang", "язык", "language"),
 }
 COMMANDS = {alias: canon for canon, aliases in COMMAND_ALIASES.items() for alias in aliases}
 # Короткие синонимы, которые легко спутать при наборе в другой раскладке, — только явно
