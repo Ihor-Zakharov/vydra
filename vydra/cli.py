@@ -571,7 +571,7 @@ def error_hint(message: str | None) -> str | None:
 
 UrlsArg = Annotated[
     list[str] | None,
-    typer.Argument(help="Ссылки на видео (можно несколько). Нет ссылки — возьму из буфера обмена", show_default=False),
+    typer.Argument(metavar="[ССЫЛКИ]…", help="Ссылки на видео (можно несколько). Нет ссылки — возьму из буфера обмена", show_default=False),
 ]
 FmtOpt = Annotated[
     Fmt,
@@ -756,7 +756,7 @@ def _folder(env: Env, folder: str | None, auto: bool = False) -> str | None:
 
 
 def info(
-    url: Annotated[str | None, typer.Argument(help="Ссылка на видео (нет — из буфера обмена)", show_default=False)] = None,
+    url: Annotated[str | None, typer.Argument(metavar="[ССЫЛКА]", help="Ссылка на видео (нет — из буфера обмена)", show_default=False)] = None,
     as_json: JsonOpt = False,
 ) -> None:
     """Показать, что будет скачано — как [bold]terraform plan[/]. [dim](синонимы: инфо, plan)[/]"""
@@ -817,7 +817,7 @@ def info(
 
 
 def convert(
-    files: Annotated[list[Path], typer.Argument(help="Видео или аудиофайлы", exists=True, dir_okay=False, show_default=False)],
+    files: Annotated[list[Path], typer.Argument(metavar="ФАЙЛЫ…", help="Видео или аудиофайлы", exists=True, dir_okay=False, show_default=False)],
     fmt: FmtOpt = Fmt.mp3,
     bitrate: BitrateOpt = Bitrate.b192,
     clip: ClipOpt = None,
@@ -1108,7 +1108,7 @@ def list_items(
 
 
 def open_cmd(
-    query: Annotated[str | None, typer.Argument(help="Часть названия; без него — последний скачанный файл", show_default=False)] = None,  # noqa: E501
+    query: Annotated[str | None, typer.Argument(metavar="[НАЗВАНИЕ]", help="Часть названия; без него — последний скачанный файл", show_default=False)] = None,  # noqa: E501
     play: Annotated[bool, typer.Option("--play", "--запустить", help="Открыть в плеере, а не показать в папке")] = False,
 ) -> None:
     """Показать скачанный файл выделенным в Проводнике / Finder. [dim](синонимы: показать, открыть)[/]"""
@@ -1140,7 +1140,7 @@ def _show(path: Path, play: bool = False) -> None:
 
 
 def folder(
-    path: Annotated[str | None, typer.Argument(help="Новая папка-хранилище (например D:\\Видео)", show_default=False)] = None,
+    path: Annotated[str | None, typer.Argument(metavar="[ПАПКА]", help="Новая папка-хранилище (например D:\\Видео)", show_default=False)] = None,
     move: Annotated[bool, typer.Option("--move", "--перенести", help="Перенести уже скачанное в новую папку")] = False,
     reset: Annotated[bool, typer.Option("--reset", "--сброс", help="Вернуть папку по умолчанию")] = False,
     pick: Annotated[bool, typer.Option("--pick", "--выбрать", help="Выбрать в системном окне")] = False,
@@ -1341,7 +1341,7 @@ def update() -> None:
 
 
 def cookies(
-    path: Annotated[Path | None, typer.Argument(help="cookies.txt из браузера (формат Netscape)", show_default=False,
+    path: Annotated[Path | None, typer.Argument(metavar="[ФАЙЛ]", help="cookies.txt из браузера (формат Netscape)", show_default=False,
                                                 exists=True, dir_okay=False)] = None,  # fmt: skip
     remove: Annotated[bool, typer.Option("--remove", "--удалить", help="Отключить и удалить cookies")] = False,
 ) -> None:
@@ -1553,7 +1553,7 @@ for func, name, panel in COMMANDS:  # синонимы вторым проход
         app.command(
             alias,
             rich_help_panel=RU if cyrillic else panel,
-            help=f"→ [cyan]{name}[/]",
+            short_help=f"→ [cyan]{name}[/]",  # в списке команд; своя справка — полная
             hidden=not primary,  # в справке — по одному русскому имени на команду
         )(func)
 
@@ -1690,6 +1690,24 @@ def _russian_errors() -> None:
         err.print(Text("  → Справка: ", style="dim") + Text(f"{command} --help", style="cyan"))
 
     rich_utils.rich_format_error = show
+    # заголовки справки и подписи — тоже по-русски
+    rich_utils.ARGUMENTS_PANEL_TITLE = "Аргументы"
+    rich_utils.OPTIONS_PANEL_TITLE = "Ключи"
+    rich_utils.COMMANDS_PANEL_TITLE = "Команды"
+    rich_utils.DEFAULT_STRING = "[по умолчанию: {}]"
+    rich_utils.REQUIRED_LONG_STRING = "[обязательно]"
+    rich_utils.ABORTED_TEXT = "Прервано."
+    try:
+        from typer._click.formatting import HelpFormatter
+    except ImportError:  # старые Typer — с внешним Click
+        from click.formatting import HelpFormatter
+    original_usage = HelpFormatter.write_usage
+
+    def write_usage(self, prog: str, args: str = "", prefix: str | None = None) -> None:
+        args = args.replace("[OPTIONS]", "[ключи]").replace("COMMAND [ARGS]...", "команда [аргументы]…")
+        original_usage(self, prog, args, "Как вызвать: " if prefix is None else prefix)
+
+    HelpFormatter.write_usage = write_usage
 
 
 _russian_errors()
