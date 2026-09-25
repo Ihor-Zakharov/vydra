@@ -21,10 +21,10 @@
       ↳ vydra/static/css/{core,shell,hero,jobs,library,dialogs}.css, styles.css удалён; каскад сверен парсером правил (разница — 2 мёртвых правила); diff split↔baseline только в топбаре (скрыт переключатель темы); тема всегда dark; мёртвые id и «кинотеатр» убраны; pytest 228 passed (.sprint/qa/s0.md)
 
 ## S1 — направление
-- [ ] G4 `docs/design/DIRECTION.md` от `vydra-designer`: мир KOCMOC / UNLEASHED, принципы, токены, сетка,
+- [x] G4 `docs/design/DIRECTION.md` от `vydra-designer`: мир KOCMOC / UNLEASHED, принципы, токены, сетка,
       типографика, движение, раскладка каждого региона и состояния; выбранный вариант первого экрана
       с кадрами сравнения вариантов.
-      ↳
+      ↳ docs/design/DIRECTION.md (581 строка: принципы, токены, движение, сцена, первый экран s/m/l/xl, регионы и состояния, чек-лист); выбран гибрид v4 «Затмение на месте» (дыра как в baseline + остальное из v2 eclipse — решение пользователя); сравнение вариантов .sprint/shots/s1c-compare/variants-{s,l}.png; полнота — .sprint/qa/s1-gaps.md (5 пробелов закрыты); эталон сцены — одобренный пользователем кадр .sprint/art/approved/hybrid-approved-idle-l.png
 
 ## S2 — фундамент
 - [ ] G5 Токены, типографика, оболочка (верхняя панель, подвал, заголовки разделов, тосты, «сервер недоступен»)
