@@ -715,6 +715,7 @@ def _download_with(
 FORMAT_PROBLEMS = (
     "http error 403", "403: forbidden", "http error 404", "http error 410", "http error 416",
     "requested format is not available", "did not get any data blocks",
+    "drm protected",  # у Vimeo бывает часть форматов под DRM, часть — без
 )  # fmt: skip
 CANCEL = {"id": "cancel", "label": "Отмена"}
 
@@ -828,6 +829,11 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
                     if _has_video(f) and f.get("height")), default=0)  # fmt: skip
         if best < int(quality):
             send(type="note", text=f"{quality}p у ролика нет — качаю в лучшем доступном: {chosen['side']}p")
+    elif req["mode"] != "mp3" and quality != "max" and chosen["video"] and chosen["side"] > int(quality) * 1.1:
+        smallest = min((min(f["height"], f.get("width") or f["height"]) for f in formats
+                        if _has_video(f) and f.get("height")), default=0)  # fmt: skip
+        if smallest > int(quality):
+            send(type="note", text=f"{quality}p у ролика нет, меньше {smallest}p не бывает — сохраняю {chosen['side']}p")
 
     clip, duration = req.get("clip"), info.get("duration")
     if clip and duration:
@@ -843,6 +849,8 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
 
 
 def _why(exc: Exception) -> str:
+    if "drm" in str(exc).lower():
+        return "защита DRM"
     code = re.search(r"http error (\d{3})", str(exc).lower())
     return f"ошибка {code.group(1)}" if code else "сайт не отдал файл"
 
@@ -863,6 +871,8 @@ def _download_resilient(ydl, info: dict, req: dict, send) -> dict:
             try:
                 alt_info = _reselect(ydl, info, _exclude(spec, tried))
             except Exception as none_left:  # noqa: BLE001
+                if "drm" in str(exc).lower():
+                    raise _Permanent("Видео защищено DRM — скачать его нельзя.") from none_left
                 raise _Permanent(f"Сайт не отдаёт этот ролик ({_why(exc)}), других вариантов нет. "
                                  "Попробуйте позже или обновите yt-dlp: выдра обновить") from none_left  # fmt: skip
             alt = _chosen(alt_info)

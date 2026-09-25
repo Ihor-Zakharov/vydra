@@ -424,3 +424,14 @@ def test_external_programs_never_read_the_terminal(monkeypatch):
     with pytest.raises(OSError):
         media.Media(type("S", (), {"ffprobe": "ffprobe", "ffmpeg": "ffmpeg"})()).probe(Path("x.mp4"))
     assert seen == [system.subprocess.DEVNULL] * 2
+
+
+@needs_ffmpeg
+def test_both_formats_for_silent_video_keeps_the_video(cli_env, make_clip, monkeypatch):
+    """Reel без звука с «-f both»: раньше — ошибка задачи и код 1, хотя MP4 сохранён (найдено матрицей)."""
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("silent.mp4", acodec=None), []))
+    result = runner.invoke(cli.app, ["d", URL, "-f", "both", "--json"])
+    assert result.exit_code == 0, result.output
+    data = _json_line(result.output)
+    assert [f["type"] for f in data["files"]] == ["mp4"]
+    assert "нет звука" in data["jobs"][0]["warning"]

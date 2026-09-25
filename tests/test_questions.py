@@ -93,6 +93,33 @@ def test_missing_quality_is_a_note_not_a_question(monkeypatch):
     assert "1080p у ролика нет" in send.kinds("note")[0]["text"]
 
 
+def test_only_bigger_quality_is_a_note(monkeypatch):
+    """Клип Twitch бывает только 1080p: при «-q 480» честно пишем, что сохранили 1080p (найдено матрицей)."""
+    ydl, info = processed([fmt("1080", v="avc1", a="mp4a", h=1080, w=1920)])
+    send = Asked(monkeypatch)
+    _review(ydl, info, {"mode": "mp4", "quality": "480"}, send)
+    assert not send.kinds("question")
+    assert "480p у ролика нет" in send.kinds("note")[0]["text"] and "1080p" in send.kinds("note")[0]["text"]
+
+
+def test_drm_format_falls_back_then_explains(monkeypatch):
+    """Vimeo: форматы под DRM. Сначала пробуем другие варианты, а если их нет — честно «защищено DRM»."""
+    ydl, info = processed([fmt("a", v="avc1", a="mp4a", h=720, w=1280), fmt("b", v="avc1", a="mp4a", h=720, w=1280)])
+    real, tried = ydl.process_ie_result, []
+
+    def fake(ie_result, download=True, extra_info=None):
+        if download:
+            tried.append(ie_result["format_id"])
+            raise Exception("ERROR: This format is DRM protected; Try selecting another format")
+        return real(ie_result, download=False)
+
+    monkeypatch.setattr(ydl, "process_ie_result", fake)
+    send = Asked(monkeypatch)
+    with pytest.raises(downloader._Permanent, match="защищено DRM"):
+        downloader._download_resilient(ydl, info, {"mode": "mp4", "quality": "720"}, send)
+    assert sorted(tried) == ["a", "b"] and "защита DRM" in send.kinds("note")[0]["text"]
+
+
 def test_clip_after_the_end_offers_whole_video(monkeypatch):
     ydl, info = processed([fmt("v", v="avc1", a="mp4a", h=720, w=1280)], duration=30)
     send = Asked(monkeypatch, "whole")

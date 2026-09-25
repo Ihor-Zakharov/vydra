@@ -38,7 +38,7 @@ from .downloader import (
 )
 from .fsutil import atomic_write, friendly_os_error
 from .library import Library, LibraryUnavailable
-from .media import Cancelled, Clip, IntegrityError, MediaError
+from .media import Cancelled, Clip, IntegrityError, MediaError, NoAudio
 from .naming import safe_stem, title_for
 from .timecode import clip_label
 
@@ -746,7 +746,15 @@ class JobManager:
             if ext == "mp4":
                 self.media.to_mp4(src, tmp, meta, on_progress, job.cancel, clip=clip)
             else:
-                self.media.to_mp3(src, tmp, job.bitrate, meta, cover, on_progress, job.cancel, clip=clip)
+                try:
+                    self.media.to_mp3(src, tmp, job.bitrate, meta, cover, on_progress, job.cancel, clip=clip)
+                except NoAudio:
+                    if job.mode != "both" or not any(f.get("part", 1) == part for f in job.files):
+                        raise
+                    # просили «оба», а звука в ролике нет: видео уже сохранено — это не ошибка задачи
+                    job.warning = "В ролике нет звука — сохранено только видео, MP3 сделать не из чего"
+                    self.changed()
+                    continue
             if job.cancel.is_set():
                 raise Cancelled
 

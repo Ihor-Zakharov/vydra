@@ -26,6 +26,10 @@ class IntegrityError(MediaError):
     """Файл получился битым или неполным — имеет смысл повторить попытку."""
 
 
+class NoAudio(MediaError):
+    """В исходнике нет звуковой дорожки: MP3 сделать не из чего."""
+
+
 class Cancelled(Exception):
     pass
 
@@ -135,7 +139,7 @@ class Media:
     ) -> None:
         p = self.probe(src)
         if p.audio is None:
-            raise MediaError("В файле нет звука — MP3 сделать не из чего")
+            raise NoAudio("В файле нет звука — MP3 сделать не из чего")
         cut, length = _clip_args(clip, p.duration)
         args = [*cut, "-i", str(src)]
         if cover is not None:
