@@ -706,9 +706,8 @@ function initRange(card, d) {
   const seek = (t) => { if (!videoOk) return; cancelAnimationFrame(seek.raf); seek.raf = requestAnimationFrame(() => { try { if (video.fastSeek) video.fastSeek(t); else video.currentTime = t; } catch { /* */ } range.style.setProperty('--ph', `${(t / d) * 100}%`); range.classList.add('has-playhead'); }); };
   const setA = (t) => { state.range.a = Math.max(0, Math.min(t, state.range.b - minGap)); };
   const setB = (t) => { state.range.b = Math.min(d, Math.max(t, state.range.a + minGap)); };
-  const sa = new Spring({ response: 0.5, damping: 1, epsilon: 0.01 }), sb = new Spring({ response: 0.5, damping: 1, epsilon: 0.01 });
-  sa.onUpdate = (v) => { setA(v); render(); }; sb.onUpdate = (v) => { setB(v); render(); };
-  let drag = null, lastT = 0, vel = 0, over = 0, lastRaw = 0;
+  // ползунок без инерции и анимаций: ручка всегда ровно под курсором, отпустил — осталась на месте (просьба пользователя)
+  let drag = null;
   const timeAt = (clientX) => { const r = range.getBoundingClientRect(); return ((clientX - r.left) / r.width) * d; };
   range.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
@@ -716,18 +715,13 @@ function initRange(card, d) {
     const handle = e.target.closest('.range-handle') || (Math.abs(t - state.range.a) <= Math.abs(t - state.range.b) ? ha : hb);
     drag = handle; handle.classList.add('dragging');
     range.setPointerCapture(e.pointerId);
-    (handle === ha ? sa : sb).stop();
-    lastT = performance.now(); vel = 0; over = 0; lastRaw = raw;
     if (!e.target.closest('.range-handle')) { (handle === ha ? setA : setB)(t); render(); seek(handle === ha ? state.range.a : state.range.b); }
     video?.pause();
     e.preventDefault();
   });
   range.addEventListener('pointermove', (e) => {
     if (!drag) return;
-    const raw = timeAt(e.clientX), now = performance.now(), dt = Math.max(1, now - lastT);
-    vel = ((raw - lastRaw) / dt) * 1000 * 0.5 + vel * 0.5; lastRaw = raw; lastT = now;
-    over = raw < 0 ? rubber(raw, d * 0.08) : raw > d ? rubber(raw - d, d * 0.08) : 0;
-    const t = Math.max(0, Math.min(d, raw));
+    const t = Math.max(0, Math.min(d, timeAt(e.clientX)));
     if (drag === ha) setA(t); else setB(t);
     render();
     seek(drag === ha ? state.range.a : state.range.b);
@@ -735,20 +729,17 @@ function initRange(card, d) {
   const end = () => {
     if (!drag) return;
     drag.classList.remove('dragging');
-    const s = drag === ha ? sa : sb, cur = drag === ha ? state.range.a : state.range.b;
-    s.snap(cur);
-    if (Math.abs(vel) > d * 0.15 || over) s.set(Math.max(0, Math.min(d, cur + vel * 0.12)), { velocity: vel * 0.5 });
-    drag = null; over = 0;
+    drag = null;
   };
   range.addEventListener('pointerup', end); range.addEventListener('pointercancel', end);
-  for (const [el, s, key] of [[ha, sa, 'a'], [hb, sb, 'b']]) {
+  for (const [el, set, key] of [[ha, setA, 'a'], [hb, setB, 'b']]) {
     el.addEventListener('keydown', (e) => {
       const step = e.shiftKey ? 10 : 1;
       let t = state.range[key];
       if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') t -= step; else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') t += step; else if (e.key === 'Home') t = 0; else if (e.key === 'End') t = d; else return;
       e.preventDefault();
-      s.snap(state.range[key]); s.set(Math.max(0, Math.min(d, t)));
-      seek(t);
+      set(Math.max(0, Math.min(d, t))); render();
+      seek(state.range[key]);
     });
   }
   const onInput = (input, set, fallback) => () => {
@@ -762,7 +753,7 @@ function initRange(card, d) {
   };
   inA.addEventListener('input', onInput(inA, setA, 0));
   inB.addEventListener('input', onInput(inB, setB, d));
-  reset.addEventListener('click', () => { sa.snap(state.range.a); sb.snap(state.range.b); sa.set(0); sb.set(d); });
+  reset.addEventListener('click', () => { state.range.a = 0; state.range.b = d; render(); });
   render();
   if (video) {
     video.addEventListener('loadeddata', () => { videoOk = true; media.classList.add('video-ready'); }, { once: true });

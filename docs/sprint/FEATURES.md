@@ -33,7 +33,7 @@
 | hero | превью ссылки | debounce 400 мс после ввода одной ссылки | `POST /api/preview {url}` | карточка превью: обложка/видео, чипы (автор, длительность, плейлист, «только звук»), доступные высоты | `preview-loading` → `preview-landscape/portrait` / `preview-error` |
 | hero | плейлист — подтверждение | сервер вернул `confirm_playlist` (422) | `POST /api/jobs` (повтор с `confirm_playlist:true`) | диалог confirmDialog «Скачать все ролики?» | `confirm` |
 | hero | отрезок (по вводу) | чекбокс `#clip-on`, поля `#clip-start/#clip-end` | — | валидация формата, мини-полоса выделения, `clip-len` | `preview-trim` (без превью), `controls-open` |
-| hero | отрезок (по превью, drag хэндлов) | перетаскивание `.range-handle`, стрелки на фокусе, поля `.pv-start/.pv-end`, кнопка «Весь ролик» | — | пружины `sa/sb`, `state.range`, синхронный сик видео-превью, resize с «резинкой» за края | `preview-trim` |
+| hero | отрезок (по превью, drag хэндлов) | перетаскивание `.range-handle`, стрелки на фокусе, поля `.pv-start/.pv-end`, кнопка «Весь ролик» | — | `state.range` без инерции и анимаций (ручка ровно под курсором), синхронный сик видео-превью | `preview-trim` |
 | hero | воспроизведение видео-превью | клик по `.pv-media` (когда есть `.preview_url`) | видео отдаёт `/api/preview` (`preview_url`) | play/pause внутри карточки превью, зацикливание в пределах отрезка | `preview-landscape/portrait` |
 | hero | формат (MP4 / MP3 / Оба) | клик пилюли `[data-name="mode"]`, ←/→ на фокусе | — | `state.mode`, скрытие/показ тюнеров качества и битрейта, сохранение в `localStorage` | `format-mp4/mp3/both` |
 | hero | «только звук» автоопределено | превью вернуло `has_video:false` и режим не mp3 | — | автопереключение на MP3 + тост | `format-mp3` |
