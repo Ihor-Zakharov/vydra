@@ -54,7 +54,7 @@ INFO_KEYS = (
 STALL_DOWNLOAD = float(os.environ.get("VD_STALL_TIMEOUT", "120"))  # байты не идут дольше — зависло
 STALL_EXTRACT = float(os.environ.get("VD_EXTRACT_TIMEOUT", "300"))  # сайт молчит при извлечении
 SOCKET_TIMEOUT = 30
-WORKER_CMD = [sys.executable, "-m", "vydra.downloader"]  # тесты подменяют на поддельный воркер
+WORKER_CMD = [sys.executable, "-I", "-m", "vydra.downloader"]  # -I: не брать чужой vydra из текущей папки; тесты подменяют
 SPACE_MARGIN = 64 * 1024 * 1024
 # Короткий отрезок длинного ролика качаем куском (ffmpeg по диапазону): 30 с из часового ролика — секунды вместо
 # минуты. Длинные куски так не берём: YouTube режет скорость одного соединения ffmpeg (15 мин куска — 7,5 мин),

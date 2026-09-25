@@ -997,7 +997,8 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
         sys.stderr.flush()
         servers.clear_pid(settings.work_dir, port)
         os.environ["_VYDRA_RESTARTED"] = "1"
-        os.execv(sys.executable, [sys.executable, "-m", "vydra", "ui", "--port", str(port), "--no-browser"])  # noqa: S606
+        # -I: из текущей папки пользователя не подхватится чужой пакет vydra (например, клон репозитория)
+        os.execv(sys.executable, [sys.executable, "-I", "-m", "vydra", "ui", "--port", str(port), "--no-browser"])  # noqa: S606
     reason = "остановлена командой stop" if "stop" in why else "остановлена"
     try:
         console.print(Text(f"\n  Выдра {reason}.", style="dim"))
@@ -1421,7 +1422,7 @@ def _self_update(settings: Settings, env: Path, source: str, current, latest) ->
     console.print(Text("  ✓ ", style="bold green") + Text("выдра обновлена: ") + Text(str(was), style="dim")
                   + Text(" → ") + Text(latest.label(), style="bold"))  # fmt: skip
     # дальше — уже новой версией: у этого процесса под ногами поменялись файлы пакета
-    new = [str(env / "bin" / "python"), "-m", "vydra"]
+    new = [str(env / "bin" / "python"), "-I", "-m", "vydra"]
     quiet = {"stdin": subprocess.DEVNULL, "check": False}
     try:
         subprocess.run([*new, "update", "--only-ytdlp", "--no-banner"], timeout=900, **quiet)

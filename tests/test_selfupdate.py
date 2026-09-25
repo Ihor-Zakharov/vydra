@@ -186,7 +186,7 @@ def test_update_installs_new_version_then_restarts_ui(tmp_path, monkeypatch, cli
     monkeypatch.setattr(selfupdate, "inspect", lambda s: Revision(GH, commit="b" * 40, date="2026-09-25T00:00:00Z"))
     monkeypatch.setattr(selfupdate, "install", lambda source, env, backup: "1.1.0")
     steps = []
-    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: steps.append(cmd[3:]) or subprocess.CompletedProcess(cmd, 0))
+    monkeypatch.setattr(cli.subprocess, "run", lambda cmd, **kw: steps.append(cmd[4:]) or subprocess.CompletedProcess(cmd, 0))
     result = runner.invoke(cli.app, ["обновить"])
     assert result.exit_code == 0, result.output
     assert "aaaaaaa" in result.output and "1.1.0 · bbbbbbb · от 25.09.2026" in result.output
@@ -253,3 +253,27 @@ def test_real_uv_tool_env_is_detected(tmp_path, monkeypatch):
     env = fake_env(tmp_path, {"name": "vydra"})
     monkeypatch.setattr(sys, "prefix", str(env))
     assert selfupdate.installed_env() == env
+
+
+def test_own_processes_never_import_vydra_from_the_current_folder(tmp_path, monkeypatch):
+    """`python -m vydra` ищет пакет сначала в текущей папке: из клона репозитория перезапуск и воркер загрузок
+    поднимали чужую (старую) версию — найдено проверкой самообновления (/api/health отвечал 1.0.0 после 1.0.1)."""
+    from vydra import downloader, servers, tools
+
+    assert downloader.WORKER_CMD[1] == "-I"
+    assert tools.shortcut_command()[1].endswith("-I -m vydra ui")
+    fake = tmp_path / "vydra"
+    fake.mkdir()
+    (fake / "__init__.py").write_text('__version__ = "чужая"\n')
+    out = subprocess.run([sys.executable, "-I", "-c", "import vydra; print(vydra.__version__)"], cwd=tmp_path,
+                         capture_output=True, text=True, timeout=30)  # fmt: skip
+    assert out.stdout.strip() != "чужая"
+    seen = {}
+
+    class Popen:
+        def __init__(self, cmd, **kw):
+            seen["cmd"] = cmd
+
+    monkeypatch.setattr(servers.subprocess, "Popen", Popen)
+    servers.spawn(tmp_path, 8810)
+    assert seen["cmd"][1:4] == ["-I", "-m", "vydra"]

@@ -200,14 +200,14 @@ def create_shortcut() -> str:
         return _windows_shortcut(target, _windows_icon(icon_png))
 
     if system.OS == "mac":
-        target.write_text(f'#!/bin/bash\nexec "{sys.executable}" -m vydra ui\n', encoding="utf-8")
+        target.write_text(f'#!/bin/bash\nexec "{sys.executable}" -I -m vydra ui\n', encoding="utf-8")
         target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return f"Ярлык создан: {target}"
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         "[Desktop Entry]\nType=Application\nName=Выдра\nComment=Скачать видео без водяных знаков\n"
-        f'Exec="{sys.executable}" -m vydra ui\nIcon={icon_png}\nTerminal=false\nCategories=AudioVideo;Network;\n',
+        f'Exec="{sys.executable}" -I -m vydra ui\nIcon={icon_png}\nTerminal=false\nCategories=AudioVideo;Network;\n',
         encoding="utf-8",
     )
     target.chmod(0o755)
@@ -229,8 +229,8 @@ def shortcut_command() -> tuple[str, str]:
     if system.OS == "wsl":
         distro = os.environ.get("WSL_DISTRO_NAME", "")
         prefix = f"-d {distro} " if distro else ""
-        return r"C:\Windows\System32\wsl.exe", f"{prefix}--cd ~ -e {quoted_python} -m vydra ui"
-    return python, "-m vydra ui"
+        return r"C:\Windows\System32\wsl.exe", f"{prefix}--cd ~ -e {quoted_python} -I -m vydra ui"
+    return python, "-I -m vydra ui"
 
 
 def _windows_shortcut(target: Path, icon: str | None) -> str:

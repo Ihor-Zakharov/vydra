@@ -276,7 +276,7 @@ def _check(env: Path, run) -> str | None:
     """Новая выдра запускается? Версия или None."""
     python = env / "bin" / "python"
     try:
-        out = run([str(python), "-c", "import vydra, vydra.cli; print(vydra.__version__)"], stdin=subprocess.DEVNULL,
+        out = run([str(python), "-I", "-c", "import vydra, vydra.cli; print(vydra.__version__)"], stdin=subprocess.DEVNULL,
                   capture_output=True, text=True, timeout=CHECK_TIMEOUT, check=False)  # fmt: skip
     except (OSError, subprocess.SubprocessError):
         return None

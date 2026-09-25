@@ -280,7 +280,7 @@ def spawn(work_dir: Path, port: int) -> subprocess.Popen:
     log = log_path(work_dir, port).open("ab")
     try:
         return subprocess.Popen(  # noqa: S603
-            [sys.executable, "-m", "vydra", "ui", "--no-browser", "--port", str(port)],
+            [sys.executable, "-I", "-m", "vydra", "ui", "--no-browser", "--port", str(port)],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
