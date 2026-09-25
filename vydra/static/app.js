@@ -631,8 +631,8 @@ function slideSlot(slot, from, to) {
   clearTimeout(slideSlot.t);
   slot.style.transition = 'none'; slot.style.overflow = 'clip'; slot.style.height = `${from}px`;
   void slot.offsetHeight;
-  slot.style.transition = 'height .6s cubic-bezier(.45, 0, .2, 1)'; slot.style.height = `${to}px`;
-  slideSlot.t = setTimeout(() => { slot.style.height = slot.style.overflow = slot.style.transition = ''; }, 650);
+  slot.style.transition = 'height .42s cubic-bezier(.32, .72, 0, 1)'; slot.style.height = `${to}px`;
+  slideSlot.t = setTimeout(() => { slot.style.height = slot.style.overflow = slot.style.transition = ''; }, 470);
 }
 function setPreview(p) {
   const slot = $('#preview-slot');
