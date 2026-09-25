@@ -1,79 +1,92 @@
-/* выдра — фундамент: токены, база, стекло, зерно, кнопки, появление, view transitions, reduced motion.
-   Сцена монохромная и глубокая: чёрное, белое, туман и линзирование (UNLEASHED).
-   Цвет — только у светящихся ЭЛЕМЕНТОВ (КОСМОС): электрический синий и фиолетовый — кольцо портала,
-   заливки прогресса, фокус, остров. При распознанной ссылке элементы перекрашиваются в цвета платформы.
-   Стекло — только на кнопках и органах управления. Движение объектов — пружины в JS (spring.js). */
+/* выдра — фундамент: токены, база, плиты, зерно, кнопки, появление, view transitions, reduced motion.
+   Мир — KOCMOC / UNLEASHED: монохром, цвет только в излучении (кайма поля, фокус, заливка прогресса, глиф платформы).
+   Значения — docs/design/DIRECTION.md §3 (токены), §4 (движение). Движение объектов — пружины в JS (spring.js). */
 
-@property --el-a { syntax: "<color>"; inherits: true; initial-value: #3f86ff; }
-@property --el-b { syntax: "<color>"; inherits: true; initial-value: #9a63ff; }
+@property --el-a { syntax: "<color>"; inherits: true; initial-value: #ffffff; }
+@property --el-b { syntax: "<color>"; inherits: true; initial-value: #d6d6d6; }
 @property --angle { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
 
 :root {
-  --el-a: #3f86ff;
-  --el-b: #9a63ff;
-  --el: linear-gradient(90deg, var(--el-a), var(--el-b));
-  --el-glow: 0 0 10px color-mix(in oklab, var(--el-a) 70%, transparent), 0 0 30px color-mix(in oklab, var(--el-b) 35%, transparent);
-  --el-glow-soft: 0 0 18px color-mix(in oklab, var(--el-a) 35%, transparent);
-
-  --bg: #050508;
-  --bg-2: #0a0a10;
-  --ink: #f2f3f7;
-  --ink-2: #a3a6b3;
-  --ink-3: #6e7180;
-  --hair: rgba(255, 255, 255, .1);
-  --hair-2: rgba(255, 255, 255, .22);
+  /* фон и поверхности */
+  --bg: #000000;
+  --scrim: #000000;
+  --s1: #0b0b0e;                              /* плиты-карточки: поле ссылки, превью, задача, отдел, плитка */
+  --s2: #111114;                              /* вложенное: глиф поля, строка файла, чипы-плиты */
+  --s3: #18181c;                              /* наведение на плиту/кнопку */
+  --s4: #222228;                              /* нажато, выбранный узел дерева */
+  --s-raised: #0e0e11;                        /* всплывающее: тосты, меню, диалоги, шторки */
+  --plate: rgba(8, 8, 10, .78);               /* плиты над сценой: вкладки, пилюли, «Сохранять в», «Ещё» */
+  --panel: var(--s1);
   --surface: rgba(255, 255, 255, .035);
-  --surface-2: rgba(255, 255, 255, .07);
-  --panel: #0b0b11;
-  --glass-bg: rgba(255, 255, 255, .055);
-  --glass-bg-hover: rgba(255, 255, 255, .095);
-  --glass-rim: rgba(255, 255, 255, .16);
-  --glass-spec: rgba(255, 255, 255, .26);
-  --glass-light: rgba(255, 255, 255, .18);
-  --white-hot: #ffffff;
-  --white-glow: 0 0 22px rgba(255, 255, 255, .28), 0 0 60px rgba(255, 255, 255, .1);
+  --surface-2: rgba(255, 255, 255, .06);
+  /* текст */
+  --ink: #f4f4f6;
+  --ink-2: #b4b6be;
+  --ink-3: #8b8d96;
+  /* линии */
+  --line-1: rgba(255, 255, 255, .08);
+  --line-2: rgba(255, 255, 255, .14);
+  --line-3: rgba(255, 255, 255, .24);
+  /* излучение: без ссылки — белое; платформа перекрашивает (ниже) */
+  --el-a: #ffffff;
+  --el-b: #d6d6d6;
+  --el: linear-gradient(90deg, var(--el-a), var(--el-b));
+  --el-glow: 0 0 10px color-mix(in oklab, var(--el-a) 30%, transparent);
+  --el-glow-soft: 0 0 18px color-mix(in oklab, var(--el-a) 30%, transparent);
+  --ice: #e6efff;                             /* холодный белый сцены */
   --ok: #5fdc9c;
   --warn: #f0b64d;
   --err: #ff5f73;
-  --shadow: 0 30px 80px -30px rgba(0, 0, 0, .8);
-  --shadow-sm: 0 12px 30px -14px rgba(0, 0, 0, .7);
-  --grain-opacity: .05;
-  --scrim: #050508;
+  --white-hot: #ffffff;
+  --white-glow: 0 0 1px rgba(255, 255, 255, .9), 0 0 22px rgba(255, 255, 255, .30), 0 0 64px rgba(255, 255, 255, .12);
+  --lit-from-hole: radial-gradient(90% 170% at 110% 50%, rgba(214, 228, 255, .07), transparent 62%);
+  /* радиусы */
+  --r-xs: 6px; --r-s: 8px; --r-m: 10px; --r-l: 14px; --r-xl: 18px;
+  /* тени — только глубина, без цвета */
+  --shadow: 0 30px 80px -30px rgba(0, 0, 0, .95);
+  --shadow-sm: 0 14px 34px -18px rgba(0, 0, 0, .9);
+  --focus-ring: 0 0 0 5px color-mix(in oklab, var(--el-a) 16%, transparent);
+  --grain-opacity: .045;
+  /* старые имена — алиасы до S4 */
+  --bg-2: var(--s1);
+  --hair: var(--line-1);
+  --hair-2: var(--line-2);
+  --glass-bg: var(--plate);
+  --glass-bg-hover: var(--s3);
+  --glass-rim: var(--line-2);
+  --glass-spec: transparent;
+  --glass-light: transparent;
 
+  /* шрифты */
   --font-display: "Geologica", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-brand: "Unbounded", var(--font-display);
   --font-text: "Onest", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
-  --gutter: clamp(16px, 4vw, 48px);
-  --content: 1240px;
+
+  /* каркас */
+  --topbar-h: 56px;
+  --datum: max(24px, 7.5vw);                  /* единая левая линия: герой, экраны «Очередь» и «Библиотека», подвал */
+  --content-max: 1632px;
   --row: 210px;
 
+  /* движение (§4.1) */
+  --t-fast: .18s;
+  --t-base: .32s;
+  --t-slow: .6s;
+  --t-scene: .9s;
   --ease-out: cubic-bezier(.16, 1, .3, 1);
-  --ease-move: cubic-bezier(.7, 0, .2, 1);
-  --ease-smooth: cubic-bezier(.16, 1, .3, 1);
-  --ease-snappy: cubic-bezier(.34, 1.2, .64, 1);
-  --dur-smooth: .6s;
-  --dur-snappy: .5s;
+  --ease-io: cubic-bezier(.65, 0, .35, 1);
   color-scheme: dark;
-  transition: --el-a .9s var(--ease-out), --el-b .9s var(--ease-out);
-}
-@supports (animation-timing-function: linear(0, 1)) {
-  :root {
-    --ease-smooth: linear(0, 0.017, 0.058, 0.116, 0.183, 0.254, 0.325, 0.394, 0.46, 0.521, 0.578, 0.63, 0.676, 0.718, 0.755, 0.787, 0.816, 0.842, 0.864, 0.883, 0.899, 0.914, 0.926, 0.937, 0.946, 0.954, 0.961, 0.967, 0.972, 0.976, 0.98, 0.983, 0.986, 0.988, 0.99, 0.991, 0.993, 0.994, 0.995, 0.996, 0.996, 0.997, 0.997, 0.998, 0.998, 0.998, 0.999, 0.999, 1);
-    --ease-snappy: linear(0, 0.015, 0.055, 0.111, 0.177, 0.25, 0.324, 0.399, 0.47, 0.538, 0.601, 0.658, 0.71, 0.757, 0.798, 0.833, 0.864, 0.891, 0.914, 0.933, 0.949, 0.962, 0.972, 0.981, 0.988, 0.993, 0.997, 1.001, 1.003, 1.004, 1.005, 1.006, 1.006, 1.006, 1.006, 1.006, 1.005, 1.005, 1.005, 1.004, 1.004, 1.003, 1.003, 1.002, 1.002, 1.002, 1.001, 1.001, 1);
-    --dur-smooth: .89s;
-    --dur-snappy: .7s;
-  }
+  transition: --el-a var(--t-scene) var(--ease-out), --el-b var(--t-scene) var(--ease-out);
 }
 
-/* платформа распознана — светящиеся элементы принимают её цвета */
+/* платформа распознана — излучение принимает её цвета (только излучение, §3.1) */
 :root[data-platform="youtube"] { --el-a: #ff3b3b; --el-b: #ff8a00; }
 :root[data-platform="tiktok"] { --el-a: #25f4ee; --el-b: #fe2c55; }
-:root[data-platform="instagram"] { --el-a: #d62976; --el-b: #fa7e1e; }
+:root[data-platform="instagram"] { --el-a: #f36f9a; --el-b: #fa7e1e; }
 :root[data-platform="other"] { --el-a: #3ee0a1; --el-b: #3f86ff; }
 
-/* светлая тема — отпечаток/чертёж: бумага, чернильные волосяные линии, без свечения.
-   Сейчас выключена (только тёмная тема, см. index.html), но правила остаются для следующего этапа. */
+/* светлая тема — отпечаток/чертёж. Сейчас выключена (только тёмная тема, см. index.html), правила остаются для следующего этапа. */
 :root[data-theme="light"] {
   --bg: #f3f3f0;
   --bg-2: #eaeae6;
@@ -108,73 +121,66 @@
 /* ---------- база ---------- */
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 16px); }
+html[data-screen="library"] { scroll-padding-top: calc(var(--topbar-h) + 72px); }
 body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink); font: 400 16px/1.5 var(--font-text); -webkit-font-smoothing: antialiased; overflow-x: hidden; font-feature-settings: "kern", "liga"; }
 svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 svg:has(use[href^="#p-"]) { fill: currentColor; stroke: none; }
 button, input, textarea, select { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: 0; padding: 0; }
 a { color: inherit; }
-code { font-family: var(--font-mono); font-size: .9em; padding: .1em .4em; border-radius: 6px; background: var(--surface-2); }
-kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--hair-2); font: 500 11.5px/1.4 var(--font-mono); color: var(--ink-2); text-align: center; }
+code { font-family: var(--font-mono); font-size: .9em; padding: .1em .4em; border-radius: var(--r-xs); background: var(--s2); }
+kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: var(--r-xs); border: 1px solid var(--line-2); background: var(--s2); font: 500 11.5px/1.4 var(--font-mono); color: var(--ink-2); text-align: center; }
 [hidden] { display: none !important; }
-:focus-visible { outline: 2px solid var(--el-a); outline-offset: 3px; border-radius: 10px; box-shadow: var(--el-glow-soft); }
+:focus-visible { outline: 2px solid var(--el-a); outline-offset: 2px; border-radius: var(--r-s); box-shadow: var(--focus-ring); }
 ::selection { background: color-mix(in oklab, var(--el-a) 40%, transparent); }
 .num, .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
-/* ---------- стекло: только органы управления ---------- */
+/* ---------- плиты (бывшее «стекло»): стекла нет, органы управления — тёмные плиты (§3.4) ---------- */
 
 .glass {
   position: relative; isolation: isolate;
-  background: linear-gradient(180deg, rgba(255, 255, 255, .06), transparent 45%), var(--glass-bg);
-  border: 1px solid var(--glass-rim);
-  box-shadow: inset 0 1px 0 var(--glass-spec), inset 0 -1px 0 rgba(0, 0, 0, .22), 0 1px 0 rgba(0, 0, 0, .25);
-  backdrop-filter: blur(16px) saturate(1.25); -webkit-backdrop-filter: blur(16px) saturate(1.25);
-  transition: background-color .3s, border-color .3s, box-shadow .4s, color .25s;
-}
-.glass::before {
-  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1; pointer-events: none;
-  background: radial-gradient(140px 90px at var(--mx, 50%) var(--my, 40%), var(--glass-light), transparent 70%);
-  opacity: 0; transition: opacity .35s var(--ease-out);
+  background: var(--plate);
+  border: 1px solid var(--line-2);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast);
 }
 @media (hover: hover) {
-  .glass:hover { background-color: var(--glass-bg-hover); border-color: color-mix(in oklab, var(--glass-rim) 70%, var(--ink)); }
-  .glass:hover::before { opacity: 1; }
+  .glass:hover { background-color: var(--s3); border-color: var(--line-3); color: var(--ink); }
 }
-:root[data-theme="light"] .glass { box-shadow: inset 0 1px 0 var(--glass-spec), 0 1px 2px rgba(20, 20, 30, .08); }
+:root[data-theme="light"] .glass { background: var(--glass-bg); border-color: var(--glass-rim); box-shadow: inset 0 1px 0 var(--glass-spec), 0 1px 2px rgba(20, 20, 30, .08); }
 
-/* ---------- зерно ---------- */
+/* ---------- зерно: статичное (мерцание зерна — микростробоскоп) ---------- */
 
 .grain {
-  position: fixed; inset: -50%; z-index: 100; pointer-events: none; opacity: var(--grain-opacity);
+  position: absolute; inset: 0; pointer-events: none; opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  animation: grain 1.4s steps(6) infinite; mix-blend-mode: overlay;
+  mix-blend-mode: overlay;
 }
 :root[data-theme="light"] .grain { mix-blend-mode: multiply; }
-@keyframes grain { 0% { transform: translate(0, 0); } 20% { transform: translate(-3%, 2%); } 40% { transform: translate(2%, -3%); } 60% { transform: translate(-2%, -1%); } 80% { transform: translate(3%, 3%); } 100% { transform: translate(0, 0); } }
 
-/* ---------- кнопки ---------- */
+/* ---------- кнопки (§7: плита = фон + линия 14 % + радиус; наведение --s3; нажатие --s4; выключено .32) ---------- */
 
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: 12px; font-weight: 500; font-size: 14.5px; white-space: nowrap; cursor: pointer; color: var(--ink); }
-.btn svg { width: 17px; height: 17px; }
-.btn:not(.glass) { background: var(--surface-2); border: 1px solid var(--hair); }
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 16px; border-radius: var(--r-m); font-weight: 500; font-size: 14px; white-space: nowrap; cursor: pointer; color: var(--ink);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-base) var(--ease-out); }
+.btn svg { width: 16px; height: 16px; }
+.btn:not(.glass) { background: var(--s1); border: 1px solid var(--line-2); }
+.btn:not(.glass):not(.primary):not(.solid):hover { background: var(--s3); border-color: var(--line-3); }
+.btn:active:not(:disabled) { background-color: var(--s4); }
+.btn:disabled { opacity: .32; cursor: not-allowed; }
 .btn.primary { color: #000; border-color: transparent; background: var(--white-hot); box-shadow: var(--white-glow); }
 :root[data-theme="light"] .btn.primary { color: #fff; }
-.btn.primary:hover:not(:disabled) { filter: brightness(1.05); }
-.btn.solid.danger { color: #fff; background: var(--err); border-color: transparent; }
+.btn.primary:hover:not(:disabled) { background: var(--white-hot); box-shadow: 0 0 0 1px #fff, 0 0 34px rgba(255, 255, 255, .5), 0 0 100px rgba(255, 255, 255, .2); }
+/* разрушительное — «красная плита»: тёмный текст (белый на #ff5f73 — 2,9 : 1) */
+.btn.solid.danger { color: #14040a; background: var(--err); border-color: transparent; box-shadow: 0 0 22px rgba(255, 95, 115, .28); }
 .btn.busy svg, .chip-btn.busy svg { animation: spin-ring 1s linear infinite; }
-.chip-btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 14px; border-radius: 11px; text-decoration: none; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--ink); }
-.chip-btn:not(.glass) { background: var(--surface-2); border: 1px solid var(--hair); }
+@keyframes spin-ring { to { transform: rotate(270deg); } }
+.chip-btn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: var(--r-m); text-decoration: none; font-size: 14px; font-weight: 500; cursor: pointer; color: var(--ink);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
+.chip-btn:not(.glass) { background: var(--s1); border: 1px solid var(--line-2); }
 .chip-btn svg { width: 16px; height: 16px; }
 .chip-btn.danger { color: var(--err); }
-.chip-btn.solid { color: #fff; background: var(--err); border-color: transparent; }
+.chip-btn.solid { color: #14040a; background: var(--err); border-color: transparent; box-shadow: 0 0 22px rgba(255, 95, 115, .28); }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
-
-/* ---------- появление при прокрутке ---------- */
-
-.rv { opacity: 0; transform: translateY(18px); filter: blur(6px); }
-.rv.in { opacity: 1; transform: none; filter: none; transition: opacity .8s var(--ease-out), transform .9s var(--ease-out), filter .8s var(--ease-out); transition-delay: calc(var(--i, 0) * 80ms); }
 
 /* ---------- View Transitions (плеер, тема) ---------- */
 
@@ -182,22 +188,21 @@ kbd { display: inline-block; min-width: 22px; padding: 2px 6px; border-radius: 6
 :root.vt-theme::view-transition-old(root), :root.vt-theme::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
 :root.vt-theme::view-transition-old(root) { z-index: 1; }
 :root.vt-theme::view-transition-new(root) { z-index: 9999; }
-::view-transition-group(player-media) { animation-duration: .55s; animation-timing-function: var(--ease-smooth); }
+::view-transition-group(player-media) { animation-duration: .55s; animation-timing-function: var(--ease-out); }
 ::view-transition-old(player-media), ::view-transition-new(player-media) { height: 100%; object-fit: cover; }
 
-/* ---------- адаптив: токены ---------- */
+/* ---------- телефон (не в работе: только ПК) ---------- */
 
 @media (max-width: 680px) {
   :root { --row: 150px; }
 }
 
-/* ---------- меньше движения ---------- */
+/* ---------- меньше движения (§4.5) ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  .grain { animation: none !important; }
-  .rv { opacity: 1; transform: none; filter: none; transition: none; }
   *, *::before, *::after { scroll-behavior: auto !important; }
   ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .01s !important; }
 }
+/* ?motion=0: всё, что движется во времени, стоит. Привязка к прокрутке — не движение во времени и остаётся (shell.css) */
 .motion-off *, .motion-off *::before, .motion-off *::after { transition: none !important; animation: none !important; }
-.motion-off .rv { opacity: 1; transform: none; filter: none; }
+.motion-off, .motion-off * { scroll-behavior: auto !important; }

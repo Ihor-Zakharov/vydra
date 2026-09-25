@@ -120,7 +120,7 @@ const state = {
   autoAccept: !!saved.autoAccept,
   controlsManual: !!saved.controlsOpen,
   dest: typeof saved.dest === 'string' ? saved.dest : '',
-  jobs: [], library: null, info: null, doctor: null,
+  jobs: [], jobsLoaded: false, library: null, info: null, doctor: null,
   preview: null, range: null, heights: null, down: false, speed: 0,
 };
 const savePrefs = () => store.set('vd.prefs', { mode: state.mode, quality: state.quality, bitrate: state.bitrate, autostart: state.autostart, autoAccept: state.autoAccept, controlsOpen: state.controlsManual, dest: state.dest });
@@ -137,12 +137,12 @@ function toast(message, type = 'info', { timeout = 3800, action } = {}) {
   el.querySelector('.tt').textContent = message;
   if (action) { const b = h('<button class="glass btn" type="button"></button>'); b.textContent = action.label; b.addEventListener('click', () => { action.run(); api_.close(); }); el.append(b); }
   box.append(el);
-  enter(el, { dy: 22, scale: 0.92, blur: 6, response: 0.5, damping: 0.8 });
+  enter(el);
   while (box.children.length > 4) box.firstElementChild.remove();
   let timer;
   const api_ = {
     update(msg) { el.querySelector('.tt').textContent = msg; return api_; },
-    close() { clearTimeout(timer); exit(el, { dy: 10, scale: 0.94 }).then(() => el.remove()); },
+    close() { clearTimeout(timer); exit(el).then(() => el.remove()); },
     type(t) { el.className = `toast ${t}`; el.querySelector('.ti').innerHTML = svgUse(icons[t] || '#i-info'); return api_; },
     later(ms) { clearTimeout(timer); timer = setTimeout(api_.close, ms); return api_; },
   };
@@ -152,25 +152,24 @@ function toast(message, type = 'info', { timeout = 3800, action } = {}) {
 
 /* ============================== сервер недоступен ============================== */
 
+async function checkHealth() {
+  try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok && state.down) { setServerDown(false); loadInfo(); explorer.refresh(); pollJobs(); connectEvents(); } }
+  catch { /* ещё лежит */ }
+}
 function setServerDown(down) {
   if (state.down === down) return;
   state.down = down;
   $('#offline').hidden = !down;
-  if (down) (async () => {
-    while (state.down) {
-      await sleep(3500);
-      try { const r = await fetch('/api/health', { cache: 'no-store' }); if (r.ok) { setServerDown(false); loadInfo(); explorer.refresh(); pollJobs(); connectEvents(); } }
-      catch { /* ещё лежит */ }
-    }
-  })();
+  if (down) (async () => { while (state.down) { await sleep(3500); if (state.down) await checkHealth(); } })();
 }
+$('#offline-retry').addEventListener('click', checkHealth);
 
 /* ============================== тема ============================== */
 
 function applyTheme(t) {
   html.dataset.theme = t;
   try { localStorage.setItem('vd.theme', t); } catch { /* */ }
-  $('meta[name="theme-color"]').content = t === 'light' ? '#f3f3f0' : '#050508';
+  $('meta[name="theme-color"]').content = t === 'light' ? '#f3f3f0' : '#000000';
   cosmos?.setInvert(t === 'light');
 }
 $('#theme').addEventListener('click', (e) => {
@@ -200,28 +199,21 @@ document.addEventListener('pointermove', (e) => {
     el.style.setProperty('--my', `${((glassEv.clientY - r.top) / r.height * 100).toFixed(1)}%`);
   });
 }, { passive: true });
-pressable(document, '.glass, .go-btn, .btn, .chip-btn, .icon-btn, .tab, .pills button, .dept, .folder, .crumb, .text-btn, .tile-media', { scale: 0.965 });
+pressable(document, '.glass, .go-btn, .btn, .chip-btn, .icon-btn, .tab, .pills button, .dept, .folder, .crumb, .text-btn, .tile-media', { scale: 0.97 });
 
 /* ============================== космос ============================== */
 
 let cosmos = null;
 const heroEl = $('#hero');
-function heroLayout() {
-  if (!cosmos) return;
-  const phone = isPhone();
-  const scale = phone ? 0.16 : Math.min(0.14, Math.max(0.09, 0.115 * (heroEl.clientWidth / 1440)));
-  cosmos.setCenter(phone ? 0.5 : 0.7, phone ? 0.24 : 0.5, scale);
-  cosmos.resize();
-}
 function initCosmos() {
   const wrap = $('#cosmos-wrap');
-  cosmos = createCosmos($('#cosmos'), { reduced: REDUCED, center: [0.7, 0.5], scale: 0.115, resScale: 0.5, accent: '#5a86ff', seed: 0.37 });
+  cosmos = createCosmos($('#cosmos'), { reduced: REDUCED, seed: 0.37, resScale: 0.5 });
   if (!cosmos.ok) { wrap.classList.add('fallback'); cosmos = null; return; }
   cosmos.setInvert(html.dataset.theme === 'light');
   applyAccent();
-  heroLayout();
   let ro = 0;
-  new ResizeObserver(() => { cancelAnimationFrame(ro); ro = requestAnimationFrame(heroLayout); }).observe(heroEl);
+  new ResizeObserver(() => { cancelAnimationFrame(ro); ro = requestAnimationFrame(() => cosmos.resize()); }).observe(wrap);
+  // мышь — только параллакс планов (дыра неподвижна, линзы у курсора нет)
   window.addEventListener('pointermove', (e) => { if (e.pointerType === 'mouse') cosmos.setPointer((e.clientX / innerWidth - 0.5) * 2, (e.clientY / innerHeight - 0.5) * -2); }, { passive: true });
   const orient = (e) => { if (e.gamma == null) return; cosmos.setPointer(Math.max(-1, Math.min(1, e.gamma / 30)), Math.max(-1, Math.min(1, (e.beta - 45) / -30))); };
   if ('DeviceOrientationEvent' in window && matchMedia('(pointer: coarse)').matches) {
@@ -230,12 +222,22 @@ function initCosmos() {
       heroEl.addEventListener('touchend', ask, { once: true });
     } else window.addEventListener('deviceorientation', orient);
   }
-  let sRaf = 0;
-  window.addEventListener('scroll', () => { cancelAnimationFrame(sRaf); sRaf = requestAnimationFrame(() => cosmos.setScroll(Math.min(1, Math.max(0, scrollY / Math.max(1, heroEl.clientHeight))))); }, { passive: true });
-  new IntersectionObserver((en) => { for (const e of en) { if (e.isIntersecting) cosmos.resume(); else cosmos.pause(); } }, { threshold: 0.02 }).observe(heroEl);
-  document.addEventListener('visibilitychange', () => { if (document.hidden) cosmos.pause(); else cosmos.resume(); });
+  document.addEventListener('visibilitychange', syncScene);
 }
-function applyAccent() { cosmos?.setAccent(PLATFORM_COLOR[html.dataset.platform] || '#5a86ff', 1); }
+/** Оттенок сцены — цвет распознанной платформы; без ссылки и при нескольких ссылках — нейтральный белый (§4.4). */
+function applyAccent() { cosmos?.readTokens(); cosmos?.setAccent(extractUrls(urlBox.value).length > 1 ? null : PLATFORM_COLOR[html.dataset.platform] || null); }
+/** Шейдер работает только на главном экране, при видимой вкладке и пока герой не ушёл дальше 100svh (§5.4). */
+function syncScene() {
+  if (!cosmos) return;
+  if (document.hidden || (curScreen === 'home' && scrollY > innerHeight)) cosmos.pause();
+  else if (curScreen === 'home') cosmos.resume();
+}
+function syncScroll() {
+  $('#topbar').classList.toggle('scrolled', scrollY > 8);
+  if (!cosmos || curScreen !== 'home') return;
+  cosmos.setScroll(Math.min(1, Math.max(0, scrollY / Math.max(1, heroEl.clientHeight))));
+  syncScene();
+}
 
 /* ============================== «чернила» вкладок и пилюль — на пружинах ============================== */
 
@@ -243,7 +245,7 @@ const inks = new WeakMap();
 function inkOf(group) {
   let s = inks.get(group);
   if (!s) {
-    const ink = group.querySelector('.pill-ink, .tab-ink');
+    const ink = group.querySelector('.pill-ink, .tab-ink, .screens-ink');
     s = { x: new Spring({ response: 0.42, damping: 0.86, epsilon: 0.2 }), w: new Spring({ response: 0.42, damping: 0.86, epsilon: 0.2 }), init: false };
     s.x.onUpdate = (v) => ink.style.setProperty('--x', `${v.toFixed(2)}px`);
     s.w.onUpdate = (v) => ink.style.setProperty('--w', `${v.toFixed(2)}px`);
@@ -252,8 +254,8 @@ function inkOf(group) {
   return s;
 }
 function moveInk(group, { immediate = false } = {}) {
-  const on = group.querySelector('[aria-checked="true"], [aria-selected="true"]');
-  if (!group.querySelector('.pill-ink, .tab-ink')) return;
+  const on = group.querySelector('[aria-checked="true"], [aria-selected="true"], [aria-current="page"]');
+  if (!group.querySelector('.pill-ink, .tab-ink, .screens-ink')) return;
   const s = inkOf(group);
   if (!on || !on.offsetWidth) { s.w.snap(0); return; }
   const imm = immediate || !s.init;
@@ -261,7 +263,7 @@ function moveInk(group, { immediate = false } = {}) {
   s.x.set(on.offsetLeft, { immediate: imm });
   s.w.set(on.offsetWidth, { immediate: imm });
 }
-const moveAllInks = (opts) => $$('.pills, .tabs').forEach((g) => moveInk(g, opts));
+const moveAllInks = (opts) => $$('.pills, .tabs, .screens').forEach((g) => moveInk(g, opts));
 function setPill(group, value) { for (const b of group.querySelectorAll('button[data-value]')) b.setAttribute('aria-checked', String(b.dataset.value === String(value))); moveInk(group); }
 function initPills(group, onChange) {
   group.addEventListener('click', (e) => { const b = e.target.closest('button[data-value]'); if (!b || b.disabled) return; setPill(group, b.dataset.value); onChange(b.dataset.value); });
@@ -272,6 +274,109 @@ function initPills(group, onChange) {
     const next = btns[(i + (e.key === 'ArrowRight' ? 1 : -1) + btns.length) % btns.length];
     if (next) { next.focus(); next.click(); e.preventDefault(); }
   });
+}
+
+/* ============================== экраны: главный, «Очередь», «Библиотека» ============================== */
+// Адреса (контракт §7.1): главный — без хэша или #/, «Очередь» — #/queue, «Библиотека» — #/library; «назад» и «вперёд» —
+// те же переходы (hashchange). Смена экрана — перевод фокуса, без сдвигов вбок (§4.6): уходящее содержимое exit(), сцена уходит
+// в расфокус (CSS по html[data-screen]) и встаёт на паузу, новое содержимое входит ступенями.
+
+const SCREENS = ['home', 'queue', 'library'];
+const SCREEN_TITLE = { home: 'выдра', queue: 'Очередь — выдра', library: 'Библиотека — выдра' };
+const screenEl = (name) => $(`#screen-${name}`);
+const screenNav = $('.screens');
+const screenScroll = {};
+let curScreen = null, screenSeq = 0, scenePauseTimer = 0, titlePrefix = '', screenReady = Promise.resolve();
+function screenFromHash() {
+  const m = /^#\/(queue|library)\/?$/.exec(location.hash);
+  if (m) return m[1];
+  // ?folder= без хэша — папка библиотеки: открываем «Библиотеку» (так же решает инлайн-скрипт в index.html)
+  return !location.hash && new URLSearchParams(location.search).has('folder') ? 'library' : 'home';
+}
+function updateTitle() { document.title = titlePrefix + SCREEN_TITLE[curScreen || 'home']; }
+/** Строки героя в порядке ступеней появления (§4.2). */
+const heroRows = () => $$('#hero [data-enter]').filter((el) => !el.hidden);
+/** Перейти на экран через адрес (запись в истории браузера). Промис — экран показан. */
+function goScreen(name) {
+  if (screenFromHash() !== name) location.hash = name === 'home' ? '#/' : `#/${name}`;
+  return showScreen(name);
+}
+function enterScreen(name, prev) {
+  if (name === 'home') { heroRows().forEach((el, i) => enter(el, { delay: i * 30, scale: 1 })); return; }
+  const el = screenEl(name);
+  const step = prev === 'home' ? 32 : 24;
+  const items = name === 'queue' ? $$('#jobs > .job', el) : $$('.ex-top, .ex-body', el);
+  // всё на линии --datum входит без масштаба: иначе левая кромка едет вбок (§4.1, §4.6)
+  enter(el.querySelector('.section-head'), { scale: 1 });
+  items.forEach((it, i) => enter(it, { scale: 1, delay: (Math.min(i, 7) + 1) * step }));
+}
+function showScreen(next, { instant = false } = {}) {
+  if (next === curScreen) return screenReady;
+  const prev = curScreen;
+  if (prev) screenScroll[prev] = scrollY;
+  curScreen = next;
+  const seq = ++screenSeq;
+  const quick = instant || REDUCED || !prev;
+  html.dataset.screen = next;
+  for (const a of $$('.screen-tab')) { if (a.dataset.screen === next) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); }
+  moveInk(screenNav, { immediate: quick });
+  updateTitle();
+  clearTimeout(scenePauseTimer);
+  if (next === 'home') syncScene();
+  // пауза — после расфокуса (600 ms); первый заход сразу на экран данных — после появления сцены (1,8 с)
+  else if (cosmos) scenePauseTimer = setTimeout(() => { if (curScreen !== 'home') cosmos.pause(); }, !prev && !REDUCED ? 2600 : quick ? 0 : 600);
+  if (prev && !quick) { const out = screenEl(prev); out.inert = true; exit(out, { scale: 1 }); }
+  screenReady = new Promise((resolve) => {
+    const reveal = () => {
+      if (seq === screenSeq) {
+        for (const n of SCREENS) { const el = screenEl(n); el.hidden = n !== next; el.inert = false; }
+        if (prev) motionOf(screenEl(next)).from({ o: 1, y: 0, s: 1, b: 0 });
+        window.scrollTo({ top: screenScroll[next] || 0, behavior: 'instant' });
+        syncScroll();
+        if (!quick) enterScreen(next, prev);
+      }
+      resolve();
+    };
+    if (quick) reveal(); else setTimeout(reveal, next === 'home' ? 200 : prev === 'home' ? 180 : 140);
+  });
+  return screenReady;
+}
+window.addEventListener('hashchange', () => showScreen(screenFromHash()));
+
+/* счётчики вкладок: «Очередь» — незавершённые задачи, «Библиотека» — всего файлов (итог хранилища) */
+const fmtCount = (n) => (n > 99999 ? '99999+' : String(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+// n === null — число ещё неизвестно (не было успешного ответа API, например offline с самого начала): «–» ink-3 без фона, как
+// показания героя; пропал сервер после данных — остаются последние известные числа (§7.1)
+function setCount(numEl, n, { zero = !n } = {}) {
+  numEl.closest('.tab-count').toggleAttribute('data-zero', zero);
+  const text = n == null ? '–' : fmtCount(n);
+  if (numEl.textContent === text) return;
+  numEl.textContent = text;
+  if (!REDUCED) { numEl.classList.add('swap'); requestAnimationFrame(() => requestAnimationFrame(() => numEl.classList.remove('swap'))); }
+}
+function updateScreenCounts() {
+  const n = state.jobs.filter((j) => ACTIVE.has(j.status)).length;
+  const busy = ['compact', 'expanded'].includes(screenNav.dataset.state);
+  setCount($('#queue-num'), state.jobsLoaded ? n : null, { zero: !state.jobsLoaded || (n === 0 && !busy) });
+  const st = state.library?.stats;
+  setCount($('#library-num'), st ? st.count ?? 0 : null);
+  sizeQueueChip();
+}
+/* ширина чипа «Очереди» (число ↔ кольцо с процентом) — пружиной; центр группы вкладок стоит */
+const qChip = $('.q-chip'), qChipIn = $('#queue-chip');
+const qChipW = new Spring({ response: 0.5, damping: 0.85, epsilon: 0.2 });
+qChipW.onUpdate = (v) => { qChip.style.setProperty('--qw', `${v.toFixed(2)}px`); moveInk(screenNav, { immediate: true }); };
+let qChipInit = false;
+function sizeQueueChip() {
+  const w = qChipIn.offsetWidth;
+  if (!w) return;
+  qChipW.set(w, { immediate: !qChipInit });
+  qChipInit = true;
+}
+/** +1 после «Скачать» — фон чипа .08 → .22 → .08 за 0,9 с. */
+function bumpQueueChip() {
+  if (REDUCED) return;
+  qChip.classList.remove('bump'); void qChip.offsetWidth; qChip.classList.add('bump');
 }
 
 /* ============================== вкладки ============================== */
@@ -412,6 +517,7 @@ function onUrlInput() {
   autoGrow();
   const urls = extractUrls(urlBox.value);
   setPlatform(urls.length ? detectPlatform(urls[0]) : 'none');
+  applyAccent();
   clearTimeout(pvTimer);
   if (!urls.length) { setPreview(null); return; }
   if (urls.length > 1) { setPreview({ kind: 'multi', n: urls.length }); return; }
@@ -429,7 +535,7 @@ function acceptPastedText(text, { replace = true } = {}) {
   if (state.tab !== 'link') switchTab('link');
   onUrlInput();
   if (state.autostart) { clearTimeout(pvTimer); submitLinks(); }
-  else { urlBox.focus(); heroEl.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
+  else goScreen('home').then(() => urlBox.focus());
   return true;
 }
 $('#paste').addEventListener('click', async () => {
@@ -464,6 +570,7 @@ async function submitLinks(extra = {}) {
   const go = $('#go');
   go.disabled = true;
   go.classList.remove('fire'); void go.offsetWidth; go.classList.add('fire');
+  cosmos?.pulse('go');
   try {
     const body = { urls, mode: state.mode, quality: effectiveQuality(), bitrate: Number(state.bitrate), auto_accept: state.autoAccept, ...extra };
     if (clip.start) body.start = clip.start;
@@ -472,7 +579,9 @@ async function submitLinks(extra = {}) {
     const jobs = await api('/api/jobs', { method: 'POST', body });
     urlBox.value = '';
     onUrlInput();
-    toast(jobs.length > 1 ? `В очереди: ${jobs.length} ${plural(jobs.length, 'ссылка', 'ссылки', 'ссылок')}` : 'Поехали! Ссылка в очереди', 'ok', { timeout: 2400 });
+    // экран не меняется — можно вставлять следующую ссылку; в очередь — из тоста или вкладкой (§7.1)
+    toast(jobs.length > 1 ? `В очереди: ${jobs.length} ${plural(jobs.length, 'ссылка', 'ссылки', 'ссылок')}` : 'Поехали! Ссылка в очереди', 'ok', { action: { label: 'Открыть очередь', run: () => goScreen('queue') } });
+    bumpQueueChip();
     portal.classList.add('busy');
     pollJobs();
   } catch (err) {
@@ -730,6 +839,7 @@ async function pollJobs() {
 function onJobs(jobs) {
   const prev = new Map(state.jobs.map((j) => [j.id, j.status]));
   state.jobs = jobs;
+  state.jobsLoaded = true;
   if (seenDone === null) seenDone = new Set(jobs.filter((j) => !ACTIVE.has(j.status)).map((j) => j.id));
   let finished = null;
   for (const j of jobs) {
@@ -744,8 +854,7 @@ function onJobs(jobs) {
   updateReadout();
 }
 function renderJobs(jobs) {
-  const list = $('#jobs'), section = $('#queue');
-  if (section.hidden && jobs.length) { section.hidden = false; section.querySelector('.rv')?.classList.add('in'); enter(section, { dy: 16, scale: 0.985, blur: 6, response: 0.7, damping: 0.95 }); }
+  const list = $('#jobs');
   const ids = new Set(jobs.map((j) => j.id));
   const removed = [];
   for (const [id, el] of jobEls) if (!ids.has(id)) { removed.push(el); jobEls.delete(id); clearInterval(countdowns.get(id)); }
@@ -761,15 +870,15 @@ function renderJobs(jobs) {
   };
   if (order !== lastOrder || removed.length) flip(list, mutate, removed); else mutate();
   lastOrder = order;
-  if (!jobs.length && !removed.length) section.hidden = true;
-  else if (!jobs.length) setTimeout(() => { if (!state.jobs.length) section.hidden = true; }, 420);
   const active = jobs.filter((j) => ACTIVE.has(j.status));
   const waiting = jobs.filter((j) => j.status === 'waiting');
   const known = active.filter((j) => j.progress != null && j.status !== 'waiting');
-  document.title = waiting.length ? '(?) выдра' : active.length ? `(${known.length ? Math.round(known.reduce((s, j) => s + j.progress, 0) / known.length) : '…'}${known.length ? '%' : ''}) выдра` : 'выдра';
+  titlePrefix = waiting.length ? '(?) ' : active.length ? `(${known.length ? `${Math.round(known.reduce((s, j) => s + j.progress, 0) / known.length)}%` : '…'}) ` : '';
+  updateTitle();
   const done = jobs.filter((j) => j.status === 'done').length;
   $('#queue-readout').textContent = [active.length ? `активно ${active.length}` : '', waiting.length ? `ждут ответа ${waiting.length}` : '', done ? `готово ${done}` : ''].filter(Boolean).join(' · ');
   $('#clear-jobs').hidden = !jobs.some((j) => !ACTIVE.has(j.status));
+  $('#queue-title .live-dot').hidden = !active.length;
 }
 function createJobEl(j) {
   const el = $('#job-tpl').content.firstElementChild.cloneNode(true);
@@ -944,25 +1053,36 @@ async function fileAction(id, act) {
 $('#clear-jobs').addEventListener('click', async () => { try { await api('/api/jobs/clear', { method: 'POST' }); pollJobs(); } catch (err) { toast(err.message, 'err'); } });
 
 /* ============================== Dynamic Island ============================== */
+// Острова в центре панели больше нет — его состояния живут во вкладке «Очередь» (§7.1): idle — счётчик, compact — кольцо
+// прогресса и процент, expanded — карточка загрузки под вкладками (наведение или фокус), ask — точка «нужен ответ»,
+// done — ✓ в чипе «Библиотеки» на 2,4 с. data-state — на группе вкладок (#island), карточка — #island-card.
 
 const island = $('#island');
-const islandExp = new Spring({ response: 0.5, damping: 0.8, epsilon: 0.002 });
-const islandIdle = new Spring({ response: 0.45, damping: 0.95, epsilon: 0.002, value: 1 });
-islandExp.onUpdate = (v) => island.style.setProperty('--exp', v.toFixed(4));
-islandIdle.onUpdate = (v) => island.style.setProperty('--idle', v.toFixed(4));
-let islandHover = false, islandPinned = false, doneTimer = 0;
+const islandCard = $('#island-card');
+const queueTab = $('#island-hit');
+let islandHover = false, islandFocus = false, islandPinned = false, doneTimer = 0, collapseTimer = 0;
 const islandDemo = new URLSearchParams(location.search).get('island') === 'demo';
+const islandOpen = () => islandHover || islandFocus || islandPinned;
 function setIslandState(s) {
+  const prev = island.dataset.state;
   island.dataset.state = s;
-  islandIdle.set(s === 'idle' ? 1 : 0);
-  islandExp.set(s === 'expanded' ? 1 : 0);
-  $('#island-hit').tabIndex = s === 'idle' ? -1 : 0;
-  $('#island-hit').setAttribute('aria-label', s === 'ask' ? 'Нужен ваш ответ — открыть очередь' : s === 'done' ? 'Готово — открыть хранилище' : 'Статус загрузок');
+  island.toggleAttribute('data-card', !state.down && (s === 'expanded' || (s === 'ask' && islandOpen())));
+  if (s === 'ask') queueTab.setAttribute('aria-label', 'Очередь — нужен ваш ответ'); else queueTab.removeAttribute('aria-label');
+  cosmos?.setEnergy(s === 'compact' || s === 'expanded' ? 1 : s === 'ask' ? 0.4 : 0);
+  if (s === 'done' && prev !== 'done') cosmos?.pulse('done');
+  updateScreenCounts();
 }
 function updateIsland(jobs, finished) {
   const waiting = jobs.find((j) => j.status === 'waiting');
   const active = jobs.filter((j) => ACTIVE.has(j.status) && j.status !== 'waiting');
-  if (waiting && !active.some((j) => j.status === 'downloading' || j.status === 'converting')) { clearTimeout(doneTimer); setIslandState('ask'); return; }
+  if (waiting && !active.some((j) => j.status === 'downloading' || j.status === 'converting')) {
+    clearTimeout(doneTimer);
+    $('#island-title').textContent = `Нужен ответ · ${jobTitle(waiting)}`;
+    $('#island-stage').textContent = waiting.stage || '';
+    $('#island-bar').style.setProperty('--s', '0');
+    setIslandState('ask');
+    return;
+  }
   if (active.length) {
     clearTimeout(doneTimer);
     const cur = active.find((j) => j.status === 'downloading' || j.status === 'converting') || active[active.length - 1];
@@ -978,26 +1098,43 @@ function updateIsland(jobs, finished) {
     const thumb = $('#island-thumb');
     if (cur.thumb && thumb.dataset.id !== cur.id) { thumb.dataset.id = cur.id; thumb.innerHTML = `<img alt="" src="/api/jobs/${cur.id}/thumbnail">`; }
     else if (!cur.thumb && thumb.dataset.id !== `g-${cur.platform}`) { thumb.dataset.id = `g-${cur.platform}`; thumb.innerHTML = svgUse(glyph(cur.platform)); }
-    setIslandState(islandHover || islandPinned ? 'expanded' : 'compact');
+    setIslandState(islandOpen() && !state.down ? 'expanded' : 'compact');
   } else if (finished) {
     islandPinned = false;
-    $('#island-done-text').textContent = 'Готово';
     setIslandState('done');
     clearTimeout(doneTimer);
     doneTimer = setTimeout(() => { if (!state.jobs.some((j) => ACTIVE.has(j.status))) setIslandState('idle'); }, 2400);
   } else if (island.dataset.state !== 'done') setIslandState('idle');
 }
-const islandHit = $('#island-hit');
-islandHit.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; islandHover = true; if (island.dataset.state === 'compact') setIslandState('expanded'); });
-islandHit.addEventListener('pointerleave', () => { islandHover = false; if (island.dataset.state === 'expanded' && !islandPinned) setIslandState('compact'); });
-islandHit.addEventListener('click', () => {
-  const s = island.dataset.state;
-  if (s === 'expanded') { islandPinned = false; setIslandState('compact'); $('#queue').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' }); }
-  else if (s === 'compact') { islandPinned = true; setIslandState('expanded'); }
-  else if (s === 'done') $('#library').scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'start' });
-  else if (s === 'ask') { const w = state.jobs.find((j) => j.status === 'waiting'); const el = w && jobEls.get(w.id); if (el) { el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' }); setTimeout(() => el.querySelector('.job-ask .primary')?.focus({ preventScroll: true }), 500); } }
-});
-island.style.setProperty('--exp', '0'); island.style.setProperty('--idle', '1');
+/** Наведение/фокус на «Очереди» или её карточке раскрывает карточку; уход — свёртка через 240 ms (можно перейти на карточку). */
+function islandHold(on) {
+  clearTimeout(collapseTimer);
+  const apply = () => {
+    const s = island.dataset.state;
+    if (s === 'compact' && islandOpen() && !state.down) setIslandState('expanded');
+    else if (s === 'expanded' && !islandOpen()) setIslandState('compact');
+    else if (s === 'ask') setIslandState('ask');
+  };
+  if (on) apply(); else collapseTimer = setTimeout(apply, 240);
+}
+for (const el of [queueTab, islandCard]) {
+  el.addEventListener('pointerenter', (e) => { if (e.pointerType !== 'mouse') return; islandHover = true; islandHold(true); });
+  el.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'mouse') return; islandHover = false; islandHold(false); });
+}
+queueTab.addEventListener('focus', () => { islandFocus = true; islandHold(true); });
+queueTab.addEventListener('blur', () => { islandFocus = false; islandHold(false); });
+/** «Нужен ответ» — экран «Очередь», ждущая карточка по центру, фокус на первичной кнопке через 500 ms. */
+function openWaiting() {
+  goScreen('queue').then(() => {
+    const w = state.jobs.find((j) => j.status === 'waiting');
+    const el = w && jobEls.get(w.id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
+    setTimeout(() => el.querySelector('.job-ask .primary')?.focus({ preventScroll: true }), 500);
+  });
+}
+queueTab.addEventListener('click', (e) => { if (island.dataset.state === 'ask') { e.preventDefault(); openWaiting(); } });
+islandCard.addEventListener('click', () => { if (island.dataset.state === 'ask') openWaiting(); else goScreen('queue'); });
 
 /* ============================== показания — только реальные данные ============================== */
 
@@ -1006,9 +1143,10 @@ function updateReadout() {
   $('#ro-count').textContent = st ? String(st.count ?? 0) : '—';
   $('#ro-size').textContent = st ? fmtBytes(st.size || 0) : '—';
   const active = state.jobs.filter((j) => ACTIVE.has(j.status)).length;
-  const a = $('#ro-active'); a.textContent = String(active); a.classList.toggle('live', active > 0);
+  const a = $('#ro-active'); a.textContent = state.jobsLoaded ? String(active) : '—'; a.classList.toggle('live', active > 0);
   const s = $('#ro-speed'); s.textContent = state.speed ? `${fmtBytes(state.speed)}/с` : '—'; s.classList.toggle('live', state.speed > 0);
   if (st) $('#lib-readout').textContent = `${st.count ?? 0} ${plural(st.count ?? 0, 'файл', 'файла', 'файлов')} · ${fmtBytes(st.size || 0)}${st.videos != null ? ` · видео ${st.videos} · аудио ${st.audios ?? 0}` : ''}`;
+  updateScreenCounts();
 }
 
 /* ============================== плеер ============================== */
@@ -1346,7 +1484,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.shiftKey && ['N', 'n', 'Т', 'т'].includes(e.key)) { e.preventDefault(); explorer.newFolder(); return; }
   if (typing) return;
   if (e.key === '?') { e.preventDefault(); openModal($('#cheats')); return; }
-  if (e.key === '/') { e.preventDefault(); $('#lib-search').focus(); }
+  if (e.key === '/') { e.preventDefault(); goScreen('library').then(() => $('#lib-search').focus()); }
 });
 
 /* ============================== живые события с сервера ============================== */
@@ -1383,16 +1521,16 @@ async function loadInfo() {
   for (const [id, el] of jobEls) { const j = state.jobs.find((x) => x.id === id); if (j) updateJobEl(el, j); }
 }
 let scrollRaf = 0;
-window.addEventListener('scroll', () => { cancelAnimationFrame(scrollRaf); scrollRaf = requestAnimationFrame(() => $('#topbar').classList.toggle('scrolled', scrollY > 8)); }, { passive: true });
+window.addEventListener('scroll', () => { cancelAnimationFrame(scrollRaf); scrollRaf = requestAnimationFrame(syncScroll); }, { passive: true });
 window.addEventListener('resize', () => requestAnimationFrame(() => moveAllInks({ immediate: true })));
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { pollJobs(); explorer.refresh(); } });
-function initReveal() {
-  const all = $$('.rv');
-  if (REDUCED) { all.forEach((el) => el.classList.add('in')); return; }
-  $$('.hero .rv').forEach((el, i) => { el.style.setProperty('--i', el.dataset.i ?? i); requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('in'))); });
-  const io = new IntersectionObserver((entries) => { for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }, { rootMargin: '0px 0px -8% 0px' });
-  $$('.rv:not(.hero .rv)').forEach((el) => io.observe(el));
-  setTimeout(() => all.forEach((el) => el.classList.add('in')), 2500);
+/** Первая загрузка: строки героя ступенями — кикер 0 → тонкая строка 60 → плита 120 → лид 180 → вкладки 240 → поле 300 →
+    ряд форматов 360 ms (§4.2); первый заход на экран данных — его содержимое. Поле интерактивно сразу. */
+function initIntro() {
+  if (!html.classList.contains('intro')) return;
+  if (curScreen === 'home') heroRows().forEach((el, i) => enter(el, { delay: i * 60, scale: 1 }));
+  else enterScreen(curScreen, 'home');
+  html.classList.remove('intro');
 }
 
 const explorer = createExplorer({ $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, pickFolder, artHtml, attachHoverPreview, fileAction, onDest: (p) => setDest(p) });
@@ -1406,6 +1544,8 @@ initPills($('.view-toggle'), (v) => explorer.setView(v));
 
 function init() {
   initCosmos();
+  showScreen(screenFromHash(), { instant: true });
+  delete html.dataset.boot;
   setMode(state.mode, { save: false });
   initPills($('[data-name="mode"]'), (v) => setMode(v));
   initPills($('[data-name="quality"]'), (v) => { state.quality = v; savePrefs(); });
@@ -1419,8 +1559,7 @@ function init() {
   renderDest();
   explorer.setDest(state.dest);
   requestAnimationFrame(() => moveAllInks({ immediate: true }));
-  document.fonts?.ready.then(() => moveAllInks({ immediate: true }));
-  initReveal();
+  document.fonts?.ready.then(() => { qChipInit = false; sizeQueueChip(); moveAllInks({ immediate: true }); });
 
   loadInfo();
   explorer.load('');
@@ -1446,5 +1585,6 @@ function init() {
     const wait = setInterval(() => { const first = explorer.state.items?.[0]; if (first) { clearInterval(wait); openPlayer(first, $(`.tile[data-id="${CSS.escape(first.id)}"] .tile-media`)); } }, 300);
     setTimeout(() => clearInterval(wait), 8000);
   }
+  initIntro();
 }
 init();

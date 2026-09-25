@@ -185,7 +185,7 @@ export function pressable(root, selector, { scale = 0.97 } = {}) {
     const m = motionOf(el);
     m.to({ s: scale }, { response: 0.12, damping: 1 });
     const up = () => {
-      m.to({ s: 1 }, { response: 0.38, damping: 0.72 });
+      m.to({ s: 1 }, { response: 0.38, damping: 0.8 });
       el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); el.removeEventListener('pointerleave', up);
     };
     el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up); el.addEventListener('pointerleave', up);

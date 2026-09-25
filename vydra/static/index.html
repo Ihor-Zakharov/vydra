@@ -7,13 +7,14 @@
   <meta name="description" content="Скачивание видео с YouTube, TikTok и Instagram без водяных знаков, конвертация в MP4 и MP3, офлайн-хранилище">
   <meta name="color-scheme" content="dark">
   <meta name="referrer" content="no-referrer">
-  <meta name="theme-color" content="#050508">
+  <meta name="theme-color" content="#000000">
   <link rel="manifest" href="/static/manifest.webmanifest">
   <link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
   <link rel="modulepreload" href="/static/spring.js">
   <link rel="modulepreload" href="/static/cosmos.js">
   <link rel="modulepreload" href="/static/explorer.js">
+  <link rel="preload" as="image" href="/static/scene/plate.webp" type="image/webp">
   <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/css/core.css">
   <link rel="stylesheet" href="/static/css/shell.css">
@@ -23,10 +24,19 @@
   <link rel="stylesheet" href="/static/css/dialogs.css">
   <script>
     // тема — сейчас только тёмная (KOCMOC): переключатель скрыт, светлая тема — на следующем этапе.
+    // экран — по адресу (#/queue, #/library, иначе главный) до первой отрисовки: без мелькания чужого экрана.
+    // .intro — строки героя ждут своей ступени появления (app.js снимает класс; запасной выход — через 3 с).
     (function () {
-      document.documentElement.dataset.theme = 'dark';
+      var root = document.documentElement;
+      root.dataset.theme = 'dark';
       var q = new URLSearchParams(location.search);
-      if (q.get('motion') === '0') document.documentElement.classList.add('motion-off');
+      var m = /^#\/(queue|library)\/?$/.exec(location.hash);
+      root.dataset.screen = root.dataset.boot = m ? m[1] : (q.has('folder') && !location.hash ? 'library' : 'home');
+      if (q.get('motion') === '0') root.classList.add('motion-off');
+      else if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        root.classList.add('intro');
+        setTimeout(function () { root.classList.remove('intro'); }, 3000);
+      }
     })();
   </script>
 </head>
@@ -83,40 +93,47 @@
     <symbol id="p-file" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM10 12.5v6l5-3z"/></symbol>
   </svg>
 
-  <div class="grain" aria-hidden="true"></div>
+  <div class="cosmos-wrap" id="cosmos-wrap" aria-hidden="true">
+    <canvas class="cosmos" id="cosmos"></canvas>
+    <div class="cosmos-fallback"></div>
+    <div class="grain"></div>
+  </div>
 
   <div class="offline" id="offline" role="alert" hidden>
     <span class="offline-dot" aria-hidden="true"></span>
     <p><b>Сервер выдры не запущен.</b> Запустите ярлык «Выдра» или команду <code>vydra ui</code> — страница оживёт сама.</p>
-  </div>
-
-  <div class="island" id="island" data-state="idle">
-    <div class="island-bg" aria-hidden="true"></div>
-    <button class="island-hit" id="island-hit" type="button" aria-label="Статус загрузок" tabindex="-1">
-      <span class="island-compact">
-        <svg class="island-ring" viewBox="0 0 36 36" aria-hidden="true"><circle class="ir-track" cx="18" cy="18" r="14"/><circle class="ir-fill" id="ir-fill" cx="18" cy="18" r="14" pathLength="100"/></svg>
-        <span class="island-pct" id="island-pct">0%</span>
-      </span>
-      <span class="island-full">
-        <span class="island-thumb" id="island-thumb"><svg><use href="#p-other"/></svg></span>
-        <span class="island-text">
-          <b id="island-title">Скачиваю</b>
-          <small id="island-stage"></small>
-          <span class="island-bar"><span id="island-bar"></span></span>
-        </span>
-        <span class="island-count" id="island-count"></span>
-      </span>
-      <span class="island-done"><svg><use href="#i-check"/></svg><span id="island-done-text">Готово</span></span>
-      <span class="island-ask"><svg><use href="#i-question"/></svg><span>Нужен ответ</span></span>
-    </button>
+    <button class="text-btn" id="offline-retry" type="button">Повторить</button>
   </div>
 
   <header class="topbar" id="topbar">
-    <a class="brand" href="/" aria-label="выдра — на главную">
+    <a class="brand" href="#/" aria-label="выдра — на главную">
       <span class="brand-mark"><svg><use href="#i-play"/></svg></span>
       <span class="brand-word">выдра</span>
     </a>
-    <nav class="topbar-actions" aria-label="Разделы">
+    <nav class="screens island" id="island" data-state="idle" aria-label="Экраны">
+      <a class="screen-tab" href="#/" data-screen="home" aria-current="page">Ссылка</a>
+      <a class="screen-tab" href="#/queue" data-screen="queue" id="island-hit">
+        <span class="tab-label">Очередь</span>
+        <span class="tab-count q-chip" data-zero><span class="q-chip-in" id="queue-chip">
+          <svg class="island-ring" viewBox="0 0 16 16" aria-hidden="true"><circle class="ir-track" cx="8" cy="8" r="6"/><circle class="ir-fill" cx="8" cy="8" r="6" pathLength="100"/></svg><span class="island-pct" id="island-pct">0%</span><i class="q-ask" aria-hidden="true"></i><span class="tab-num" id="queue-num">–</span>
+        </span></span>
+      </a>
+      <a class="screen-tab" href="#/library" data-screen="library" id="library-tab">
+        <span class="tab-label">Библиотека</span>
+        <span class="tab-count" data-zero><svg class="lib-done" aria-hidden="true"><use href="#i-check"/></svg><span class="tab-num" id="library-num">–</span></span>
+      </a>
+      <span class="screens-ink" aria-hidden="true"></span>
+    </nav>
+    <div class="island-card" id="island-card" aria-hidden="true">
+      <span class="island-thumb" id="island-thumb"><svg><use href="#p-other"/></svg></span>
+      <span class="island-text">
+        <b id="island-title">Скачиваю</b>
+        <small id="island-stage"></small>
+        <span class="island-bar"><span id="island-bar"></span></span>
+      </span>
+      <span class="island-count" id="island-count"></span>
+    </div>
+    <nav class="topbar-actions" aria-label="Действия">
       <button class="glass icon-btn" id="open-folder" type="button" title="Открыть папку загрузок" aria-label="Открыть папку загрузок"><svg><use href="#i-folder"/></svg></button>
       <button class="glass icon-btn" id="open-health" type="button" title="Состояние системы" aria-label="Состояние системы">
         <svg><use href="#i-pulse"/></svg><span class="badge" id="health-badge" hidden></span>
@@ -128,13 +145,8 @@
     </nav>
   </header>
 
-  <main>
+  <main class="screen" id="screen-home" data-screen="home">
     <section class="hero" id="hero" aria-label="Скачивание">
-      <div class="cosmos-wrap" id="cosmos-wrap" aria-hidden="true">
-        <canvas class="cosmos" id="cosmos"></canvas>
-        <div class="cosmos-fallback"></div>
-        <div class="hero-scrim"></div>
-      </div>
       <div class="hero-frame" aria-hidden="true"><i class="hf-tl"></i><i class="hf-br"></i></div>
       <dl class="readout" id="readout" aria-label="Состояние хранилища">
         <div><dt>файлов</dt><dd id="ro-count">—</dd></div>
@@ -144,23 +156,23 @@
       </dl>
 
       <div class="hero-copy">
-        <p class="kicker rv" data-i="0"><span class="num">01</span> / ссылка</p>
-        <h1 class="rv" data-i="1"><span class="thin">Вставь ссылку</span><span class="slab">забери видео</span></h1>
-        <p class="lede rv" data-i="2">
+        <p class="kicker" data-enter><span class="num">01</span> / ссылка</p>
+        <h1><span class="thin" data-enter>Вставь ссылку</span><span class="slab" data-enter>забери видео</span></h1>
+        <p class="lede" data-enter>
           <span class="pf" data-p="youtube"><svg><use href="#p-youtube"/></svg>YouTube</span>,
           <span class="pf" data-p="tiktok"><svg><use href="#p-tiktok"/></svg>TikTok</span>,
           <span class="pf" data-p="instagram"><svg><use href="#p-instagram"/></svg>Instagram</span>
-          <span class="lede-rest">и сотни других сайтов — сразу в MP4 или MP3, без водяных знаков, на ваш компьютер.</span>
+          <span class="lede-rest">и сотни других сайтов — сразу в&nbsp;MP4 или MP3, без водяных знаков, на ваш компьютер.</span>
         </p>
 
-        <div class="console rv" data-i="3" aria-label="Скачивание и конвертация">
-          <div class="tabs glass" role="tablist" aria-label="Режим">
+        <div class="console" aria-label="Скачивание и конвертация">
+          <div class="tabs glass" role="tablist" aria-label="Режим" data-enter>
             <button role="tab" class="tab" id="tab-link" aria-selected="true" aria-controls="panel-link" data-tab="link" type="button"><svg><use href="#i-link"/></svg>По ссылке</button>
             <button role="tab" class="tab" id="tab-file" aria-selected="false" aria-controls="panel-file" data-tab="file" type="button"><svg><use href="#i-upload"/></svg>Конвертер</button>
             <span class="tab-ink" aria-hidden="true"></span>
           </div>
 
-          <div id="panel-link" role="tabpanel" aria-labelledby="tab-link" data-panel="link">
+          <div id="panel-link" role="tabpanel" aria-labelledby="tab-link" data-panel="link" data-enter>
             <form class="portal" id="link-form" autocomplete="off">
               <div class="portal-ring" aria-hidden="true"></div>
               <div class="portal-body glass">
@@ -173,7 +185,7 @@
             <div class="preview-slot" id="preview-slot" aria-live="polite"></div>
           </div>
 
-          <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" data-panel="file" hidden>
+          <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" data-panel="file" data-enter hidden>
             <label class="dropzone" id="dropzone" for="file-input">
               <input type="file" id="file-input" multiple accept="video/*,audio/*,.mkv,.webm,.flv,.avi,.mov,.m4a,.opus,.ogg,.wav,.flac">
               <span class="dz-orb" aria-hidden="true"><svg><use href="#i-upload"/></svg></span>
@@ -182,7 +194,7 @@
             </label>
           </div>
 
-          <div class="dest-row">
+          <div class="dest-row" data-enter>
             <div class="pills formats glass" role="radiogroup" aria-label="Формат" data-name="mode">
               <button type="button" role="radio" data-value="mp4" title="Видео со звуком, MP4 (H.264/AAC)"><svg><use href="#i-film"/></svg>Видео + звук</button>
               <button type="button" role="radio" data-value="mp3" title="Только звук, MP3"><svg><use href="#i-wave"/></svg>Только звук</button>
@@ -250,22 +262,26 @@
         </div>
       </div>
     </section>
+  </main>
 
-    <section class="queue section" id="queue" aria-labelledby="queue-title" hidden>
-      <div class="section-head rv">
+  <main class="screen" id="screen-queue" data-screen="queue" hidden>
+    <section class="queue section" id="queue" aria-labelledby="queue-title">
+      <div class="section-head">
         <p class="kicker"><span class="num">02</span> / очередь</p>
-        <h2 id="queue-title"><span class="live-dot" aria-hidden="true"></span>Очередь</h2>
+        <h1 id="queue-title"><span class="live-dot" aria-hidden="true" hidden></span>Очередь</h1>
         <span class="hairline" aria-hidden="true"></span>
         <span class="head-readout" id="queue-readout"></span>
         <button class="text-btn" id="clear-jobs" type="button"><svg><use href="#i-sweep"/></svg>Убрать завершённые</button>
       </div>
       <ol class="jobs" id="jobs"></ol>
     </section>
+  </main>
 
+  <main class="screen" id="screen-library" data-screen="library" hidden>
     <section class="library section" id="library" aria-labelledby="lib-title">
-      <div class="section-head rv">
-        <p class="kicker"><span class="num">03</span> / хранилище</p>
-        <h2 id="lib-title">Хранилище</h2>
+      <div class="section-head">
+        <p class="kicker"><span class="num">03</span> / библиотека</p>
+        <h1 id="lib-title">Библиотека</h1>
         <span class="hairline" aria-hidden="true"></span>
         <span class="head-readout" id="lib-readout"></span>
         <span class="sync" id="sync" aria-live="polite"><i></i><span>синхронизировано</span></span>
