@@ -208,3 +208,32 @@ def test_slow_windows_interop_does_not_block_other_requests(settings, library, m
         assert client.get("/api/jobs").status_code == 200
         assert time.monotonic() - started < 1
         slow.join()
+
+
+@pytest.mark.skipif(servers.RESTART_SIGNAL is None, reason="нужен SIGUSR1")
+def test_real_ui_restarts_in_place_and_stops_on_hangup(tmp_path):
+    """Настоящий `vydra ui`: перезапуск (SIGUSR1) — тот же процесс, новая версия; закрыли окно (SIGHUP) — мягкая остановка."""
+    import signal as sig
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    env = dict(os.environ, VD_WORK_DIR=str(tmp_path / "work"), VD_LIBRARY_DIR=str(tmp_path / "lib"),
+               VD_CONFIG_DIR=str(tmp_path / "cfg"), COLUMNS="100")  # fmt: skip
+    proc = subprocess.Popen([sys.executable, "-m", "vydra", "ui", "--no-browser", "--port", str(port)], env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)  # fmt: skip
+    work = tmp_path / "work"
+    try:
+        assert servers.wait_alive(port, 20)
+        [server] = servers.running(work)
+        assert server.pid == proc.pid and server.restartable
+        assert servers.restart(work, server, timeout=20)
+        assert servers.running(work)[0].pid == proc.pid  # exec: тот же процесс, то же окно
+        proc.send_signal(sig.SIGHUP)
+        assert proc.wait(timeout=15) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    output = proc.stdout.read()
+    assert "обновлена и перезапущена" in output and "Выдра остановлена" in output
+    assert servers.running(work) == [] and not servers.pid_path(work, port).exists()

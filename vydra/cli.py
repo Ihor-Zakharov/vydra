@@ -960,8 +960,10 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
     why: list[str] = []
     from .main import SHUTDOWN
 
+    hangup = getattr(signal, "SIGHUP", None)
+
     def on_signal(signum, _frame) -> None:
-        why.append({signal.SIGINT: "ctrl-c", signal.SIGTERM: "stop"}.get(signum, "restart"))
+        why.append({signal.SIGINT: "ctrl-c", signal.SIGTERM: "stop", hangup: "hangup"}.get(signum, "restart"))
         SHUTDOWN.set()
         server.should_exit = True
 
@@ -975,7 +977,8 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
 
     # uvicorn на время работы ставит свои обработчики, а после остановки вызывает наши — так
     # мы узнаём, почему он остановился; SIGUSR1 он не трогает, и тот приходит сразу сюда
-    handled = [signal.SIGINT, signal.SIGTERM] + ([servers.RESTART_SIGNAL] if servers.RESTART_SIGNAL else [])
+    # SIGHUP — закрыли окно терминала: останавливаемся так же мягко (очередь сохранится), а не падаем
+    handled = [signal.SIGINT, signal.SIGTERM, *(s for s in (servers.RESTART_SIGNAL, hangup) if s)]
     previous = {sig: signal.signal(sig, on_signal) for sig in handled}
     try:
         server.run()
@@ -990,7 +993,10 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
         os.environ["_VYDRA_RESTARTED"] = "1"
         os.execv(sys.executable, [sys.executable, "-m", "vydra", "ui", "--port", str(port), "--no-browser"])  # noqa: S606
     reason = "остановлена командой stop" if "stop" in why else "остановлена"
-    console.print(Text(f"\n  Выдра {reason}.", style="dim"))
+    try:
+        console.print(Text(f"\n  Выдра {reason}.", style="dim"))
+    except OSError:
+        pass  # окно терминала уже закрыто
 
 
 def stop(
