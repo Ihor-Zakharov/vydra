@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -1337,22 +1338,118 @@ def doctor(
         raise typer.Exit(1)
 
 
-def update() -> None:
-    """Обновить yt-dlp — когда сайт перестал качаться. [dim](синоним: обновить)[/]"""
-    banner("обновление")
+def update(
+    repo: Annotated[str | None, typer.Option("--repo", "--из", show_default=False, metavar="URL|ПАПКА",
+                                             help="Откуда ставить: адрес архива или папка с копией репозитория")] = None,  # fmt: skip
+    only_ytdlp: Annotated[bool, typer.Option("--only-ytdlp", "--только-ytdlp", help="Обновить только yt-dlp")] = False,
+    force: Annotated[bool, typer.Option("--force", "--заново", help="Переустановить, даже если версия последняя")] = False,
+    check: Annotated[bool, typer.Option("--check", "--проверить", help="Только проверить, есть ли что обновлять")] = False,
+    record: Annotated[str | None, typer.Option("--record", hidden=True)] = None,
+    no_banner: Annotated[bool, typer.Option("--no-banner", hidden=True)] = False,
+) -> None:
+    """Обновить выдру до последней версии из репозитория — и yt-dlp. [dim](синоним: обновить)[/]"""
+    from . import selfupdate
+
+    settings = Settings.from_env()
+    if record:  # установщик: запомнить, из какого коммита стоит выдра
+        rev = selfupdate.inspect(selfupdate.normalize(record))
+        rev.version = __version__
+        selfupdate.write_record(settings.config_dir, rev)
+        return
+    if not no_banner:
+        banner("обновление")
+    if only_ytdlp:
+        _update_ytdlp(check)
+        return
+    env = selfupdate.installed_env()
+    if env is None:
+        root = tools._project_root()  # noqa: SLF001
+        if root:
+            console.print(Text(f"  Выдра запущена из исходников ({root}) — их обновляют через git pull; "
+                               "обновляю только yt-dlp", style="dim"))  # fmt: skip
+        else:
+            console.print(Text("  Выдра поставлена не установщиком — саму выдру так не обновить (поставьте "
+                               "установщиком из README); обновляю только yt-dlp", style="yellow"))  # fmt: skip
+        _update_ytdlp(check)
+        return
+    try:
+        source, why = selfupdate.choose_source(repo, settings.config_dir, env)
+    except selfupdate.UpdateError as exc:
+        raise fail(str(exc), exc.hint) from exc
+    console.print(Text("  Откуда: ", style="dim") + Text(selfupdate.describe(source), style="cyan")
+                  + Text(f"  ({why})", style="dim"), soft_wrap=True)  # fmt: skip
+    current = selfupdate.read_record(settings.config_dir) or selfupdate.Revision(source)
+    current.version = __version__
+    with console.status(Text("Узнаю, что нового…", style="dim"), spinner="dots"):
+        latest = selfupdate.inspect(source)
+    if current.same_as(latest) and not force:
+        console.print(Text("  ✓ ", style="bold green") + Text(f"выдра — последняя версия ({current.label()})"))
+        _update_ytdlp(check)
+        return
+    old = current.label() if current.commit else f"{current.version} · коммит неизвестен"
+    new = latest.label() if latest.commit else "последняя из источника"
+    console.print(Text("  ~ ", style="bold yellow") + Text("выдра ", style="bold") + quoted(old, "dim")
+                  + Text(" → ", style="bold yellow") + quoted(new))  # fmt: skip
+    if not latest.commit:
+        console.print(Text("    Узнать, что изменилось, не удалось (нет сети, не git или не GitHub) — переустанавливаю",
+                           style="dim"))  # fmt: skip
+    if check:
+        console.print(Text("  Обновить: ", style="dim") + Text("выдра обновить", style="cyan"))
+        _update_ytdlp(check=True)
+        return
+    _self_update(settings, env, source, current, latest)
+
+
+def _self_update(settings: Settings, env: Path, source: str, current, latest) -> None:
+    from . import selfupdate, shell
+    from .fsutil import FileLock
+
+    had_tab = any(t.script.is_file() for t in shell.targets(settings.config_dir))
+    lock = FileLock(settings.work_dir / "update.lock", timeout=0)
+    lock.__enter__()
+    if lock._fh is not None and not lock.acquired:  # noqa: SLF001
+        raise fail("Обновление уже идёт в другом окне", "Дождитесь его конца")
+    try:
+        with console.status(Text("Ставлю новую версию (uv) — обычно до минуты…", style="dim"), spinner="dots"):
+            latest.version = selfupdate.install(source, env, settings.work_dir / "update-backup")
+    except selfupdate.UpdateError as exc:
+        raise fail(str(exc), exc.hint) from exc
+    finally:
+        lock.__exit__(None, None, None)
+    selfupdate.write_record(settings.config_dir, latest)
+    was = current.label() if current.commit else current.version
+    console.print(Text("  ✓ ", style="bold green") + Text("выдра обновлена: ") + Text(str(was), style="dim")
+                  + Text(" → ") + Text(latest.label(), style="bold"))  # fmt: skip
+    # дальше — уже новой версией: у этого процесса под ногами поменялись файлы пакета
+    new = [str(env / "bin" / "python"), "-m", "vydra"]
+    quiet = {"stdin": subprocess.DEVNULL, "check": False}
+    try:
+        subprocess.run([*new, "update", "--only-ytdlp", "--no-banner"], timeout=900, **quiet)
+        if had_tab:
+            ok = subprocess.run([*new, "completion"], stdout=subprocess.DEVNULL, timeout=120, **quiet).returncode == 0
+            console.print(Text("  ✓ Tab-подсказки обновлены", style="green") if ok
+                          else Text("  ! Tab-подсказки не обновились — выдра автодополнение", style="yellow"))  # fmt: skip
+        subprocess.run([*new, "restart", "--quiet"], timeout=120, **quiet)
+    except (OSError, subprocess.SubprocessError) as exc:
+        console.print(Text(f"  ! Выдра обновлена, но последний шаг не прошёл: {exc}", style="yellow"))
+
+
+def _update_ytdlp(check: bool = False) -> None:
     current = tools.ytdlp_version()
-    with console.status(Text("Проверяю версию…", style="dim"), spinner="dots"):
+    with console.status(Text("Проверяю версию yt-dlp…", style="dim"), spinner="dots"):
         latest = tools.ytdlp_latest()
     if latest and current and tools.version_tuple(latest) <= tools.version_tuple(current):
         console.print(Text(f"  ✓ yt-dlp {current} — последняя версия", style="green"))
         return
     console.print(Text("  ~ ", style="bold yellow") + Text("yt-dlp ", style="bold") + quoted(current or "?", "dim")
                   + Text(" → ", style="bold yellow") + quoted(latest or "новее"))  # fmt: skip
-    with console.status(Text("Обновляю…", style="dim"), spinner="dots"):
+    if check:
+        return
+    with console.status(Text("Обновляю yt-dlp…", style="dim"), spinner="dots"):
         try:
             message = tools.update_ytdlp()
         except RuntimeError as exc:
-            raise fail(str(exc)) from exc
+            raise fail(str(exc), "Проверьте интернет и повторите: выдра обновить --только-ytdlp") from exc
     console.print(Text(f"  ✓ {message}", style="green"))
 
 

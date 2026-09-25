@@ -126,7 +126,14 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "offline": Opt(("--offline", "--без-сети")),
         "report": Opt(("--report", "--отчёт", "--отчет")),
     },
-    "update": {},
+    "update": {
+        "repo": Opt(("--repo", "--из"), True),
+        "only_ytdlp": Opt(("--only-ytdlp", "--только-ytdlp")),
+        "force": Opt(("--force", "--заново")),
+        "check": Opt(("--check", "--проверить")),
+        "record": Opt(("--record",), True),
+        "no_banner": Opt(("--no-banner",)),
+    },
     "cookies": {"remove": Opt(("--remove", "--удалить"))},
     "shortcut": {},
     "completion": {

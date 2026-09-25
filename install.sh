@@ -1,7 +1,7 @@
 #!/bin/sh
 # Установка выдры одной командой (macOS, Linux, WSL):
 #   curl -LsSf https://raw.githubusercontent.com/Ihor-Zakharov/vydra/main/install.sh | sh
-# Повторный запуск — обновление. Из локальной копии: VYDRA_REPO=/путь/к/vydra sh install.sh
+# Повторный запуск — обновление (то же делает `vydra update`). Из локальной копии: VYDRA_REPO=/путь/к/vydra sh install.sh
 set -eu
 REPO="${VYDRA_REPO:-https://github.com/Ihor-Zakharov/vydra/archive/refs/heads/main.zip}"
 
@@ -42,6 +42,8 @@ for name in vydra выдра; do
     "$name" --version >/dev/null 2>&1 || die "Команда $name не запускается"
 done
 say 32 "✓" "$(vydra --version)"
+# запомнить, откуда и из какого коммита стоит выдра: `vydra update` сравнит с последним и обновит из того же места
+vydra update --record "$REPO" >/dev/null 2>&1 || true
 
 # 3. FFmpeg, JS-движок для YouTube, папки хранилища, ярлык, Tab и умные ссылки
 echo
