@@ -644,9 +644,9 @@ def download(
     json_mode(as_json)
     mode, qual = fmt_value(fmt), quality_value(quality)
     cut = resolve_clip(clip, start, end)
+    banner(f"{MODE_LABEL[mode]} · {qual if mode != 'mp3' else bitrate.value + ' кбит/с'}")
     links = _unique_links(links_or_clipboard(urls))
     env = make_env(out)
-    banner(f"{MODE_LABEL[mode]} · {qual if mode != 'mp3' else bitrate.value + ' кбит/с'}")
     auto = _auto_accept(yes)
     folder_rel = _folder(env, folder, auto)
     console.print()
@@ -765,8 +765,8 @@ def info(
     json_mode(as_json)
     settings = Settings.from_env()
     diagnostics.setup_logging(settings)
-    url = links_or_clipboard([url] if url else None)[0]
     banner("план")
+    url = links_or_clipboard([url] if url else None)[0]
     with console.status(Text("Смотрю, что там по ссылке…", style="dim"), spinner="dots"):
         try:
             data = preview(url, js_runtime=settings.js_runtime, cookies=settings.cookies_file)
