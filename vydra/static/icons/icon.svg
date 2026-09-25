@@ -1,17 +1,83 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>выдра</title>
+  <style>
+    .xs, .sm { display: none; }
+    @media (max-width: 24px) { .lg { display: none; } .xs { display: inline; } }
+    @media (min-width: 24.01px) and (max-width: 56px) { .lg { display: none; } .sm { display: inline; } }
+  </style>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7c5cff"/>
-      <stop offset="0.55" stop-color="#4b6bff"/>
-      <stop offset="1" stop-color="#00d4ff"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.78" cy="0.18" r="0.6">
-      <stop offset="0" stop-color="#ff4fd8" stop-opacity="0.85"/>
-      <stop offset="1" stop-color="#ff4fd8" stop-opacity="0"/>
+    <radialGradient id="xs-corona" cx="256" cy="256" r="256" gradientUnits="userSpaceOnUse">
+      <stop offset=".48" stop-color="#fff"/>
+      <stop offset=".69" stop-color="#fff"/>
+      <stop offset=".8" stop-color="#eef2fb" stop-opacity=".42"/>
+      <stop offset=".9" stop-color="#e3e9f7" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#e3e9f7" stop-opacity=".03"/>
     </radialGradient>
+    <radialGradient id="sm-corona" cx="256" cy="256" r="240" gradientUnits="userSpaceOnUse">
+      <stop offset=".52" stop-color="#fff"/>
+      <stop offset=".69" stop-color="#fff"/>
+      <stop offset=".76" stop-color="#eef2fb" stop-opacity=".5"/>
+      <stop offset=".85" stop-color="#e3e9f7" stop-opacity=".2"/>
+      <stop offset=".93" stop-color="#e3e9f7" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#e3e9f7" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="core" cx="256" cy="256" r="134" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0b0b0d"/>
+      <stop offset=".5" stop-color="#101013"/>
+      <stop offset=".75" stop-color="#18181c"/>
+      <stop offset=".9" stop-color="#26272b"/>
+      <stop offset=".97" stop-color="#44464c"/>
+      <stop offset="1" stop-color="#9a9da5"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="256" cy="256" r="256" gradientUnits="userSpaceOnUse">
+      <stop offset=".52" stop-color="#eef2fb" stop-opacity="0"/>
+      <stop offset=".57" stop-color="#eef2fb" stop-opacity=".5"/>
+      <stop offset=".64" stop-color="#e6ecf8" stop-opacity=".22"/>
+      <stop offset=".76" stop-color="#dde5f5" stop-opacity=".08"/>
+      <stop offset=".92" stop-color="#dde5f5" stop-opacity=".02"/>
+      <stop offset="1" stop-color="#dde5f5" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="flare" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#e4ebf8" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#f4f7fd" stop-opacity=".6"/>
+      <stop offset="1" stop-color="#e4ebf8" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="fringe" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0" stop-color="#a9c4ff" stop-opacity=".8"/>
+      <stop offset=".3" stop-color="#a9c4ff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="bloom" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="12"/></filter>
+    <clipPath id="tile"><rect width="512" height="512" rx="128"/></clipPath>
   </defs>
-  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
-  <rect width="512" height="512" rx="120" fill="url(#glow)"/>
-  <path d="M196 132c0-14 15-23 27-16l150 91c12 7 12 25 0 32l-150 91c-12 7-27-2-27-16z" fill="#fff"/>
-  <rect x="156" y="372" width="200" height="30" rx="15" fill="#fff" fill-opacity="0.92"/>
+
+  <!-- 57 px и больше: сцена в миниатюре — ореол, кайма, вторичные кольца, блик, ядро в контровом свете -->
+  <g class="lg" clip-path="url(#tile)">
+    <rect width="512" height="512" fill="#000"/>
+    <circle cx="256" cy="256" r="256" fill="url(#halo)"/>
+    <circle cx="256" cy="256" r="170" fill="none" stroke="#e8eefa" stroke-opacity=".2" stroke-width="2"/>
+    <circle cx="256" cy="256" r="188" fill="none" stroke="#e8eefa" stroke-opacity=".1" stroke-width="2"/>
+    <circle cx="256" cy="256" r="214" fill="none" stroke="#e8eefa" stroke-opacity=".05" stroke-width="2"/>
+    <rect x="0" y="253" width="512" height="6" rx="3" fill="url(#flare)" filter="url(#soft)"/>
+    <circle cx="256" cy="256" r="146" fill="none" stroke="#fff" stroke-opacity=".75" stroke-width="26" filter="url(#bloom)"/>
+    <circle cx="256" cy="256" r="143" fill="none" stroke="#fff" stroke-width="16" filter="url(#soft)"/>
+    <circle cx="256" cy="256" r="152" fill="none" stroke="url(#fringe)" stroke-width="4" filter="url(#soft)"/>
+    <circle cx="256" cy="256" r="134" fill="url(#core)"/>
+    <circle cx="256" cy="256" r="135" fill="none" stroke="#fff" stroke-width="3.5"/>
+  </g>
+
+  <!-- 25–56 px: Edge растрирует значок вкладки в 32 px и при 100 % масштаба сжимает до 16, поэтому кольцо — 2,4 px при 32
+       (1,2 px после сжатия), горизонт 8 px от центра, корона до края -->
+  <g class="sm">
+    <rect width="512" height="512" rx="128" fill="#000"/>
+    <circle cx="256" cy="256" r="240" fill="url(#sm-corona)"/>
+    <circle cx="256" cy="256" r="128" fill="#000"/>
+  </g>
+
+  <!-- до 24 px (16 px во вкладке): горизонт 3,9 px от центра, кольцо 1,6 px, корона до края -->
+  <g class="xs">
+    <rect width="512" height="512" rx="128" fill="#000"/>
+    <circle cx="256" cy="256" r="256" fill="url(#xs-corona)"/>
+    <circle cx="256" cy="256" r="124" fill="#000"/>
+  </g>
 </svg>
