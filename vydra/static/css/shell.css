@@ -165,17 +165,17 @@
 .hero h1 .slab { font-weight: 800; font-size: clamp(54px, 10.6svh, 136px); line-height: .9; letter-spacing: -.045em; color: #fff; white-space: nowrap;
   text-shadow: 0 0 1px rgba(255, 255, 255, .7), 0 0 28px rgba(255, 255, 255, .22), 0 0 90px rgba(255, 255, 255, .10); }
 .lede { margin: 24px 0 0; max-width: 560px; color: var(--ink-2); font-size: 16px; line-height: 1.55; text-wrap: pretty; }
-/* ссылка вставлена: заголовок уступает место превью — главный экран помещается в окно без прокрутки (просьба пользователя) */
-.hero-copy { transition: padding .6s var(--ease-out); }
+/* ссылка вставлена или открыт «Конвертер»: заголовок уступает место — главный экран помещается в окно без прокрутки (просьба пользователя) */
+.hero-copy { --ease-paste: cubic-bezier(.45, 0, .2, 1); transition: padding .6s var(--ease-paste); }
 .hero .kicker, .hero h1, .hero .lede { overflow: clip; overflow-clip-margin: 40px;
-  transition: max-height .6s var(--ease-out), margin .6s var(--ease-out), opacity .3s var(--ease-out); }
+  transition: max-height .6s var(--ease-paste), margin .6s var(--ease-paste), opacity .3s var(--ease-paste); }
 .hero .kicker { max-height: 24px; }
 .hero h1 { max-height: 340px; }
 .hero .lede { max-height: 140px; }
-.hero-copy:has(#preview-slot > *) { padding-top: calc(var(--topbar-h) + 28px); padding-bottom: 24px; }
-.hero-copy:has(#preview-slot > *) :is(.kicker, h1, .lede) { max-height: 0; margin: 0; opacity: 0; overflow-clip-margin: 0px; visibility: hidden;
-  transition: max-height .6s var(--ease-out), margin .6s var(--ease-out), opacity .2s var(--ease-out), visibility 0s linear .6s; }
-.hero-copy:has(#preview-slot > *) .console { margin-top: 0; transition: margin .6s var(--ease-out); }
+.hero-copy:is(:has(#panel-link:not([hidden]) #preview-slot > *), :has(#tab-file[aria-selected="true"])) { padding-top: calc(var(--topbar-h) + 28px); padding-bottom: 24px; }
+.hero-copy:is(:has(#panel-link:not([hidden]) #preview-slot > *), :has(#tab-file[aria-selected="true"])) :is(.kicker, h1, .lede) { max-height: 0; margin: 0; opacity: 0; overflow-clip-margin: 0px; visibility: hidden;
+  transition: max-height .6s var(--ease-paste), margin .6s var(--ease-paste), opacity .2s var(--ease-paste), visibility 0s linear .6s; }
+.hero-copy:is(:has(#panel-link:not([hidden]) #preview-slot > *), :has(#tab-file[aria-selected="true"])) .console { margin-top: 0; transition: margin .6s var(--ease-paste); }
 .pf { display: inline-flex; align-items: center; gap: 5px; color: var(--ink); font-weight: 600; transition: color var(--t-base); }
 .pf svg { width: 15px; height: 15px; color: var(--ink-3); transition: color var(--t-base), filter var(--t-base); }
 .pf.lit svg { color: var(--el-a); filter: drop-shadow(0 0 6px color-mix(in oklab, var(--el-a) 60%, transparent)); }
