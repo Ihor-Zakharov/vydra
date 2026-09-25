@@ -241,7 +241,7 @@ def attr_table(rows: list[tuple[str, str | Text, str]]) -> Table:
     table.add_column(width=3)
     table.add_column(style="#9aa4b2", no_wrap=True)
     table.add_column(style="dim", width=1)
-    table.add_column()
+    table.add_column(overflow="fold")  # пути и ссылки — целиком
     for sign, key, value in rows:
         style = {"+": "bold green", "~": "bold yellow", "-": "bold red"}.get(sign, "dim")
         table.add_row(Text(f"  {sign}", style=style), key, "=", value if isinstance(value, Text) else Text(value))
@@ -760,7 +760,7 @@ def info(
     as_json: JsonOpt = False,
 ) -> None:
     """Показать, что будет скачано — как [bold]terraform plan[/]. [dim](синонимы: инфо, plan)[/]"""
-    from .downloader import DownloadFailed, preview
+    from .downloader import PLAYLIST_LIMIT, DownloadFailed, preview
 
     json_mode(as_json)
     settings = Settings.from_env()
@@ -805,9 +805,13 @@ def info(
     ]
     console.print(attr_table(rows))
     console.print()
+    count = (data.get("count") or 0) if data.get("playlist") else 1
     console.print(
-        Text("План: ", style="bold") + Text("1 к скачиванию", style="green") + Text(", 0 к изменению, 0 к удалению.")
-    )
+        Text("План: ", style="bold") + Text(f"{count or '?'} к скачиванию", style="green")
+        + Text(", 0 к изменению, 0 к удалению.")
+    )  # fmt: skip
+    if data.get("playlist") and count > PLAYLIST_LIMIT:
+        console.print(Text(f"Плейлист больше {PLAYLIST_LIMIT} роликов — добавьте --весь-плейлист", style="yellow"))
     console.print(Text("Скачать: ", style="dim") + Text(f"выдра скачать '{data.get('url') or url}'", style="cyan"),
                   soft_wrap=True)  # fmt: skip
 
