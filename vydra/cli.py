@@ -471,8 +471,11 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
     def on_sigint(*_):
         nonlocal interrupted
         if interrupted:  # второй Ctrl+C: не ждём (например, долгого копирования на /mnt/c)
+            from .naming import abandon_in_flight
+
             for job in jobs:
                 job.cancel.set()
+            abandon_in_flight()  # недописанные файлы в хранилище не оставляем
             sys.stdout.write("\n")
             err.print(Text("Прервано, не дожидаясь остановки загрузок.", style="bold yellow"))
             os._exit(EXIT_INTERRUPTED)
