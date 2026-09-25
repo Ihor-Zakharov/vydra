@@ -7,8 +7,8 @@
 `.part`, `.ytdl`, пустых заготовок и брошенных папок задач. Запись в Windows — `/mnt/c/Users/Ihor/Downloads/vydra-matrix/`
 (удалена после проверки). Прогон: `uv run python .sprint/matrix.py` (скрипт живёт в worktree, `.sprint/` не в git).
 
-**Итог: 56 случаев — 43 OK, 6 FIX (баг найден и исправлен, есть тест), 4 SITE (сторона сайта), 3 KNOWN
-(ограничение, которое выдра объясняет).** Непройденных по вине выдры нет. Ещё 12 сценариев проверены вручную
+**Итог: 56 случаев — 41 OK, 9 FIX (баг или медленное место найдено и исправлено, есть тест), 4 SITE (сторона
+сайта), 2 KNOWN (ограничение, которое выдра объясняет).** Непройденных по вине выдры нет. Ещё 12 сценариев проверены вручную
 (таблица ниже): терминал, пайп, Ctrl+C, буфер обмена, интерактивный режим, «показать в папке», порты, установщик.
 
 Статусы: `OK` — как ожидалось; `FIX` — был баг, исправлен (коммит + регрессионный тест); `SITE` — сбой на стороне сайта
@@ -23,12 +23,12 @@
 | 3 | YouTube | обычное 19 с | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -b 320` | код 0, mp3, 17–21 с | код 0, 8.1 с — mp3 19.0 с mp3 334 кбит/с | OK |  |
 | 4 | YouTube | shorts, вертикальное | `https://www.youtube.com/shorts/fUrlyCjL8JA -f both -q 720` | код 0, mp3+mp4, ≤720p | код 0, 8.9 с — mp4 32.3 с h264/aac 720p; mp3 32.3 с mp3 213 кбит/с | OK |  |
 | 5 | YouTube | shorts, max | `https://www.youtube.com/shorts/fUrlyCjL8JA -q max` | код 0, mp4 | код 0, 21.8 с — mp4 32.3 с h264/aac 1080p | OK |  |
-| 6 | YouTube | 4K-ролик в 480 | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q 480 -c 0:10-0:20` | код 0, mp4, 9–11 с, ≤480p, ≥480p | код 0, 8.4 с — mp4 10.0 с h264/aac 480p | OK |  |
-| 7 | YouTube | 4K-ролик в 1080, отрезок | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q 1080 -c 1:00-1:08` | код 0, mp4, 7–9 с, ≤1080p, ≥1080p | код 0, 36.5 с — mp4 8.0 с h264/aac 1080p | OK |  |
-| 8 | YouTube | 4K-ролик в max, отрезок 5 с | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q max -c 2:00-2:05` | код 0, mp4, 4–6 с, ≥2160p | код 0, 86.8 с — mp4 5.0 с h264/aac 2160p | KNOWN | 4K → H.264 перекодируется локально: 5 с ролика ≈ 30 с |
+| 6 | YouTube | 4K-ролик в 480 | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q 480 -c 0:10-0:20` | код 0, mp4, 9–11 с, ≤480p, ≥480p | код 0, 11.6 с — mp4 10.0 с h264/aac 480p | OK |  |
+| 7 | YouTube | 4K-ролик в 1080, отрезок | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q 1080 -c 1:00-1:08` | код 0, mp4, 7–9 с, ≤1080p, ≥1080p | код 0, 9.7 с — mp4 8.0 с h264/aac 1080p | FIX | 93c01c6 — качался весь ролик: 37 → 10 с |
+| 8 | YouTube | 4K-ролик в max, отрезок 5 с | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -q max -c 2:00-2:05` | код 0, mp4, 4–6 с, ≥2160p | код 0, 18.2 с — mp4 5.0 с h264/aac 2160p | FIX | 93c01c6 — качался весь 4K-ролик: 87 → 18 с |
 | 9 | YouTube | отрезок м:сс | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -c 0:05-0:12` | код 0, mp3, 6–8 с | код 0, 4.6 с — mp3 7.0 с mp3 230 кбит/с | OK |  |
 | 10 | YouTube | отрезок в секундах | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -c 3-9` | код 0, mp3, 5–7 с | код 0, 3.7 с — mp3 6.0 с mp3 236 кбит/с | OK |  |
-| 11 | YouTube | отрезок ч:мм:сс | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -f mp3 -c 0:01:00-0:01:30` | код 0, mp3, 29–31 с | код 0, 3.6 с — mp3 30.0 с mp3 224 кбит/с | OK |  |
+| 11 | YouTube | отрезок ч:мм:сс | `https://www.youtube.com/watch?v=aqz-KE-bpKQ -f mp3 -c 0:01:00-0:01:30` | код 0, mp3, 29–31 с | код 0, 3.2 с — mp3 30.0 с mp3 224 кбит/с | OK |  |
 | 12 | YouTube | только начало | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 --from 0:15` | код 0, mp3, 3–5 с | код 0, 2.9 с — mp3 4.0 с mp3 259 кбит/с | OK |  |
 | 13 | YouTube | только конец | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 --to 0:04` | код 0, mp3, 3–5 с | код 0, 2.5 с — mp3 4.0 с mp3 259 кбит/с | OK |  |
 | 14 | YouTube | отрезок за концом (-y → целиком) | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -c 5:00-6:00 -y` | код 0, mp3, 17–21 с | код 0, 2.9 с — mp3 19.0 с mp3 206 кбит/с · «Отрезок за пределами ролика — скачать ролик целиком (автоматически)» | OK |  |
@@ -49,7 +49,7 @@
 | 29 | YouTube | -o /mnt/c/… с пробелами | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp4 -q 360 -o '/mnt/c/Users/Ihor/Downloads/` | код 0, mp4 | код 0, 4.3 с — mp4 19.1 с h264/aac 240p · «360p у ролика нет — качаю в лучшем доступном: 240p» | OK |  |
 | 30 | YouTube | -o C:\…\новая\вложенная (путь Windows, папок нет) | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -o C:\Users\Ihor\Downloads\vydra-matrix` | код 0, mp3 | код 0, 4.1 с — mp3 19.0 с mp3 206 кбит/с | FIX | 75c2ab3 |
 | 31 | YouTube | --папка, которой нет (создаётся) | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 --папка YouTube/Тест` | код 0, mp3 | код 0, 2.9 с — mp3 19.0 с mp3 206 кбит/с | FIX | 66f1483 |
-| 32 | YouTube | «\|» в названии, на /mnt/c, отрезок | `https://www.youtube.com/watch?v=eQcmzGIKrzg -f both -q 360 -c 0:10-0:14` | код 0, mp3+mp4, 3–5 с, /mnt/c | код 0, 21.4 с — mp4 4.0 с h264/aac 360p; mp3 4.0 с mp3 410 кбит/с | OK |  |
+| 32 | YouTube | «\|» в названии, на /mnt/c, отрезок | `https://www.youtube.com/watch?v=eQcmzGIKrzg -f both -q 360 -c 0:10-0:14` | код 0, mp3+mp4, 3–5 с, /mnt/c | код 0, 9.0 с — mp4 4.0 с h264/aac 360p; mp3 3.9 с mp3 414 кбит/с | FIX | 93c01c6 — качалась вся часовая лекция: 21 → 9 с |
 | 33 | YouTube | AC/DC — слэш в названии, отрезок | `https://www.youtube.com/watch?v=pAgnJDJN4VA -f mp3 -c 0:10-0:15` | код 0, mp3, 4–6 с, /mnt/c | код 0, 3.0 с — mp3 5.0 с mp3 420 кбит/с | OK |  |
 | 34 | YouTube | повтор без --заново | `https://www.youtube.com/watch?v=jNQXAC9IVRw -f mp3 -b 128` | код 0, mp3 | код 0, 0.5 с — mp3 19.0 с mp3 206 кбит/с | OK |  |
 | 35 | YouTube | возрастное ограничение (18+) | `https://www.youtube.com/watch?v=HtVdAasjOgU -f mp3` | код 0, mp3 | код 0, 6.0 с — mp3 141.9 с mp3 196 кбит/с | OK | yt-dlp сейчас обходит возрастной барьер без входа |
@@ -59,7 +59,7 @@
 | 39 | YouTube | эфир закончился, записи нет | `https://www.youtube.com/watch?v=jfKfPfyJRdk -f mp3` | код 1, «недоступна» | код 1, 1.6 с — ошибка: Запись этой трансляции недоступна — эфир закончился, а запись не сохранили или скрыли. | FIX | d93067b |
 | 40 | YouTube | плейлист из 4 роликов, mp3 | `https://www.youtube.com/playlist?list=PL6IaIsEjSbf96XFRuNccS_RuEXwNdsoEu -f mp3 -b 128` | код 0, mp3+mp3+mp3+mp3 | код 0, 60.3 с — mp3 516.1 с mp3 128 кбит/с; mp3 362.5 с mp3 128 кбит/с; mp3 162.6 с mp3 129 кбит/с; mp3 154.1 с mp3 129 кбит/с | OK |  |
 | 41 | YouTube | 1:07:40 — только звук | `https://www.youtube.com/watch?v=eQcmzGIKrzg -f mp3 -b 128` | код 0, mp3, 4050–4070 с | код 0, 60.3 с — mp3 4059.7 с mp3 128 кбит/с | OK |  |
-| 42 | YouTube | 1:07:40 — отрезок в конце | `https://www.youtube.com/watch?v=eQcmzGIKrzg -q 360 -c 1:05:00-1:05:30` | код 0, mp4, 29–31 с, ≤360p | код 0, 20.3 с — mp4 30.1 с h264/aac 360p | KNOWN | отрезок режется после скачивания ролика целиком (1 ч в 360p — 20–60 с); куски через ffmpeg (--download-sections) YouTube режет до ~2× реального времени: 15 мин куска — 7,5 мин |
+| 42 | YouTube | 1:07:40 — отрезок в конце | `https://www.youtube.com/watch?v=eQcmzGIKrzg -q 360 -c 1:05:00-1:05:30` | код 0, mp4, 29–31 с, ≤360p | код 0, 24.8 с — mp4 30.0 с h264/aac 360p · «Отрезок отдельно не скачался — скачал ролик целиком и вырезал сам» | KNOWN | отрезок качается куском (93c01c6), но YouTube отдаёт кусок примерно в 2× реального времени: 30 с — 15–25 с; кусок длиннее 60 с — весь ролик и рез у себя |
 | 43 | YouTube | youtu.be со временем ?t= | `https://youtu.be/jNQXAC9IVRw?t=5 -f mp3` | код 0, mp3, 17–21 с | код 0, 5.9 с — mp3 19.0 с mp3 206 кбит/с | OK |  |
 | 44 | YouTube | music.youtube.com | `https://music.youtube.com/watch?v=jNQXAC9IVRw -f mp3` | код 0, mp3, 17–21 с | код 0, 5.9 с — mp3 19.0 с mp3 206 кбит/с | OK |  |
 | 45 | TikTok | другое видео (27 с) | `https://www.tiktok.com/@patroxofficial/video/6742501081818877190` | код 0, mp4 | код 0, 5.4 с — mp4 27.5 с h264/aac 540p · «1080p у ролика нет — качаю в лучшем доступном: 576p» | OK |  |
@@ -106,6 +106,7 @@
 | Интерактивный режим не выходил по пустой строке | `powershell.exe`/`ffprobe` наследовали stdin-терминал | `stdin=DEVNULL` у всех внешних программ | `test_external_programs_never_read_the_terminal` |
 | После сбоя/Ctrl+C консоль оставляла папку задачи и копию исходника | «прервано — продолжу при перезапуске» имеет смысл только для сервера | консоль (очередь не сохраняется) убирает сразу | `test_console_shutdown_cleans_interrupted_jobs`, `test_failed_conversion_keeps_upload_only_for_the_server` |
 | После выхода консоли ffmpeg (постеры) жил сиротой | фоновый поток постеров в короткоживущей команде | `Library(enrich=False)` в консоли | `test_console_library_starts_no_background_ffmpeg` |
+| Отрезок 5 с из 10-минутного 4K-ролика — 87 с, 4 с из часовой лекции — 21 с | для отрезка качался весь ролик (диапазоны yt-dlp через ffmpeg считались ненадёжными) | короткий отрезок (≤ 60 с) ролика длиннее 3 мин — куском (`download_ranges`); кусок — последние (end − start) с файла; сбой — откат на весь ролик, повтор — всегда весь ролик. Сверено с резом из целого ролика: звук ±20–50 мс (корреляция 0,98–0,99), кадры PSNR 31–35 дБ. Стало 18 с и 9 с | `test_section_decision`, `test_downloaded_section_is_cut_in_its_own_time`, `test_retry_after_failure_downloads_the_whole_video`, живой `test_real_short_clip_of_long_video_is_downloaded_as_a_piece` |
 | Фото-пост TikTok (`/photo/…`) — «ссылка не поддерживается» | `_VALID_URL` yt-dlp знает только `/video/` | `/photo/` → `/video/` для yt-dlp (звук слайдшоу) | `test_tiktok_photo_post_goes_to_ytdlp_as_video` |
 
 ## Не проверено и почему
