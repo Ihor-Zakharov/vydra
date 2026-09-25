@@ -124,7 +124,18 @@ def to_windows(path: Path) -> str | None:
         return str(path)
     if OS != "wsl":
         return None
-    return run(["wslpath", "-w", str(path)], timeout=5)
+    key = str(path)
+    if key not in _win_paths:  # список хранилища спрашивает путь каждого файла — wslpath один раз на путь
+        converted = run(["wslpath", "-w", key], timeout=5)
+        if converted is None:
+            return None
+        if len(_win_paths) > 4096:
+            _win_paths.clear()
+        _win_paths[key] = converted
+    return _win_paths[key]
+
+
+_win_paths: dict[str, str] = {}
 
 
 def from_windows(text: str) -> Path | None:

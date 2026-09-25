@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 import shutil
 import signal
@@ -38,8 +39,19 @@ from .library import PLATFORM_DIRS, TYPE_DIRS, Library
 from .media import Media
 from .timecode import clip_label, format_time, parse_clip, parse_range
 
-console = Console(highlight=False)
-err = Console(stderr=True, highlight=False)
+def _tty(stream) -> bool:
+    try:
+        return stream.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+# Без терминала (пайп, файл) строки не переносим: путь или ссылка должны остаться одной строкой
+console = Console(highlight=False, soft_wrap=not _tty(sys.stdout))
+err = Console(stderr=True, highlight=False, soft_wrap=not _tty(sys.stderr))
+_json_mode = False  # --json: на stdout — только итог в JSON, человеку — ничего (ошибки — ещё и в stderr)
+
+EXIT_OK, EXIT_FAILED, EXIT_USAGE, EXIT_PARTIAL, EXIT_INTERRUPTED = 0, 1, 2, 3, 130
 
 PLATFORM = {
     "youtube": ("YouTube", "#ff4d4d"),
@@ -90,10 +102,12 @@ _EXAMPLES = [
     ("выдра скачать", "'<ссылка>'", "", "видео в MP4"),
     ("выдра скачать", "'<ссылка>'", "-ф мп3 -б 320", "только звук"),
     ("выдра скачать", "'<ссылка>'", "-о 1:00-5:00", "отрезок с 1-й по 5-ю минуту"),
-    ("vydra d", "'<ссылка>'", "-f both -q 720", "то же латиницей"),
+    ("vydra d", "'<ссылка>' '<ссылка>'", "-f both -q 720", "несколько сразу, латиницей"),
     ("выдра инфо", "'<ссылка>'", "", "что будет скачано (план)"),
+    ("выдра показать", "", "", "последний файл — в Проводнике / Finder"),
     ("выдра папка", "", "", "где лежат файлы, сменить папку"),
     ("выдра интерфейс", "", "", "веб-интерфейс в браузере"),
+    ("выдра stop", "", "", "остановить веб-интерфейс"),
     ("выдра доктор", "", "--починить", "проверить и починить всё"),
 ]
 
@@ -118,7 +132,10 @@ HELP = f"""[bold]Скачивает видео с YouTube, TikTok, Instagram и 
 
 [yellow]Ссылку берите в кавычки[/] [dim]— в bash, zsh и PowerShell символ & из адреса YouTube ломает команду.
 Или скопируйте ссылку и не указывайте её вовсе. После[/] [cyan]выдра автодополнение[/] [dim]кавычки ставятся сами,
-а Tab подсказывает команды и ключи. Раскладку переключать не нужно: -а ьз3 = -f mp3.[/]"""
+а Tab подсказывает команды и ключи. Раскладку переключать не нужно: -а ьз3 = -f mp3.[/]
+
+[dim]Для скриптов:[/] [cyan]--json[/] [dim]— итог одной строкой JSON. Коды выхода: 0 — готово, 1 — не скачалось,
+2 — неверная команда, 3 — скачано не всё, 130 — прервано (Ctrl+C).[/]"""
 
 app = typer.Typer(
     name="vydra",
@@ -187,7 +204,34 @@ def fail(message: str, hint: str | None = None, code: int = 1) -> typer.Exit:
     err.print(Text("✗ ", style="bold red") + Text(message, style="red"))
     if hint:
         err.print(Text("  → ", style="dim") + Text(hint, style="dim"))
+    if _json_mode:
+        emit_json({"ok": False, "exit_code": code, "error": message, "hint": hint})
     return typer.Exit(code)
+
+
+def emit_json(data) -> None:
+    """Машинный итог (--json): одна строка JSON на stdout, мимо rich — без переносов и цветов."""
+    sys.stdout.write(json.dumps(data, ensure_ascii=False, default=str) + "\n")
+    sys.stdout.flush()
+
+
+def json_mode(on: bool) -> None:
+    """--json: человеческий вывод на stdout молчит, остаётся только итог в JSON."""
+    global _json_mode
+    _json_mode = on
+    console.quiet = on
+
+
+def file_record(root: Path, f: dict, **extra) -> dict:
+    path = root / f["path"]
+    return {
+        "path": str(path),
+        "display_path": system.display_path(path),
+        "type": f["type"],
+        "size": f.get("size"),
+        "folder": f.get("folder") or Path(f["path"]).parent.as_posix(),
+        **extra,
+    }
 
 
 def attr_table(rows: list[tuple[str, str | Text, str]]) -> Table:
@@ -379,7 +423,7 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
                     + Text(f"  {size(f['size'])} · за {took} · папка ", style="dim")
                     + linked(path.parent, "cyan", rel_folder(folder))
                 )  # fmt: skip
-                console.print(Text("    ") + linked(path, "#e6d9a8"))
+                console.print(Text("    ") + linked(path, "#e6d9a8"), soft_wrap=True)  # путь — одной строкой
             if job.warning:
                 console.print(Text("  ! ", style="bold yellow") + Text(job.warning, style="yellow"))
         elif job.status == "error":
@@ -387,6 +431,8 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
                 Text("  ✗ ", style="bold red") + Text((job.title or job.source)[:60], style="bold")
                 + Text(f" — {job.error}", style="red")
             )  # fmt: skip
+            if hint := error_hint(job.error):
+                console.print(Text("    → ", style="dim") + Text(hint, style="dim"))
         elif job.status == "cancelled":
             console.print(Text("  ○ ", style="dim") + Text(f"{job.title or job.source} — отменено", style="dim"))
         for note in getattr(job, "notes", None) or []:
@@ -394,10 +440,19 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
 
     def view() -> Group:
         active = [j for j in jobs if j.id not in reported]
-        return Group(*[Padding(row(j), (0, 0, 1, 0)) for j in active])
+        rows: list = [Padding(row(j), (0, 0, 1, 0)) for j in active]
+        if interrupted:
+            rows.append(Text("  Останавливаю и убираю временные файлы… Ctrl+C ещё раз — выйти сразу", style="yellow"))
+        return Group(*rows)
 
     def on_sigint(*_):
         nonlocal interrupted
+        if interrupted:  # второй Ctrl+C: не ждём (например, долгого копирования на /mnt/c)
+            for job in jobs:
+                job.cancel.set()
+            sys.stdout.write("\n")
+            err.print(Text("Прервано, не дожидаясь остановки загрузок.", style="bold yellow"))
+            os._exit(EXIT_INTERRUPTED)
         interrupted = True
         for job in jobs:
             env.manager.cancel(job.id)
@@ -445,13 +500,13 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
     console.print()
     if interrupted:
         console.print(Text("Отменено.", style="bold yellow"), Text(f"Готовых файлов: {len(files)}", style="dim"))
-        return 130
+        return EXIT_INTERRUPTED
     if not files:
         reason = failed[0].error if failed else "ничего не получилось"
         console.print(Text("Не удалось скачать: ", style="bold red") + Text(reason or "", style="red"))
         log_path = diagnostics.log_dir(env.settings) / diagnostics.LOG_NAME
-        console.print(Text("Подробности в журнале: ", style="dim") + linked(log_path, "dim"))
-        return 1
+        console.print(Text("Подробности в журнале: ", style="dim") + linked(log_path, "dim"), soft_wrap=True)
+        return EXIT_FAILED
     ok = not failed
     summary = Text("Готово! " if ok else "Готово с ошибками. ", style="bold green" if ok else "bold yellow")
     summary.append(plural(len(files), "файл создан", "файла создано", "файлов создано"), style="bold")
@@ -459,8 +514,31 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
         summary.append(f", {plural(len(failed), 'ошибка', 'ошибки', 'ошибок')}", style="red")
     summary.append(f" · {size(sum(f['size'] for f in files))} за {seconds(elapsed)}", style="dim")
     console.print(summary)
-    console.print(Text("Хранилище: ", style="dim") + linked(env.library.root, "cyan"))
-    return 0 if ok else 1
+    console.print(Text("Хранилище: ", style="dim") + linked(env.library.root, "cyan"), soft_wrap=True)
+    if not _json_mode and len(files) and _tty(sys.stdout):
+        console.print(Text("Показать в папке: ", style="dim") + Text("выдра показать", style="cyan"))
+    return EXIT_OK if ok else EXIT_PARTIAL
+
+
+_HINTS = [
+    (("cookies",), "Выгрузите cookies из браузера (расширение «Get cookies.txt LOCALLY») и подключите: "
+                   "выдра cookies ~/Downloads/cookies.txt"),
+    (("обновите yt-dlp", "выдра обновить"), "Обновите загрузчик: выдра обновить"),
+    (("нет связи",), "Проверьте интернет и повторите; выдра сама повторяет временные сбои"),
+    (("не поддерживается",), "Нужна ссылка на конкретное видео, а не на канал или страницу поиска"),
+    (("ffmpeg",), "Почините: выдра доктор --починить"),
+    (("не хватает места",), "Освободите место или смените папку хранилища: выдра папка"),
+    (("плейлист",), "Чтобы скачать плейлист целиком, добавьте --весь-плейлист"),
+    (("приватное", "недоступно"), "Проверьте, открывается ли видео в браузере без входа в аккаунт"),
+]  # fmt: skip
+
+
+def error_hint(message: str | None) -> str | None:
+    """Что сделать пользователю при этой ошибке (или None, если сказать нечего)."""
+    low = (message or "").lower()
+    if any(s in low for s in ("vydra ", "выдра ", "запустите")):
+        return None  # в тексте ошибки уже сказано, что делать
+    return next((hint for needles, hint in _HINTS if any(n in low for n in needles)), None)
 
 
 # --- команды: основное -------------------------------------------------------------------
@@ -505,10 +583,16 @@ ForceOpt = Annotated[bool, typer.Option("--force", "--заново", help="Ск�
 PlaylistOpt = Annotated[bool, typer.Option("--yes-playlist", "--весь-плейлист", help="Разрешить плейлист больше 50 роликов")]  # noqa: E501
 
 
+JsonOpt = Annotated[
+    bool,
+    typer.Option("--json", help="Итог — одной строкой JSON на stdout (для скриптов); без прогресса и вопросов, как -y"),
+]
+
+
 def _auto_accept(yes: bool) -> bool:
-    if yes:
+    if yes or _json_mode:
         return True
-    if not sys.stdin.isatty():
+    if not _tty(sys.stdin):
         console.print(Text("  Терминала для вопросов нет — соглашаюсь с вариантами по умолчанию (как -y)", style="dim"))
         return True
     return False
@@ -528,22 +612,22 @@ def download(
     force: ForceOpt = False,
     yes_playlist: PlaylistOpt = False,
     show: Annotated[bool, typer.Option("--show", "--показать", help="Когда скачается — показать файл в папке")] = False,
+    as_json: JsonOpt = False,
 ) -> None:
     """Скачать видео или звук по ссылке. [dim](синонимы: скачать, d)[/]"""
+    json_mode(as_json)
     mode, qual = fmt_value(fmt), quality_value(quality)
     cut = resolve_clip(clip, start, end)
-    links = links_or_clipboard(urls)
-    auto = _auto_accept(yes)
+    links = _unique_links(links_or_clipboard(urls))
     env = make_env(out)
     folder_rel = _folder(env, folder)
     banner(f"{MODE_LABEL[mode]} · {qual if mode != 'mp3' else bitrate.value + ' кбит/с'}")
+    auto = _auto_accept(yes)
     console.print()
-    jobs = []
+    jobs, skipped = [], []
     for url in links:
         job = Job(kind="url", source=url, mode=mode, quality=qual, bitrate=int(bitrate.value), clip=cut,
-                  folder=folder_rel, confirm_playlist=yes_playlist)  # fmt: skip
-        if hasattr(job, "auto_accept"):
-            job.auto_accept = auto
+                  folder=folder_rel, confirm_playlist=yes_playlist, auto_accept=auto)  # fmt: skip
         existing = None if force else env.manager.find_existing(url, mode, cut)
         if existing:
             for f in existing:
@@ -552,20 +636,58 @@ def download(
                     Text("  = ", style="bold blue") + Text(kind, style="bold")
                     + Text("  уже в хранилище — повторно не качаю (--заново — скачать ещё раз)", style="dim")
                 )  # fmt: skip
-                console.print(Text("    ") + linked(env.library.root / f["path"], "#e6d9a8"))
+                console.print(Text("    ") + linked(env.library.root / f["path"], "#e6d9a8"), soft_wrap=True)
+                skipped.append(file_record(env.library.root, f, url=url, existing=True))
             continue
         jobs.append(env.manager.submit(job))
     if not jobs:
         env.manager.shutdown()
         console.print(Text("\nНечего делать: всё уже скачано.", style="bold green"))
-        if show and existing:
-            _show(env.library.root / existing[0]["path"])
-        raise typer.Exit(0)
+        if _json_mode:
+            emit_json({"ok": True, "exit_code": EXIT_OK, "files": skipped, "jobs": []})
+        if show and skipped:
+            _show(Path(skipped[0]["path"]))
+        raise typer.Exit(EXIT_OK)
     code = run_jobs(env, jobs)
     files = [f for j in jobs if j.status == "done" for f in j.files]
+    if _json_mode:
+        emit_json(_jobs_json(env, jobs, skipped, code))
     if show and files:
         _show(env.library.root / files[0]["path"])
     raise typer.Exit(code)
+
+
+def _unique_links(links: list[str]) -> list[str]:
+    """Одна и та же ссылка дважды (или youtu.be/x и youtube.com/watch?v=x) — качаем один раз."""
+    from .jobs import canonical_url
+
+    seen: set[str] = set()
+    result = []
+    for link in links:
+        key = canonical_url(link) or link
+        if key in seen:
+            console.print(Text(f"  Повтор ссылки пропущен: {link}", style="dim"))
+            continue
+        seen.add(key)
+        result.append(link)
+    return result
+
+
+def _jobs_json(env: Env, jobs: list[Job], skipped: list[dict], code: int) -> dict:
+    root = env.library.root
+    records = []
+    for job in jobs:
+        records.append({
+            "url": job.source, "status": job.status, "title": job.title, "platform": job.platform,
+            "error": job.error, "warning": job.warning, "notes": list(job.notes),
+            "files": [file_record(root, f, title=job.title, url=job.source) for f in job.files],
+        })  # fmt: skip
+    return {
+        "ok": code == EXIT_OK,
+        "exit_code": code,
+        "files": skipped + [f for r in records for f in r["files"]],
+        "jobs": records,
+    }
 
 
 def _folder(env: Env, folder: str | None) -> str | None:
@@ -583,10 +705,14 @@ def _folder(env: Env, folder: str | None) -> str | None:
     return rel or None
 
 
-def info(url: Annotated[str | None, typer.Argument(help="Ссылка на видео (нет — из буфера обмена)", show_default=False)] = None) -> None:  # noqa: E501
+def info(
+    url: Annotated[str | None, typer.Argument(help="Ссылка на видео (нет — из буфера обмена)", show_default=False)] = None,
+    as_json: JsonOpt = False,
+) -> None:
     """Показать, что будет скачано — как [bold]terraform plan[/]. [dim](синонимы: инфо, plan)[/]"""
     from .downloader import DownloadFailed, preview
 
+    json_mode(as_json)
     settings = Settings.from_env()
     diagnostics.setup_logging(settings)
     url = links_or_clipboard([url] if url else None)[0]
@@ -595,8 +721,11 @@ def info(url: Annotated[str | None, typer.Argument(help="Ссылка на ви�
         try:
             data = preview(url, js_runtime=settings.js_runtime, cookies=settings.cookies_file)
         except DownloadFailed as exc:
-            raise fail(str(exc)) from exc
+            raise fail(str(exc), error_hint(str(exc))) from exc
     platform = detect_platform(data.get("url") or url)
+    if _json_mode:
+        emit_json({"ok": True, "exit_code": EXIT_OK, **data, "platform": platform})
+        return
     name, color = PLATFORM[platform]
     console.print()
     console.print(Text("выдра составила план загрузки:", style="bold"))
@@ -609,7 +738,6 @@ def info(url: Annotated[str | None, typer.Argument(help="Ссылка на ви�
         (" ", "автор", quoted(data.get("uploader") or "—")),
         (" ", "длительность", quoted(format_time(data.get("duration")) if data.get("duration") else "—")),
         (" ", "качества", Text(", ".join(f"{h}p" for h in heights) or "—", style="cyan")),
-        (" ", "водяной знак", Text("нет", style="green")),
         (" ", "ссылка", quoted(data.get("url") or url, "dim")),
     ]
     if data.get("playlist"):
@@ -625,7 +753,8 @@ def info(url: Annotated[str | None, typer.Argument(help="Ссылка на ви�
     console.print(
         Text("План: ", style="bold") + Text("1 к скачиванию", style="green") + Text(", 0 к изменению, 0 к удалению.")
     )
-    console.print(Text("Скачать: ", style="dim") + Text(f"выдра скачать '{data.get('url') or url}'", style="cyan"))
+    console.print(Text("Скачать: ", style="dim") + Text(f"выдра скачать '{data.get('url') or url}'", style="cyan"),
+                  soft_wrap=True)  # fmt: skip
 
 
 def convert(
@@ -638,25 +767,28 @@ def convert(
     out: OutOpt = None,
     folder: FolderOpt = None,
     yes: YesOpt = False,
+    as_json: JsonOpt = False,
 ) -> None:
     """Сконвертировать свои файлы в MP4/MP3 (можно вырезать отрезок). [dim](синоним: конвертировать)[/]"""
+    json_mode(as_json)
     mode = fmt_value(fmt)
     cut = resolve_clip(clip, start, end)
-    auto = _auto_accept(yes)
     env = make_env(out)
     folder_rel = _folder(env, folder)
     banner(f"конвертер · {MODE_LABEL[mode]}")
+    auto = _auto_accept(yes)
     console.print()
     jobs = []
     for file in files:
         copy = env.manager.new_upload_dir() / file.name
         shutil.copyfile(file, copy)
         job = Job(kind="file", source=file.name, mode=mode, bitrate=int(bitrate.value), clip=cut, input_path=copy,
-                  folder=folder_rel)  # fmt: skip
-        if hasattr(job, "auto_accept"):
-            job.auto_accept = auto
+                  folder=folder_rel, auto_accept=auto)  # fmt: skip
         jobs.append(env.manager.submit(job))
-    raise typer.Exit(run_jobs(env, jobs))
+    code = run_jobs(env, jobs)
+    if _json_mode:
+        emit_json(_jobs_json(env, jobs, [], code))
+    raise typer.Exit(code)
 
 
 def ui(
@@ -856,26 +988,36 @@ def list_items(
     search: Annotated[str | None, typer.Option("--search", "-s", "--поиск", help="Поиск по названию", show_default=False)] = None,  # noqa: E501
     limit: Annotated[int, typer.Option("--limit", "-n", "--сколько", help="Сколько показать")] = 25,
     paths: Annotated[bool, typer.Option("--paths", "--пути", help="Показать полные пути файлов")] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Список в JSON на stdout (для скриптов)")] = False,
 ) -> None:
     """Что лежит в хранилище. [dim](синонимы: список, ls)[/]"""
+    json_mode(as_json)
     settings = Settings.from_env()
     library = Library(Prefs(settings), Media(settings))
     items = library.items()
     stats = library.stats()
     if kind:
         wanted = {"video": "video", "видео": "video", "audio": "audio", "аудио": "audio"}.get(kind.lower(), kind)
+        if wanted not in ("video", "audio"):
+            raise fail(f"Непонятный тип «{kind}»", "Бывает: видео (video) или аудио (audio)", code=EXIT_USAGE)
         items = [i for i in items if i["type"] == wanted]
     if search:
-        items = [i for i in items if search.lower() in (i["title"] or "").lower()]
+        items = [i for i in items if search.casefold() in (i["title"] or "").casefold()]
+    if _json_mode:
+        root = library.root
+        emit_json({"ok": True, "exit_code": EXIT_OK, "root": str(root), "display_root": system.display_path(root),
+                   "stats": stats, "total": len(items),
+                   "items": [{**i, "abs_path": str(root / i["path"])} for i in items[:limit]]})  # fmt: skip
+        return
     banner("хранилище")
-    console.print(Text("  ") + linked(library.root, "cyan"))
+    console.print(Text("  ") + linked(library.root, "cyan"), soft_wrap=True)
     if not items:
         console.print(Text("\n  Пусто. Скачайте что-нибудь: ", style="dim") + Text("выдра скачать -ф мп3", style="cyan"))
         return
     if paths:
         for item in items[:limit]:
             icon = Text("▶ ", style="#7c5cff") if item["type"] == "video" else Text("♪ ", style="#00d4ff")
-            console.print(Text("  ") + icon + linked(library.root / item["path"]))
+            console.print(Text("  ") + icon + linked(library.root / item["path"]), soft_wrap=True)
     else:
         table = Table(box=box.SIMPLE_HEAD, header_style="bold #9aa4b2", pad_edge=False, expand=False)
         table.add_column("", width=2)
@@ -1131,6 +1273,45 @@ def update() -> None:
     console.print(Text(f"  ✓ {message}", style="green"))
 
 
+def cookies(
+    path: Annotated[Path | None, typer.Argument(help="cookies.txt из браузера (формат Netscape)", show_default=False,
+                                                exists=True, dir_okay=False)] = None,  # fmt: skip
+    remove: Annotated[bool, typer.Option("--remove", "--удалить", help="Отключить и удалить cookies")] = False,
+) -> None:
+    """Cookies для сайтов, которые просят войти (Instagram, возрастные ролики YouTube). [dim](синоним: куки)[/]"""
+    settings = Settings.from_env()
+    target = settings.config_dir / "cookies.txt"
+    banner("cookies")
+    if remove:
+        existed = target.exists()
+        target.unlink(missing_ok=True)
+        console.print(Text("  - cookies удалены" if existed else "  cookies и так не подключены", style="dim"))
+        return
+    if path is not None:
+        data = path.read_bytes()
+        if len(data) > 5 * 1024 * 1024 or b"\t" not in data:
+            raise fail("Это не cookies.txt", "Нужен формат Netscape: расширение «Get cookies.txt LOCALLY» → Export")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name("cookies.txt.tmp")
+        tmp.write_bytes(data)
+        tmp.chmod(0o600)
+        tmp.replace(target)
+        console.print(Text("  + ", style="bold green") + Text("cookies подключены — повторите загрузку"))
+    current = settings.cookies_file
+    if current is None:
+        console.print(Text("  Cookies не подключены. Нужны, только если сайт просит войти.", style="dim"))
+        console.print(Text("  Подключить: ", style="dim") + Text("выдра cookies ~/Downloads/cookies.txt", style="cyan"))
+        return
+    lines = current.read_text(encoding="utf-8", errors="replace").splitlines()
+    entries = [ln for ln in lines if ln.strip() and not ln.startswith("#") and len(ln.split("\t")) >= 7]
+    sites = sorted({ln.split("\t")[0].lstrip(".").removeprefix("www.") for ln in entries})
+    console.print(Text(f"  Подключены: {plural(len(entries), 'запись', 'записи', 'записей')}", style="green"))
+    if sites:
+        shown = ", ".join(sites[:8]) + (f" и ещё {len(sites) - 8}" if len(sites) > 8 else "")
+        console.print(Text(f"  Сайты: {shown}", style="dim"))
+    console.print(Text("  Файл: ", style="dim") + linked(current, "dim"), soft_wrap=True)
+
+
 def shortcut() -> None:
     """Создать ярлык «Выдра» на рабочем столе. [dim](синоним: ярлык)[/]"""
     try:
@@ -1283,12 +1464,13 @@ COMMANDS = [
     (convert, "convert", MAIN),
     (ui, "ui", MAIN),
     (stop, "stop", MAIN),
-    (restart_cmd, "restart", SERVICE),
     (list_items, "list", STORE),
     (open_cmd, "open", STORE),
     (folder, "folder", STORE),
     (doctor, "doctor", SERVICE),
+    (restart_cmd, "restart", SERVICE),
     (update, "update", SERVICE),
+    (cookies, "cookies", SERVICE),
     (shortcut, "shortcut", SERVICE),
     (completion, "completion", SERVICE),
     (bridge_cmd, "bridge", SERVICE),
@@ -1320,17 +1502,28 @@ def _root(
     ctx: typer.Context,
     version: Annotated[bool, typer.Option("--version", "-V", "--версия", help="Версия", callback=_version, is_eager=True)] = False,  # noqa: E501
 ) -> None:
+    json_mode(False)
     if ctx.invoked_subcommand is None:
         interactive()
 
 
 def _normalize(url: str) -> str:
+    from urllib.parse import parse_qs, urlsplit
+
     from .main import normalize_url
 
     try:
-        return normalize_url(url)
+        result = normalize_url(url)
     except ValueError as exc:
-        raise fail(str(exc)) from exc
+        raise fail(str(exc), "Нужна ссылка вида https://… — скопируйте её из адресной строки браузера") from exc
+    parts = urlsplit(result)
+    host = (parts.hostname or "").lower()
+    if host.endswith("youtube.com") and parts.path == "/watch" and "v" not in parse_qs(parts.query):
+        # bash и zsh режут ссылку на «&», если она не в кавычках: watch?feature=share&v=… → watch?feature=share
+        raise fail(f"В ссылке нет номера видео (v=…): {result}",
+                   "Похоже, она обрезалась на «&». Возьмите ссылку в кавычки: выдра скачать '…' "
+                   "или скопируйте её и запустите выдра скачать без ссылки")  # fmt: skip
+    return result
 
 
 def _alive(port: int) -> bool:

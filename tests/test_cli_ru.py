@@ -2,6 +2,7 @@
 
 import shutil
 import threading
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -282,3 +283,100 @@ def test_open_command_reveals_latest_or_match(cli_env, monkeypatch):
 def test_open_command_on_empty_library(cli_env):
     result = runner.invoke(cli.app, ["открыть"])
     assert result.exit_code == 1 and "пусто" in result.output
+
+
+# --- вывод для скриптов, коды выхода ------------------------------------------------------
+
+
+def _json_line(output: str) -> dict:
+    import json
+
+    lines = [ln for ln in output.splitlines() if ln.startswith("{")]
+    assert len(lines) == 1, output
+    return json.loads(lines[0])
+
+
+@needs_ffmpeg
+def test_download_json_is_one_line_with_real_paths(cli_env, make_clip, monkeypatch):
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), []))
+    result = runner.invoke(cli.app, ["d", URL, "-f", "both", "--json"])
+    assert result.exit_code == 0, result.output
+    data = _json_line(result.output)
+    assert data["ok"] and data["exit_code"] == 0
+    assert sorted(f["type"] for f in data["files"]) == ["mp3", "mp4"]
+    for f in data["files"]:
+        assert Path(f["path"]).is_file() and f["url"] == URL
+    assert "Готово" not in result.output  # человеческий вывод молчит
+    again = _json_line(runner.invoke(cli.app, ["d", URL, "-f", "both", "--json"]).output)
+    assert again["ok"] and all(f["existing"] for f in again["files"])
+
+
+def test_download_json_reports_failure(cli_env, monkeypatch):
+    def broken(*a, **k):
+        raise DownloadFailed("Видео приватное — скачать его нельзя.", transient=False)
+
+    monkeypatch.setattr(jobs, "download", broken)
+    result = runner.invoke(cli.app, ["d", URL, "--json"])
+    assert result.exit_code == 1
+    data = _json_line(result.output)
+    assert not data["ok"] and data["jobs"][0]["error"].startswith("Видео приватное")
+
+
+def test_json_error_before_download(cli_env):
+    result = runner.invoke(cli.app, ["d", URL, "--clip", "5-1", "--json"])
+    assert result.exit_code == 1
+    assert _json_line(result.output)["ok"] is False
+
+
+@needs_ffmpeg
+def test_partial_failure_exit_code(cli_env, make_clip, monkeypatch):
+    good = fake_download(make_clip("s.mp4"), [])
+
+    def some_fail(url, *a, **k):
+        if "bad" in url:
+            raise DownloadFailed("Страница не найдена — проверьте ссылку.", transient=False)
+        return good(url, *a, **k)
+
+    monkeypatch.setattr(jobs, "download", some_fail)
+    result = runner.invoke(cli.app, ["d", URL, "https://example.com/bad", "-f", "mp3"])
+    assert result.exit_code == cli.EXIT_PARTIAL, result.output
+    assert "Готово с ошибками" in result.output
+
+
+def test_same_link_twice_is_downloaded_once(cli_env, monkeypatch):
+    seen = []
+    monkeypatch.setattr(jobs, "download", lambda url, *a, **k: seen.append(url) or [])
+    runner.invoke(cli.app, ["d", URL, "https://youtu.be/UwullClrOuw", "-y"])
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("link", ["https://www.youtube.com/watch?feature=share", "https://youtube.com/watch"])
+def test_link_cut_at_ampersand_is_explained(cli_env, link):
+    result = runner.invoke(cli.app, ["d", link])
+    assert result.exit_code == 1 and "кавычки" in result.output
+
+
+def test_list_json(cli_env):
+    runner.invoke(cli.app, ["папка"])
+    (cli_env / "lib" / "YouTube" / "Видео" / "Клип.mp4").write_bytes(b"x")
+    data = _json_line(runner.invoke(cli.app, ["список", "--json"]).output)
+    assert data["total"] == 1 and Path(data["items"][0]["abs_path"]).is_file()
+    assert runner.invoke(cli.app, ["list", "--type", "кино"]).exit_code == 2
+
+
+def test_cookies_command(cli_env, tmp_path):
+    good = tmp_path / "cookies.txt"
+    good.write_text("# Netscape HTTP Cookie File\n.instagram.com\tTRUE\t/\tTRUE\t0\tsessionid\tabc\n")
+    bad = tmp_path / "bad.txt"
+    bad.write_text("просто текст")
+    assert runner.invoke(cli.app, ["cookies", str(bad)]).exit_code == 1
+    result = runner.invoke(cli.app, ["куки", str(good)])
+    assert result.exit_code == 0 and "instagram.com" in result.output
+    target = cli_env / "cfg" / "cookies.txt"
+    assert target.is_file() and (target.stat().st_mode & 0o777) == 0o600
+    assert runner.invoke(cli.app, ["cookies", "--remove"]).exit_code == 0 and not target.exists()
+
+
+def test_cookie_errors_point_to_cookies_command():
+    assert "выдра cookies" in cli.error_hint("Сайт просит войти в аккаунт. Добавьте cookies в настройках и повторите.")
+    assert cli.error_hint("Не найден FFmpeg — запустите «vydra doctor --fix»") is None  # уже сказано, что делать

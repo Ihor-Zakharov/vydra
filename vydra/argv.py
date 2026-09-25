@@ -93,16 +93,17 @@ SHARED = {
     "out": Opt(("--out", "-o", "--выход", "--куда"), True),
     "folder": Opt(("--folder", "-F", "--папка"), True),
     "yes": Opt(("--yes", "-y", "--да", "-д"), False),
+    "json": Opt(("--json",)),
 }
 COMMAND_OPTS: dict[str, dict[str, Opt]] = {
     "download": {
-        **{k: SHARED[k] for k in ("format", "quality", "bitrate", "clip", "from", "to", "out", "folder", "yes")},
+        **{k: SHARED[k] for k in ("format", "quality", "bitrate", "clip", "from", "to", "out", "folder", "yes", "json")},
         "force": Opt(("--force", "--заново")),
         "yes_playlist": Opt(("--yes-playlist", "--весь-плейлист")),
         "show": Opt(("--show", "--показать")),
     },
-    "convert": {k: SHARED[k] for k in ("format", "bitrate", "clip", "from", "to", "out", "folder", "yes")},
-    "info": {},
+    "convert": {k: SHARED[k] for k in ("format", "bitrate", "clip", "from", "to", "out", "folder", "yes", "json")},
+    "info": {"json": SHARED["json"]},
     "ui": {"port": Opt(("--port", "-p", "--порт"), True), "no_browser": Opt(("--no-browser", "--без-браузера"))},
     "stop": {"port": Opt(("--port", "-p", "--порт"), True)},
     "restart": {"port": Opt(("--port", "-p", "--порт"), True), "quiet": Opt(("--quiet",))},
@@ -111,6 +112,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "search": Opt(("--search", "-s", "--поиск"), True),
         "limit": Opt(("--limit", "-n", "--сколько"), True),
         "paths": Opt(("--paths", "--пути")),
+        "json": Opt(("--json",)),
     },
     "open": {"play": Opt(("--play", "--запустить"))},
     "folder": {
@@ -125,6 +127,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "report": Opt(("--report", "--отчёт", "--отчет")),
     },
     "update": {},
+    "cookies": {"remove": Opt(("--remove", "--удалить"))},
     "shortcut": {},
     "completion": {
         "shell": Opt(("--shell", "--оболочка"), True),
@@ -149,6 +152,7 @@ COMMAND_ALIASES = {
     "folder": ("folder", "папка"),
     "doctor": ("doctor", "доктор", "health"),
     "update": ("update", "обновить"),
+    "cookies": ("cookies", "куки"),
     "shortcut": ("shortcut", "ярлык"),
     "completion": ("completion", "автодополнение"),
     "bridge": ("bridge", "мост"),
