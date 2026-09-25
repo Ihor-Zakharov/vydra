@@ -625,15 +625,26 @@ async function loadPreview(url) {
     if (extractUrls(urlBox.value)[0] === url) setPreview({ kind: 'error', url, message: err.message });
   }
 }
+// Высота места под превью меняется плавно: ряд форматов под ним медленно уезжает вниз и так же возвращается.
+function slideSlot(slot, from, to) {
+  if (REDUCED || Math.abs(from - to) < 1) return;
+  clearTimeout(slideSlot.t);
+  slot.style.transition = 'none'; slot.style.overflow = 'clip'; slot.style.height = `${from}px`;
+  void slot.offsetHeight;
+  slot.style.transition = 'height .6s cubic-bezier(.45, 0, .2, 1)'; slot.style.height = `${to}px`;
+  slideSlot.t = setTimeout(() => { slot.style.height = slot.style.overflow = slot.style.transition = ''; }, 650);
+}
 function setPreview(p) {
   const slot = $('#preview-slot');
   const prevKind = state.preview?.kind;
+  const h0 = slot.getBoundingClientRect().height;
   state.preview = p;
   state.range = null;
   if (!p) {
     pvAbort?.abort();
     applyHeights(null);
     const card = slot.firstElementChild;
+    slideSlot(slot, h0, 0);
     if (card) exit(card, { dy: -6, scale: 0.97 }).then(() => { if (!state.preview && card.isConnected) card.remove(); });
     updateTuners(); updateControls();
     return;
@@ -644,6 +655,8 @@ function setPreview(p) {
   else if (p.kind === 'error') { applyHeights(null); card = h(`<div class="preview compact error">${svgUse('#i-warn')}<span>Не вижу превью — скачать всё равно можно</span></div>`); card.title = p.message || ''; }
   else card = previewCard(p.data);
   slot.replaceChildren(card);
+  slot.style.height = '';
+  slideSlot(slot, h0, slot.scrollHeight);
   if (!REDUCED) {
     const m = motionOf(card, { origin: 'top center' });
     if (p.kind === 'ready' && prevKind === 'loading') { m.from({ o: 0.4, b: 14, s: 0.99 }); m.to({ o: 1, b: 0, s: 1 }, { response: 0.7, damping: 0.95 }); }
