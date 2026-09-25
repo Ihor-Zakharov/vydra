@@ -42,11 +42,6 @@
 
 .topbar { position: fixed; inset: 0 0 auto 0; z-index: 50; height: var(--topbar-h); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   transition: background-color var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out); }
-/* под панелью при прокрутке — не полоса, а мягкая тень без кромки: содержимое растворяется у верхнего края (просьба пользователя) */
-.topbar::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: calc(var(--topbar-h) + 56px); z-index: -1; pointer-events: none; opacity: 0;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, .86) 0%, rgba(0, 0, 0, .7) 45%, rgba(0, 0, 0, .32) 75%, rgba(0, 0, 0, 0) 100%);
-  transition: opacity var(--t-base) var(--ease-out); }
-.topbar.scrolled::after { opacity: 1; }
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; border-radius: var(--r-s); }
 .brand-mark { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: #000; background: var(--white-hot); box-shadow: var(--white-glow); }
 :root[data-theme="light"] .brand-mark { color: #fff; }
