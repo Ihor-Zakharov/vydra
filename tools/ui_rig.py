@@ -76,7 +76,6 @@ DEFAULT_VIEWPORTS = ["s", "m", "l"]
 # «Сейчас» для fmtAgo() и других относительных дат — заморожено, чтобы кадры не менялись
 # от прогона к прогону. 2026-09-25T12:00:00Z.
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=timezone.utc)
-FIXED_NOW_MS = int(FIXED_NOW.timestamp() * 1000)
 
 PLAT_ORDER = ["youtube", "tiktok", "instagram", "other", "file"]
 PLAT_NAME = {"youtube": "YouTube", "tiktok": "TikTok", "instagram": "Instagram", "other": "Другие сайты", "file": "Мои файлы"}
@@ -307,6 +306,15 @@ EVENTSOURCE_SHIM = """
   } catch (e) { /* */ }
   try { localStorage.clear(); } catch (e) { /* приватный режим */ }
   try { sessionStorage.clear(); } catch (e) { /* */ }
+  // Долгие таймеры (автозакрытие тостов, doneTimer и т.п., 1с+) растягиваем в тысячу раз —
+  // на практике никогда не сработают за время съёмки кадра, сколько бы реального времени ни
+  // ушло на скриншот и axe под нагрузкой (--jobs > 1). Короткие (debounce превью 400 мс, поиск
+  // 140 мс, фокус 80 мс) остаются как есть — им и так хватает бюджета в спокойном темпе.
+  const nativeSetTimeout = window.setTimeout.bind(window);
+  window.setTimeout = function (fn, delay, ...args) {
+    const d = typeof delay === 'number' && delay >= 1000 ? delay * 1000 : delay;
+    return nativeSetTimeout(fn, d, ...args);
+  };
 })();
 """
 
@@ -731,6 +739,13 @@ async def capture_state(
     entry: dict[str, Any] = {"state": state.id, "note": state.note}
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        # шрифты (Geologica/Unbounded) грузятся асинхронно — без ожидания кадр иногда ловил
+        # промежуточный рендер на системном шрифте, сдвигавший антиалиасинг текста по всей
+        # странице. document.fonts.ready убирает эту гонку.
+        try:
+            await page.evaluate("() => document.fonts && document.fonts.ready")
+        except Exception:
+            pass
         await page.wait_for_timeout(160)
         if css_path is not None:
             await page.add_style_tag(path=str(css_path))
@@ -878,7 +893,9 @@ async def run_viewport(
     # Date.now()/new Date() заморожены — иначе "только что" / "сегодня" / "вчера" в интерфейсе
     # плыли бы от реальных часов и ломали детерминизм между прогонами (и в разные дни).
     # Таймеры (setTimeout/rAF) at set_fixed_time не трогает — polling и debounce идут как обычно.
-    await page.clock.set_fixed_time(FIXED_NOW_MS)
+    # (передаём datetime, а не готовые миллисекунды: числовой аргумент API понимает как секунды и
+    # сам умножает на 1000 — с уже готовыми миллисекундами дата улетала на тысячи лет вперёд).
+    await page.clock.set_fixed_time(FIXED_NOW)
     page._rig_rt = {"value": default_rt()}  # noqa: SLF001
 
     if not live:

@@ -155,7 +155,7 @@ export function createCosmos(canvas, opts = {}) {
     setAccent(hex, amt = 1) { api.accent = hexToRgb(hex); api.accentAmt = amt; api.wake(); },
     setInvert(v) { api.invert = v ? 1 : 0; api.wake(); },
     setCenter(x, y, scale) { api.center = [x, y]; if (scale) api.scale = scale; api.wake(); },
-    setPointer(x, y) { api._pt = [x, y]; api.wake(); },
+    setPointer(x, y) { api._pt = [x, y]; if (reduced) api._ptS = [x, y]; api.wake(); },
     setScroll(v) { api._scroll = v; api.wake(); },
     pause() { api._paused = true; },
     resume() { api._paused = false; api.wake(); },
@@ -222,8 +222,14 @@ export function createCosmos(canvas, opts = {}) {
     const dt = Math.min(0.05, api._last ? (now - api._last) / 1000 : 0.016);
     api._last = now;
     if (!reduced) api._t += dt;
-    api._ptS[0] += (api._pt[0] - api._ptS[0]) * Math.min(1, dt * 3.5);
-    api._ptS[1] += (api._pt[1] - api._ptS[1]) * Math.min(1, dt * 3.5);
+    // reduced (?motion=0 / prefers-reduced-motion): указатель сразу в целевой точке — без
+    // сглаживания по реальному dt, иначе кадры стенда не будут детерминированы между прогонами
+    // (сходимость по реальному времени отличается на доли процента от прогона к прогону).
+    if (reduced) { api._ptS[0] = api._pt[0]; api._ptS[1] = api._pt[1]; }
+    else {
+      api._ptS[0] += (api._pt[0] - api._ptS[0]) * Math.min(1, dt * 3.5);
+      api._ptS[1] += (api._pt[1] - api._ptS[1]) * Math.min(1, dt * 3.5);
+    }
     draw();
     const settled = reduced && Math.abs(api._ptS[0] - api._pt[0]) < 0.002 && Math.abs(api._ptS[1] - api._pt[1]) < 0.002;
     if (!api._paused && !settled) api._raf = requestAnimationFrame(api._frame);
