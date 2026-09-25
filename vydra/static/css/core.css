@@ -121,7 +121,7 @@
 /* ---------- база ---------- */
 
 *, *::before, *::after { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 16px); }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 16px); scrollbar-gutter: stable; }
 html[data-screen="library"] { scroll-padding-top: calc(var(--topbar-h) + 72px); }
 body { margin: 0; min-height: 100dvh; background: var(--bg); color: var(--ink); font: 400 16px/1.5 var(--font-text); -webkit-font-smoothing: antialiased; overflow-x: hidden; font-feature-settings: "kern", "liga"; }
 svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex: none; }

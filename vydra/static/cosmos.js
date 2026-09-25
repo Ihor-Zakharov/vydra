@@ -546,9 +546,13 @@ export function createCosmos(canvas, opts = {}) {
     let nw = Math.max(2, Math.round(r.width * dpr * RES_SCALE)), nh = Math.max(2, Math.round(r.height * dpr * RES_SCALE));
     const cap = 1.1e6;
     if (nw * nh > cap) { const k = Math.sqrt(cap / (nw * nh)); nw = Math.round(nw * k); nh = Math.round(nh * k); }
-    if (nw !== w || nh !== hgt) { w = nw; hgt = nh; canvas.width = w; canvas.height = hgt; gl.viewport(0, 0, w, hgt); }
+    if (nw === w && nh === hgt) return false;
+    w = nw; hgt = nh; canvas.width = w; canvas.height = hgt; gl.viewport(0, 0, w, hgt);
+    return true;
   }
-  api.resize = () => { measure(); api.readTokens(); api._redraw(); };
+  // смена размера очищает буфер: кадр рисуется сразу, в том же кадре браузера — иначе, если кадр сцены в этом кадре
+  // уже прошёл (появилась полоса прокрутки под превью), на экран уходит пустой, чёрный холст
+  api.resize = () => { const cleared = measure(); api.readTokens(); if (cleared) draw(); api._redraw(); };
 
   const draw = () => {
     const sx = w / cssW, sy = hgt / cssH;
