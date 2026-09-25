@@ -105,6 +105,18 @@ class Prefs:
         custom = self._read().get("library_dir")
         return Path(custom) if custom else self.settings.default_library
 
+    @property
+    def console_art(self) -> bool | None:
+        """Заставка интерактивной консоли: True/False — выбрано, None — по умолчанию (включена)."""
+        value = self._read().get("console_art")
+        return value if isinstance(value, bool) else None
+
+    def set_console_art(self, on: bool) -> None:
+        with self._lock:
+            data = self._read()
+            data["console_art"] = on
+            self._write(data)
+
     def set_library_dir(self, path: Path | None) -> None:
         with self._lock:
             data = self._read()

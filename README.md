@@ -116,6 +116,7 @@ vydra open [часть названия]             # показать файл
 vydra folder "D:\Кино" --move           # сменить папку-хранилище и перенести в неё скачанное
 vydra ui / vydra stop                   # веб-интерфейс: запустить / остановить
 vydra cookies ~/Downloads/cookies.txt   # подключить cookies, если сайт просит войти
+vydra settings --art off                # без заставки при входе в `vydra` (или VYDRA_NO_ART=1)
 vydra doctor --fix                      # проверить и починить всё
 vydra update                            # обновить выдру и yt-dlp до последней версии
 ```

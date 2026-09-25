@@ -110,7 +110,9 @@ _EXAMPLES = [
     ("выдра папка", "", "", "где лежат файлы, сменить папку"),
     ("выдра интерфейс", "", "", "веб-интерфейс в браузере"),
     ("выдра stop", "", "", "остановить веб-интерфейс"),
+    ("выдра обновить", "", "", "выдра и yt-dlp — до последней версии"),
     ("выдра доктор", "", "--починить", "проверить и починить всё"),
+    ("выдра настройки", "", "--заставка выкл", "без заставки при входе (или VYDRA_NO_ART=1)"),
 ]
 
 
@@ -1560,12 +1562,66 @@ def bridge_cmd(
 # --- интерактивный режим -----------------------------------------------------------------
 
 
+def show_art(settings: Settings) -> bool:
+    """Заставка при входе в интерактивный режим: только в настоящем терминале и если не выключена."""
+    from . import art
+
+    if _json_mode or not console.is_terminal or console.is_dumb_terminal or not art.enabled(Prefs(settings).console_art):
+        return False
+    size = art.size_for(console.width, console.height)
+    if size is None:
+        return False
+    mode = None if console.no_color else art.color_mode(console.color_system)
+    lines = art.render(*size, mode)
+    sys.stdout.write("\n".join(lines) + "\n")
+    sys.stdout.flush()
+    return True
+
+
+def settings_cmd(
+    art_value: Annotated[str | None, typer.Option("--art", "--заставка", metavar="on|off",
+                                                  help="Заставка при входе в интерактивный режим: on/вкл или off/выкл",
+                                                  show_default=False)] = None,  # fmt: skip
+) -> None:
+    """Настройки консоли: заставка, где хранилище, cookies. [dim](синоним: настройки)[/]"""
+    from . import art
+
+    settings = Settings.from_env()
+    prefs = Prefs(settings)
+    if art_value is not None:
+        value = {"on": True, "вкл": True, "yes": True, "да": True, "1": True,
+                 "off": False, "выкл": False, "no": False, "нет": False, "0": False}.get(art_value.strip().lower())  # fmt: skip
+        if value is None:
+            raise fail(f"Непонятное значение «{art_value}»", "Можно: --заставка вкл или --заставка выкл", code=EXIT_USAGE)
+        try:
+            prefs.set_console_art(value)
+        except OSError as exc:
+            raise fail(f"Не удалось сохранить настройки: {exc.strerror or exc}") from exc
+    banner("настройки")
+    table = Table.grid(padding=(0, 2))
+    table.add_column(style="#9aa4b2", no_wrap=True)
+    table.add_column(overflow="fold")
+    on = art.enabled(prefs.console_art)
+    state = Text("включена", style="green") if on else Text("выключена", style="dim")
+    if prefs.console_art is not False and not on:
+        state.append("  (переменной VYDRA_NO_ART)", style="dim")
+    state.append(f"   выдра настройки --заставка {'выкл' if on else 'вкл'}", style="dim cyan")
+    table.add_row("Заставка консоли", state)
+    table.add_row("Хранилище", linked(Prefs(settings).library_dir, "cyan"))
+    table.add_row("Cookies", Text("подключены", style="green") if settings.cookies_file else Text("нет", style="dim"))
+    table.add_row("Файл настроек", linked(prefs.path, "dim"))
+    console.print(table)
+
+
 def interactive() -> None:
     from .downloader import DownloadFailed, preview
 
+    settings = Settings.from_env()
+    shown = show_art(settings)
     banner("интерактивный режим")
     console.print(Text("  Вставьте ссылку и нажмите Enter (кавычки не нужны). Пустая строка или Ctrl+C — выход.", style="dim"))
-    settings = Settings.from_env()
+    if shown:
+        console.print(Text("  Заставку можно выключить: выдра настройки --заставка выкл", style="dim"))
     diagnostics.setup_logging(settings)
     last = {"fmt": "1", "quality": "1080", "bitrate": "192"}
     offered: set[str] = set()
@@ -1652,6 +1708,7 @@ COMMANDS = [
     (restart_cmd, "restart", SERVICE),
     (update, "update", SERVICE),
     (cookies, "cookies", SERVICE),
+    (settings_cmd, "settings", SERVICE),
     (shortcut, "shortcut", SERVICE),
     (completion, "completion", SERVICE),
     (bridge_cmd, "bridge", SERVICE),

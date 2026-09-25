@@ -135,6 +135,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "no_banner": Opt(("--no-banner",)),
     },
     "cookies": {"remove": Opt(("--remove", "--удалить"))},
+    "settings": {"art": Opt(("--art", "--заставка"), True)},
     "shortcut": {},
     "completion": {
         "shell": Opt(("--shell", "--оболочка"), True),
@@ -160,6 +161,7 @@ COMMAND_ALIASES = {
     "doctor": ("doctor", "доктор", "health"),
     "update": ("update", "обновить"),
     "cookies": ("cookies", "куки"),
+    "settings": ("settings", "настройки"),
     "shortcut": ("shortcut", "ярлык"),
     "completion": ("completion", "автодополнение"),
     "bridge": ("bridge", "мост"),
