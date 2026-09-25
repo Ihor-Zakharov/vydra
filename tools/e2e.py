@@ -112,20 +112,11 @@ async def submit_via_ui(ctx: Ctx, url: str, mode: str, *, clip: tuple[str, str] 
     await page.wait_for_timeout(600)  # даёт onUrlInput/детекции платформы отработать
     if clip:
         start, end = clip
-        # если превью загрузилось с длительностью, у него своя полоса отрезка (.pv-start/.pv-end) —
-        # ручной ряд #clip прячется (updateTuners); иначе — ручной ввод в #clip-start/#clip-end.
-        try:
-            await page.wait_for_selector(".preview .pv-start", timeout=6000)
-            await page.fill(".pv-start", start)
-            await page.fill(".pv-end", end)
-        except Exception:
-            # отрезок без превью — в окне «Параметры» (сводка под полем)
-            await page.click("#params-btn")
-            await page.wait_for_selector("#params-dialog[open]", timeout=5000)
-            await page.check("#clip-on")
-            await page.fill("#clip-start", start)
-            await page.fill("#clip-end", end)
-            await page.keyboard.press("Escape")
+        # отрезок задаётся только в ленте превью (после вставки ссылки, .pv-start/.pv-end) —
+        # окно «Параметры» больше не хранит ручной ввод отрезка.
+        await page.wait_for_selector(".preview .pv-start", timeout=15000)
+        await page.fill(".pv-start", start)
+        await page.fill(".pv-end", end)
     before = {j["id"] for j in await api_get(ctx, "/api/jobs")}
     await page.click("#go")
     # находим новую задачу с этим source

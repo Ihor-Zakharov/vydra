@@ -136,12 +136,14 @@ function toast(message, type = 'info', { timeout = 3800, action } = {}) {
   el.querySelector('.tt').textContent = message;
   if (action) { const b = h('<button class="glass btn" type="button"></button>'); b.textContent = action.label; b.addEventListener('click', () => { action.run(); api_.close(); }); el.append(b); }
   box.append(el);
+  if (box.matches(':popover-open')) box.hidePopover();
+  box.showPopover();
   enter(el);
   while (box.children.length > 4) box.firstElementChild.remove();
   let timer;
   const api_ = {
     update(msg) { el.querySelector('.tt').textContent = msg; return api_; },
-    close() { clearTimeout(timer); exit(el).then(() => el.remove()); },
+    close() { clearTimeout(timer); exit(el).then(() => { el.remove(); if (!box.children.length && box.matches(':popover-open')) box.hidePopover(); }); },
     type(t) { el.className = `toast ${t}`; el.querySelector('.ti').innerHTML = svgUse(icons[t] || '#i-info'); return api_; },
     later(ms) { clearTimeout(timer); timer = setTimeout(api_.close, ms); return api_; },
   };
@@ -198,7 +200,9 @@ document.addEventListener('pointermove', (e) => {
     el.style.setProperty('--my', `${((glassEv.clientY - r.top) / r.height * 100).toFixed(1)}%`);
   });
 }, { passive: true });
-pressable(document, '.glass, .go-btn, .btn, .chip-btn, .icon-btn, .tab, .pills button, .dept, .folder, .crumb, .text-btn, .tile-media', { scale: 0.97 });
+// капсула поля ссылки (.portal-body — тоже .glass) и «Скачать» проседают мягче остальных: .99 (решение пользователя)
+pressable(document, '.glass:not(.portal-body), .btn, .chip-btn, .icon-btn, .tab, .pills button, .dept, .folder, .crumb, .text-btn, .tile-media', { scale: 0.97 });
+pressable(document, '.go-btn, .portal-body', { scale: 0.99 });
 
 /* ============================== космос ============================== */
 
@@ -409,7 +413,6 @@ function updateTuners() {
   $('#quality-tuner').classList.toggle('off', qOff); $('#quality-tuner').inert = qOff;
   $('#bitrate-tuner').classList.toggle('off', bOff); $('#bitrate-tuner').inert = bOff;
   $('#autostart-wrap').inert = state.tab !== 'link';
-  $('#clip').hidden = !!(state.tab === 'link' && state.preview?.kind === 'ready' && state.range);
   renderParamsSummary();
   requestAnimationFrame(() => moveAllInks());
 }
@@ -424,9 +427,7 @@ function paramsSummary() {
   const mp4 = link ? `MP4 · ${q === 'max' ? 'макс' : `${q}p`}` : 'MP4';
   const fmt = state.mode === 'mp3' ? `MP3 · ${state.bitrate} кбит/с` : state.mode === 'both' ? `${mp4} + MP3 ${state.bitrate}` : mp4;
   const parts = [fmt, state.dest ? state.dest.split('/').pop() : 'Автоматически'];
-  // отрезок из превью виден в самом превью — в сводку идёт только отрезок, заданный вручную в окне
-  const byPreview = link && state.preview?.kind === 'ready' && state.range;
-  if (!byPreview && clipOn?.checked) parts.push('отрезок');
+  // отрезок задаётся только в ленте превью — в сводку окна «Параметры» не попадает
   if (link && state.autostart) parts.push('качать сразу');
   return parts.join(' · ');
 }
@@ -463,35 +464,10 @@ function applyHeights(heights) {
 }
 const effectiveQuality = () => $('[data-name="quality"] [aria-checked="true"]')?.dataset.value || state.quality;
 
-const clipOn = $('#clip-on');
-function clipValues() { const sEl = $('#clip-start'), eEl = $('#clip-end'); return { s: parseTime(sEl.value), e: parseTime(eEl.value), sEl, eEl }; }
-function renderClipRow() {
-  $('#clip-fields').hidden = !clipOn.checked;
-  const { s, e, sEl, eEl } = clipValues();
-  sEl.parentElement.classList.toggle('invalid', Number.isNaN(s));
-  eEl.parentElement.classList.toggle('invalid', Number.isNaN(e));
-  const out = $('#clip-len');
-  out.classList.remove('bad', 'word');
-  const sel = $('#clip-mini-sel');
-  sel.style.setProperty('--a', '0%'); sel.style.setProperty('--b', '100%');
-  if (Number.isNaN(s) || Number.isNaN(e)) { out.textContent = 'формат: 1:30 или 90'; out.classList.add('bad'); return; }
-  if (s != null && e != null && e <= s) { out.textContent = 'конец раньше начала'; out.classList.add('bad'); return; }
-  if (s == null && e == null) { out.textContent = 'весь ролик'; out.classList.add('word'); return; }
-  out.textContent = e != null ? `= ${fmtTime(e - (s || 0))}` : `с ${fmtTime(s)} до конца`;
-  out.classList.toggle('word', e == null);
-  const d = Math.max(e || 0, (s || 0) * 1.6, 1);
-  sel.style.setProperty('--a', `${((s || 0) / d) * 100}%`); sel.style.setProperty('--b', `${((e ?? d) / d) * 100}%`);
-}
-clipOn.addEventListener('change', () => { renderClipRow(); renderParamsSummary(); if (clipOn.checked) $('#clip-start').focus(); });
-$('#clip-start').addEventListener('input', renderClipRow);
-$('#clip-end').addEventListener('input', renderClipRow);
+/* отрезок задаётся только в ленте превью (после вставки ссылки) — окно «Параметры» его не хранит */
 function clipPayload(useRange) {
   if (useRange && state.range) { const { a, b, d } = state.range; return { start: a > 0.5 ? String(Math.round(a)) : null, end: b < d - 0.5 ? String(Math.round(b)) : null }; }
-  if (!clipOn.checked) return { start: null, end: null };
-  const { s, e, sEl, eEl } = clipValues();
-  if (Number.isNaN(s) || Number.isNaN(e)) throw new Error('Время отрезка — в виде 1:30, 1:02:03 или 90');
-  if (s != null && e != null && e <= s) throw new Error('Конец отрезка должен быть позже начала');
-  return { start: sEl.value.trim() || null, end: eEl.value.trim() || null };
+  return { start: null, end: null };
 }
 
 /* папка назначения: «Сохранять в …» */
@@ -1788,7 +1764,6 @@ function init() {
   setPill($('[data-name="bitrate"]'), state.bitrate);
   setPill($('.view-toggle'), explorer.state.view);
   switchTab('link', { animate: false });
-  renderClipRow();
   renderDest();
   explorer.setDest(state.dest);
   requestAnimationFrame(() => moveAllInks({ immediate: true }));

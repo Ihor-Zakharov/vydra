@@ -84,7 +84,7 @@
 .portal-glyph[data-p]:not([data-p="none"]) { color: #fff; background: linear-gradient(135deg, var(--el-a), var(--el-b)); box-shadow: var(--el-glow-soft); }
 /* строка ссылки не переносится (длинная — уходит под край, как в адресной строке): поле растёт только новыми строками
    (несколько ссылок) — одна ссылка любой длины не меняет высоту поля и не сдвигает превью */
-#url { white-space: pre; overflow-wrap: normal; overflow-x: hidden; width: 100%; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.35; max-height: calc(5 * 23px + 20px); overflow-y: auto; scrollbar-width: thin; font-size: 17px; padding: 10px 4px; }
+#url { white-space: pre; overflow-wrap: normal; overflow-x: hidden; width: 100%; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.35; max-height: calc(5 * 23px + 20px); overflow-y: auto; scrollbar-width: thin; font-size: 17px; padding: 10.5px 4px 9.5px; }
 #url::placeholder { color: var(--ink-3); }
 #url:placeholder-shown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* фокус показывает кайма поля (.portal:focus-within), второй рамки нет */
@@ -286,7 +286,7 @@
 @media (min-width: 2200px) {
   .tab { font-size: 15px; padding: 8px 16px; }
   .pills button { font-size: 15px; padding: 8px 14px; }
-  #url { font-size: 19px; }
+  #url { font-size: 19px; padding-top: 12px; padding-bottom: 8px; }
   .portal-glyph { width: 50px; height: 50px; }
   .ghost-btn { height: 50px; font-size: 15px; }
   .go-btn { height: 54px; font-size: 16.5px; padding: 0 24px 0 20px; }

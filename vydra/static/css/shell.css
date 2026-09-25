@@ -236,6 +236,14 @@
 .toast.err { --tone: var(--err); }
 .toast.warn { --tone: var(--warn); }
 .toast .btn { height: 32px; padding: 0 12px; font-size: 13px; margin-left: 6px; flex: none; }
+/* popover=manual: чтобы всплывать в top layer поверх showModal-диалогов; сбрасываем UA-стили попапа до нуля
+   и переутверждаем позицию явно (все 4 инсета + margin), иначе UA top:0/right:0 + margin:auto ломают позицию */
+#toasts, #toasts:popover-open {
+  position: fixed; top: auto; right: auto; left: 50%; bottom: 18px; margin: 0;
+  translate: -50% 0; border: none; padding: 0; background: none; overflow: visible;
+  width: min(560px, calc(100vw - 24px)); height: auto;
+}
+#toasts::backdrop { display: none; }
 
 /* ---------- окно xl (≥ 2200 px): колонка героя и заголовки крупнее на ступень ---------- */
 

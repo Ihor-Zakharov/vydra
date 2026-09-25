@@ -481,19 +481,6 @@
             <span class="pill-ink" aria-hidden="true"></span>
           </div>
         </div>
-        <div class="row clip" id="clip">
-          <label class="switch">
-            <input type="checkbox" id="clip-on">
-            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-            <span class="switch-text"><svg><use href="#i-scissors"/></svg>Только отрезок</span>
-          </label>
-          <div class="clip-fields" id="clip-fields" hidden>
-            <label class="time-field glass"><span>с</span><input id="clip-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label>
-            <div class="clip-mini" aria-hidden="true"><span class="clip-mini-sel" id="clip-mini-sel"></span></div>
-            <label class="time-field glass"><span>по</span><input id="clip-end" inputmode="decimal" placeholder="конец" aria-label="Конец отрезка"></label>
-            <output class="clip-len" id="clip-len" aria-live="polite"></output>
-          </div>
-        </div>
         <div class="row extras">
           <label class="switch" id="autostart-wrap" title="Ссылка, вставленная в любом месте страницы (Ctrl+V), сразу начнёт качаться">
             <input type="checkbox" id="autostart">
@@ -535,7 +522,7 @@
     </div>
   </dialog>
 
-  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="toasts" id="toasts" aria-live="polite" popover="manual"></div>
 
   <template id="job-tpl">
     <li class="job">
