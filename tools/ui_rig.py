@@ -644,6 +644,18 @@ async def a_show_library(page: Page, rt: dict) -> None:
     await a_scroll_to_section(page, "library", "library")
 
 
+async def a_open_cheats(page: Page, rt: dict) -> None:
+    # После S2 подвал с кнопкой шпаргалки на главном экране скрыт — открываем, как пользователь, клавишей «?»
+    # (без фокуса в поле ввода); если не вышло — кликом по кнопке из JS, он доходит и до скрытой.
+    await page.evaluate("() => document.activeElement && document.activeElement.blur()")
+    await page.keyboard.press("?")
+    try:
+        await page.wait_for_selector("#cheats[open]", timeout=2000)
+    except Exception:
+        await page.evaluate("() => document.getElementById('open-cheats')?.click()")
+        await page.wait_for_selector("#cheats[open]", timeout=4000)
+
+
 async def a_expand_island(page: Page, rt: dict) -> None:
     # Playwright.click() по этой хит-зоне в связке CDP→реальный Edge в этом окружении иногда
     # не долетает до обработчика (воспроизводимо и на #ctx, см. a_rename_folder_favorite) —
@@ -948,7 +960,7 @@ STATES: list[StateDef] = [
     StateDef("confirm", rt=rt_library(), query={"folder": "YouTube/Видео"}, action=a_seq(
         a_wait(".tile"), a_confirm_delete,
     )),
-    StateDef("cheats", action=a_click("#open-cheats", wait_for="#cheats[open]")),
+    StateDef("cheats", action=a_open_cheats),
     StateDef("offline", rt=lambda rt: rt.update(down=True), action=a_wait("#offline:not([hidden])", timeout=6000),
              note="сеть намеренно оборвана — ошибки в консоли ожидаемы", expect_errors=True),
 
