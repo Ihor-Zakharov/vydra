@@ -397,8 +397,12 @@
             <p class="lib-stats" id="lib-stats"></p>
           </div>
           <p class="fixed-note" id="lib-fixed" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Папка задана переменной VD_LIBRARY_DIR</p>
+          <form class="path-form" id="path-form">
+            <input class="glass" id="path-input" type="text" spellcheck="false" autocomplete="off" placeholder="Путь к папке: D:\Видео" aria-label="Новый путь к папке для загрузок">
+            <button class="btn primary" type="submit">Применить</button>
+          </form>
+          <p class="form-error" id="path-error" role="alert" hidden></p>
           <div class="btn-row lib-actions">
-            <button class="btn primary" id="pick-folder" type="button"><svg><use href="#i-folder-open"/></svg><span>Выбрать папку…</span></button>
             <button class="btn" id="open-folder-2" type="button"><svg><use href="#i-external"/></svg>Открыть</button>
             <button class="text-btn" id="reset-folder" type="button" title="Вернуть «Загрузки/VideoDownloader»"><svg><use href="#i-rotate"/></svg>Сбросить</button>
           </div>
@@ -415,11 +419,6 @@
             <p class="lm-sub">загрузки подождут</p>
           </div>
           <p class="lib-move-err" id="lib-move-err" role="alert" hidden></p>
-          <form class="path-form" id="path-form">
-            <input class="glass" id="path-input" type="text" spellcheck="false" autocomplete="off" placeholder="…или впишите путь: D:\Видео" aria-label="Новый путь к папке для загрузок">
-            <button class="glass btn" type="submit">Применить</button>
-          </form>
-          <p class="form-error" id="path-error" role="alert" hidden></p>
           <div class="tree" aria-label="Что будет в папке">
             <p class="tree-root"><svg><use href="#i-folder"/></svg><span id="tree-root">VideoDownloader</span></p>
             <ul>

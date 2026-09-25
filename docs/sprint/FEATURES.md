@@ -105,7 +105,6 @@
 | dialogs | удаление файла из плеера | клик «Удалить» → подтверждение внутри плеера | `DELETE /api/library/{id}` | закрытие плеера, тост, обновление хранилища | `player-delete-confirm` |
 | dialogs | настройки | клик `#open-settings`, `?panel=settings` | `GET /api/settings` | папка хранения, cookies, «о программе» | `settings` |
 | dialogs | смена папки хранилища (путь) | форма `#path-form` (скрыта, если `VD_LIBRARY_DIR` задан — `fixed`) | `POST /api/settings/library {path}` | новая папка; если было что переносить — вопрос о переносе | `settings-fixed`, `folder-dialog` |
-| dialogs | смена папки — системный диалог | клик `#pick-folder` (скрыт, если `fixed` или `can_pick_folder:false`) | `POST /api/settings/library/pick` | нативное окно выбора папки на ОС (в headless недоступно; 501 — «нет окна выбора») | — |
 | dialogs | сброс папки по умолчанию | клик `#reset-folder` | `POST /api/settings/library {reset:true}` | — | — |
 | dialogs | перенос уже скачанного | после смены папки, если в прежней было >0 файлов | `POST /api/settings/library {path, move:true}` | вопрос да/нет, тост об успехе/неуспехе переноса | `confirm` |
 | dialogs | открыть папку загрузок | `#open-folder` (топбар) / `#open-folder-2` (настройки) | `POST /api/folder/open` | системное открытие папки | — |

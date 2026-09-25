@@ -1511,10 +1511,9 @@ function renderSettings(s) {
   tag.className = `tag ${lib.is_default ? '' : 'accent'}`;
   $('#lib-fixed').hidden = !lib.fixed;
   $('#path-form').hidden = !!lib.fixed;
-  $('#pick-folder').hidden = !!lib.fixed || state.info?.can_pick_folder === false;
   $('#reset-folder').hidden = !!lib.fixed;
   $('#reset-folder').disabled = !!lib.is_default;
-  $('#path-input').placeholder = state.info?.os === 'mac' || state.info?.os === 'linux' ? '…или впишите путь: ~/Movies/выдра' : '…или впишите путь: D:\\Видео';
+  $('#path-input').placeholder = state.info?.os === 'mac' || state.info?.os === 'linux' ? 'Путь к папке: ~/Movies/выдра' : 'Путь к папке: D:\\Видео';
   $('#tree-root').textContent = (lib.path || 'VideoDownloader').split(/[\\/]/).filter(Boolean).pop() || lib.path;
   const c = s.cookies || {};
   const ct = $('#cookie-tag');
@@ -1566,19 +1565,6 @@ $('#path-form').addEventListener('submit', async (e) => {
   if (await applyLibrary({ path: v }, 'Папка для загрузок изменена')) $('#path-input').value = '';
 });
 $('#reset-folder').addEventListener('click', () => applyLibrary({ reset: true }, 'Вернула папку по умолчанию'));
-$('#pick-folder').addEventListener('click', async (e) => {
-  const b = e.currentTarget, label = b.querySelector('span');
-  b.disabled = true; b.classList.add('busy'); b.querySelector('use').setAttribute('href', '#i-refresh');
-  label.textContent = 'Окно выбора папки открыто на компьютере…';
-  showPathError('');
-  const oldCount = state.library?.stats?.count || 0, oldPath = state.info?.library?.path;
-  try {
-    const r = await api('/api/settings/library/pick', { method: 'POST' });
-    if (r?.cancelled) toast('Выбор папки отменён', 'info');
-    else { toast('Папка для загрузок изменена', 'ok'); await afterLibraryChanged(r, { oldCount, oldPath }); }
-  } catch (err) { showPathError(err.status === 501 ? 'На этой системе нет окна выбора — впишите путь ниже' : err.message); }
-  finally { b.disabled = false; b.classList.remove('busy'); b.querySelector('use').setAttribute('href', '#i-folder-open'); label.textContent = 'Выбрать…'; }
-});
 const openFolder = async () => { const t = toast('Открываю папку загрузок…', 'info', { timeout: 2200 }); try { await api('/api/folder/open', { method: 'POST' }); } catch (err) { t.type('err').update(err.message).later(5000); } };
 $('#open-folder').addEventListener('click', openFolder);
 $('#open-folder-2').addEventListener('click', openFolder);
