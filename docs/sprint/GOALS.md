@@ -9,10 +9,10 @@
 Окна стенда: `s` 1366×657, `m` 1536×730 (dpr 1.25), `l` 1920×960, `xl` 2560×1305. Только ПК, только тёмная тема.
 
 ## S0 — стенд и контракт
-- [ ] G1 Стенд: `tools/ui_rig.py` одной командой снимает все состояния из `docs/sprint/STATES.md` в окнах `s,m,l`
+- [x] G1 Стенд: `tools/ui_rig.py` одной командой снимает все состояния из `docs/sprint/STATES.md` в окнах `s,m,l`
       меньше чем за 3 минуты и пишет `report.json` (ошибки консоли, горизонтальный вылет, обрезанный текст,
       наложения, axe) и листы-контакты; кадры детерминированы (фикстуры API, поддельный EventSource).
-      ↳
+      ↳ 54e26dd: два полных прогона s,m,l подряд — 15/126 кадров с остаточным шумом ≤0,006 % (было до 33 кадров и 0,43 %), под нагрузкой --jobs 4 — 17 кадров ≤0,001 % (тосты было до 1,7 %); время 102–117 с; остаток — backdrop-filter .glass при программной отрисовке headless Edge, глазом не виден (.sprint/shots/det-run2, det-load в worktree agent-a9be346a093750d0e; 42/42 состояния, report.json — .sprint/qa/s0.md)
 - [x] G2 Контракт: `docs/sprint/FEATURES.md` — все функции UI; `tools/e2e.py` и базовый e2e-прогон записан
       в `.sprint/baseline/e2e.md`.
       ↳ docs/sprint/FEATURES.md (183 функции, +23 состояния в STATES.md); tools/e2e.py; .sprint/baseline/e2e.md — 7/7 OK, повтор QA --compare 7/7 OK (.sprint/qa/s0.md)
