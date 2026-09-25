@@ -196,6 +196,21 @@ dialog.player .player-close:hover { background: var(--s3); }
 .modal { margin: auto; width: min(520px, calc(100vw - 32px)); }
 #confirm-dialog { width: min(440px, calc(100vw - 32px)); }
 #cheats { width: min(560px, calc(100vw - 32px)); }
+/* «Параметры» (решение пользователя): бывшие ряд форматов и «Ещё» — в окне; строки: метка mono (§3.6) + плиты формы.
+   Применяется сразу, «Готово» и Esc только закрывают. Вид и поведение — как у остальных модальных окон. */
+/* Окно не дёргается: верх приколот (не центр по высоте), строки не исчезают — неприменимые к формату или вкладке
+   («Качество» при «Только звук», «MP3, кбит/с» при «Видео + звук», «Качать сразу» в конвертере) гаснут до .38 и
+   становятся inert; место под поля отрезка отведено всегда. Высота панели меняется только когда отрезок задан в
+   превью (строка «Только отрезок» тогда не дублируется) — и только вниз. */
+#params-dialog { width: min(660px, calc(100vw - 32px)); margin: max(24px, calc(50svh - 250px)) auto auto; }
+#params-dialog .params-body { padding-top: 4px; }
+#params-dialog .row-label { min-width: 112px; }
+#params-dialog .tuner.off { display: flex; opacity: .38; }
+#params-dialog [inert] { opacity: .38; }
+#params-dialog .clip { row-gap: 10px; }
+#params-dialog .clip-fields { flex-basis: 100%; padding-left: 44px; }
+#params-dialog .clip-fields[hidden] { display: flex !important; visibility: hidden; }
+#params-dialog .extras { flex-direction: column; align-items: flex-start; }
 .modal-box { display: grid; padding: 24px; border-radius: var(--r-xl); background: var(--s-raised); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
 .modal-box > .drawer-head { padding: 0 0 16px; }
 .modal-text, .move-ask { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }

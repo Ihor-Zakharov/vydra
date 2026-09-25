@@ -158,12 +158,6 @@
       <div class="hero-copy">
         <p class="kicker" data-enter><span class="num">01</span> / ссылка</p>
         <h1><span class="thin" data-enter>Вставь ссылку</span><span class="slab" data-enter>забери видео</span></h1>
-        <p class="lede" data-enter>
-          <span class="pf" data-p="youtube"><svg><use href="#p-youtube"/></svg>YouTube</span>,
-          <span class="pf" data-p="tiktok"><svg><use href="#p-tiktok"/></svg>TikTok</span>,
-          <span class="pf" data-p="instagram"><svg><use href="#p-instagram"/></svg>Instagram</span>
-          <span class="lede-rest">и сотни других сайтов — сразу в&nbsp;MP4 или MP3, без водяных знаков, на ваш компьютер.</span>
-        </p>
 
         <div class="console" aria-label="Скачивание и конвертация">
           <div class="tabs glass" role="tablist" aria-label="Режим" data-enter>
@@ -172,7 +166,10 @@
             <span class="tab-ink" aria-hidden="true"></span>
           </div>
 
-          <div id="panel-link" role="tabpanel" aria-labelledby="tab-link" data-panel="link" data-enter>
+          <!-- сцена формы: высота постоянна, панели «По ссылке» и «Конвертер» лежат в одной клетке и сменяются на месте;
+               под полем — сводка параметров (открывает окно «Параметры»), ниже — место под превью ссылки -->
+          <div class="hero-stage" data-enter>
+          <div id="panel-link" role="tabpanel" aria-labelledby="tab-link" data-panel="link">
             <form class="portal" id="link-form" autocomplete="off">
               <div class="portal-ring" aria-hidden="true"></div>
               <div class="portal-body glass">
@@ -182,83 +179,21 @@
                 <button class="go-btn" id="go" type="submit" aria-label="Скачать" title="Скачать (Enter)"><svg><use href="#i-arrow-down"/></svg></button>
               </div>
             </form>
+            <button class="params-sum" id="params-btn" type="button" data-params-open aria-haspopup="dialog" aria-controls="params-dialog"><svg><use href="#i-sliders"/></svg><span class="ps-label">Параметры</span><span class="ps-value" data-params-sum></span><svg class="ps-chev"><use href="#i-chev-r"/></svg></button>
             <div class="preview-slot" id="preview-slot" aria-live="polite"></div>
           </div>
 
-          <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" data-panel="file" data-enter hidden>
+          <div id="panel-file" role="tabpanel" aria-labelledby="tab-file" data-panel="file" hidden>
             <label class="dropzone" id="dropzone" for="file-input">
               <input type="file" id="file-input" multiple accept="video/*,audio/*,.mkv,.webm,.flv,.avi,.mov,.m4a,.opus,.ogg,.wav,.flac">
               <span class="dz-orb" aria-hidden="true"><svg><use href="#i-upload"/></svg></span>
               <span class="dz-title">Перетащите видео или аудио сюда</span>
               <span class="dz-sub">или <u>выберите файлы</u> — сконвертирую и положу в хранилище</span>
             </label>
+            <button class="params-sum" type="button" data-params-open aria-haspopup="dialog" aria-controls="params-dialog"><svg><use href="#i-sliders"/></svg><span class="ps-label">Параметры</span><span class="ps-value" data-params-sum></span><svg class="ps-chev"><use href="#i-chev-r"/></svg></button>
+          </div>
           </div>
 
-          <div class="dest-row" data-enter>
-            <div class="pills formats glass" role="radiogroup" aria-label="Формат" data-name="mode">
-              <button type="button" role="radio" data-value="mp4" title="Видео со звуком, MP4 (H.264/AAC)"><svg><use href="#i-film"/></svg>Видео + звук</button>
-              <button type="button" role="radio" data-value="mp3" title="Только звук, MP3"><svg><use href="#i-wave"/></svg>Только звук</button>
-              <button type="button" role="radio" data-value="both" title="Оба файла: MP4 и MP3"><svg><use href="#i-layers"/></svg>Оба</button>
-              <span class="pill-ink" aria-hidden="true"></span>
-            </div>
-            <button class="glass dest" id="dest-btn" type="button" title="Куда сохранять загрузки">
-              <svg><use href="#i-folder"/></svg><span class="dest-label">Сохранять в</span><b class="dest-value" id="dest-value">Автоматически</b><svg class="dest-chev"><use href="#i-chev-d"/></svg>
-            </button>
-            <button class="controls-toggle" id="controls-toggle" type="button" aria-expanded="false" aria-controls="controls"><svg><use href="#i-sliders"/></svg><span>Ещё</span></button>
-          </div>
-
-          <div class="controls" id="controls" data-open="false">
-            <div class="controls-inner">
-              <div class="options">
-                <div class="row tuner" id="quality-tuner">
-                  <span class="row-label">Качество</span>
-                  <div class="pills glass" role="radiogroup" aria-label="Качество видео" data-name="quality">
-                    <button type="button" role="radio" data-value="max" title="Самое высокое, вплоть до 4K. Может перекодироваться дольше">Макс</button>
-                    <button type="button" role="radio" data-value="1080">1080p</button>
-                    <button type="button" role="radio" data-value="720">720p</button>
-                    <button type="button" role="radio" data-value="480">480p</button>
-                    <button type="button" role="radio" data-value="360">360p</button>
-                    <span class="pill-ink" aria-hidden="true"></span>
-                  </div>
-                </div>
-                <div class="row tuner" id="bitrate-tuner">
-                  <span class="row-label">MP3, кбит/с</span>
-                  <div class="pills glass" role="radiogroup" aria-label="Битрейт MP3, кбит/с" data-name="bitrate">
-                    <button type="button" role="radio" data-value="320">320</button>
-                    <button type="button" role="radio" data-value="256">256</button>
-                    <button type="button" role="radio" data-value="192">192</button>
-                    <button type="button" role="radio" data-value="128">128</button>
-                    <span class="pill-ink" aria-hidden="true"></span>
-                  </div>
-                </div>
-                <div class="row clip" id="clip">
-                  <label class="switch">
-                    <input type="checkbox" id="clip-on">
-                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                    <span class="switch-text"><svg><use href="#i-scissors"/></svg>Только отрезок</span>
-                  </label>
-                  <div class="clip-fields" id="clip-fields" hidden>
-                    <label class="time-field glass"><span>с</span><input id="clip-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label>
-                    <div class="clip-mini" aria-hidden="true"><span class="clip-mini-sel" id="clip-mini-sel"></span></div>
-                    <label class="time-field glass"><span>по</span><input id="clip-end" inputmode="decimal" placeholder="конец" aria-label="Конец отрезка"></label>
-                    <output class="clip-len" id="clip-len" aria-live="polite"></output>
-                  </div>
-                </div>
-                <div class="row extras">
-                  <label class="switch" id="autostart-wrap" title="Ссылка, вставленная в любом месте страницы (Ctrl+V), сразу начнёт качаться">
-                    <input type="checkbox" id="autostart">
-                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                    <span class="switch-text">Качать сразу после вставки</span>
-                  </label>
-                  <label class="switch" title="Если нужного качества или формата нет, выдра сама возьмёт ближайший вариант, не спрашивая">
-                    <input type="checkbox" id="auto-accept">
-                    <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
-                    <span class="switch-text">Соглашаться на альтернативы автоматически</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </section>
@@ -274,6 +209,7 @@
         <button class="text-btn" id="clear-jobs" type="button"><svg><use href="#i-sweep"/></svg>Убрать завершённые</button>
       </div>
       <ol class="jobs" id="jobs"></ol>
+      <nav class="pager" id="jobs-pager" aria-label="Страницы очереди" hidden></nav>
       <div class="queue-empty" id="queue-empty" hidden>
         <span class="qe-mark" aria-hidden="true"></span>
         <p class="qe-title">Очередь пуста</p>
@@ -328,6 +264,7 @@
               <small id="lib-empty-sub">Вставьте ссылку выше — файл сохранится в хранилище и будет доступен без интернета</small>
             </div>
           </div>
+          <nav class="pager" id="lib-pager" aria-label="Страницы библиотеки" hidden></nav>
         </div>
         <div class="selbar glass" id="selbar" hidden>
           <span class="selbar-count" id="selbar-count"></span>
@@ -497,6 +434,81 @@
         <button class="btn" id="confirm-no" type="button" hidden>Оставить</button>
         <button class="btn" data-close type="button">Отмена</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog class="modal params" id="params-dialog" aria-labelledby="params-title">
+    <div class="modal-box" tabindex="-1" autofocus>
+      <header class="drawer-head">
+        <div><p class="drawer-kicker"><svg><use href="#i-sliders"/></svg>Параметры</p><h3 id="params-title">Как скачивать</h3></div>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <div class="params-body">
+        <div class="row params-row">
+          <span class="row-label">Формат</span>
+          <div class="pills formats glass" role="radiogroup" aria-label="Формат" data-name="mode">
+            <button type="button" role="radio" data-value="mp4" title="Видео со звуком, MP4 (H.264/AAC)"><svg><use href="#i-film"/></svg>Видео + звук</button>
+            <button type="button" role="radio" data-value="mp3" title="Только звук, MP3"><svg><use href="#i-wave"/></svg>Только звук</button>
+            <button type="button" role="radio" data-value="both" title="Оба файла: MP4 и MP3"><svg><use href="#i-layers"/></svg>Оба</button>
+            <span class="pill-ink" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="row params-row">
+          <span class="row-label">Папка</span>
+          <button class="glass dest" id="dest-btn" type="button" title="Куда сохранять загрузки">
+            <svg><use href="#i-folder"/></svg><span class="dest-label">Сохранять в</span><b class="dest-value" id="dest-value">Автоматически</b><svg class="dest-chev"><use href="#i-chev-d"/></svg>
+          </button>
+        </div>
+      <div class="options">
+        <div class="row tuner" id="quality-tuner">
+          <span class="row-label">Качество</span>
+          <div class="pills glass" role="radiogroup" aria-label="Качество видео" data-name="quality">
+            <button type="button" role="radio" data-value="max" title="Самое высокое, вплоть до 4K. Может перекодироваться дольше">Макс</button>
+            <button type="button" role="radio" data-value="1080">1080p</button>
+            <button type="button" role="radio" data-value="720">720p</button>
+            <button type="button" role="radio" data-value="480">480p</button>
+            <button type="button" role="radio" data-value="360">360p</button>
+            <span class="pill-ink" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="row tuner" id="bitrate-tuner">
+          <span class="row-label">MP3, кбит/с</span>
+          <div class="pills glass" role="radiogroup" aria-label="Битрейт MP3, кбит/с" data-name="bitrate">
+            <button type="button" role="radio" data-value="320">320</button>
+            <button type="button" role="radio" data-value="256">256</button>
+            <button type="button" role="radio" data-value="192">192</button>
+            <button type="button" role="radio" data-value="128">128</button>
+            <span class="pill-ink" aria-hidden="true"></span>
+          </div>
+        </div>
+        <div class="row clip" id="clip">
+          <label class="switch">
+            <input type="checkbox" id="clip-on">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            <span class="switch-text"><svg><use href="#i-scissors"/></svg>Только отрезок</span>
+          </label>
+          <div class="clip-fields" id="clip-fields" hidden>
+            <label class="time-field glass"><span>с</span><input id="clip-start" inputmode="decimal" placeholder="0:00" aria-label="Начало отрезка"></label>
+            <div class="clip-mini" aria-hidden="true"><span class="clip-mini-sel" id="clip-mini-sel"></span></div>
+            <label class="time-field glass"><span>по</span><input id="clip-end" inputmode="decimal" placeholder="конец" aria-label="Конец отрезка"></label>
+            <output class="clip-len" id="clip-len" aria-live="polite"></output>
+          </div>
+        </div>
+        <div class="row extras">
+          <label class="switch" id="autostart-wrap" title="Ссылка, вставленная в любом месте страницы (Ctrl+V), сразу начнёт качаться">
+            <input type="checkbox" id="autostart">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            <span class="switch-text">Качать сразу после вставки</span>
+          </label>
+          <label class="switch" title="Если нужного качества или формата нет, выдра сама возьмёт ближайший вариант, не спрашивая">
+            <input type="checkbox" id="auto-accept">
+            <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
+            <span class="switch-text">Соглашаться на альтернативы автоматически</span>
+          </label>
+        </div>
+      </div>
+      </div>
+      <div class="modal-actions"><button class="btn primary" data-close type="button">Готово</button></div>
     </div>
   </dialog>
 

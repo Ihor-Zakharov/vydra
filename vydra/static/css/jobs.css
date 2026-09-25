@@ -1,9 +1,21 @@
 /* выдра — загрузки: экран «Очередь», карточки задач (кадр плёнки), карточка вопроса (DIRECTION §7.3).
    Остров живёт во вкладке «Очередь» — его вид в shell.css, поведение — секция «Dynamic Island» в app.js. */
 
-/* ---------- экран «Очередь»: список от --datum, не шире 1040 — справа остаётся расфокусированная дыра ---------- */
+/* ---------- экраны данных: колонка по центру окна, подвал внизу окна (решение пользователя) ----------
+   Колонка «Очереди» — 1040 (карточки), «Библиотеки» — 1632 (--content-max); обе по центру окна, как вкладки панели.
+   Подвал идёт за содержимым, а когда его мало — стоит внизу окна: body — колонка на всю высоту окна, экран растёт,
+   подвал прижат margin-top: auto. Правила экранов и подвала — поверх shell.css (фундамент заморожен на этапе
+   регионов, shell.css сейчас правит сцена) — общий кусок для обоих экранов живёт здесь; листалка страниц — library.css. */
 
-.jobs { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; max-width: 1040px; }
+:root { --jobs-col: 1040px; }
+body { display: flex; flex-direction: column; }
+body > .screen:not([data-screen="home"]) { flex: 1 0 auto; width: 100%; margin-inline: auto; }
+body > #screen-queue, :root[data-screen="queue"] .foot { max-width: calc(var(--jobs-col) + 2 * var(--datum)); }
+body > .foot { flex: none; width: 100%; margin: auto auto 0; }
+
+/* ---------- экран «Очередь»: карточки столбиком шириной колонки ---------- */
+
+.jobs { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 
 /* ---------- карточка ---------- */
 
@@ -163,15 +175,14 @@
 .job-file-actions .btn { height: 32px; padding: 0 12px; font-size: 13px; gap: 6px; }
 .job-file-actions .btn svg { width: 16px; height: 16px; }
 
-/* ---------- пустая очередь: блок от --datum, 64 под заголовком ---------- */
+/* ---------- пустая очередь: блок по центру колонки, 64 под заголовком ---------- */
 
-.queue-empty { display: grid; justify-items: start; width: 440px; max-width: 100%; margin-top: 40px; }
+.queue-empty { display: grid; justify-items: center; text-align: center; width: 440px; max-width: 100%; margin: 40px auto 0; }
 .qe-mark { position: relative; width: 48px; height: 48px; margin-bottom: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-3); }
 .qe-mark::after { content: ""; position: absolute; left: 21px; top: 21px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
 .qe-title { margin: 0; font: 600 17px/1.3 var(--font-text); letter-spacing: -.01em; color: var(--ink); }
 .qe-text { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
-/* текстовая кнопка: текст на линии --datum, подложка наведения выходит за линию на свои 12 px (как «Убрать завершённые») */
-.queue-empty .text-btn { margin: 12px 0 0 -12px; }
+.queue-empty .text-btn { margin: 12px 0 0; }
 
 /* ---------- светлая тема (скрыта, правила не удалять) ---------- */
 

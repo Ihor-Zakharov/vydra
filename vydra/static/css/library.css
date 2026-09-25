@@ -76,6 +76,23 @@
 .folder.focused, .dept.focused { box-shadow: inset 0 0 0 1px var(--hair-2); }
 .rename { width: 100%; min-width: 140px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--el-a); background: var(--panel); color: var(--ink); font: 500 14px/1.3 var(--font-text); outline: none; box-shadow: var(--el-glow-soft); }
 
+/* ---------- листалка страниц: библиотека (120 плиток) и очередь (50 карточек) ----------
+   Решение пользователя: сотни элементов не растят DOM. Слева положение mono ink-3 (как показания экранов), справа —
+   плита страниц: вид пилюль формы (выбранная — «чернила» .11 + обводка .14), стрелки ‹ ›, разрывы «…».
+   Правило общее для двух экранов и живёт здесь; очередь только ставит свой отступ (jobs.css). */
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; margin-top: 24px; }
+.ex-body > .pager { grid-column: 2; margin-top: 4px; }
+.pager-pos { font: 500 11.5px/1 var(--font-mono); letter-spacing: .06em; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pager-pages { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border-radius: var(--r-m); background: var(--s1); border: 1px solid var(--line-2); }
+.pager-btn { display: inline-grid; place-items: center; min-width: 34px; height: 32px; padding: 0 8px; border-radius: var(--r-s); color: var(--ink-2);
+  font: 500 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; transition: background-color var(--t-fast), color var(--t-fast); }
+.pager-btn:hover:not(:disabled) { background: var(--s3); color: var(--ink); }
+.pager-btn[aria-current="page"], .pager-btn[aria-current="page"]:hover { color: var(--ink); font-weight: 600; background: rgba(255, 255, 255, .11); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+.pager-btn:disabled { opacity: .32; cursor: default; }
+.pager-btn svg { width: 14px; height: 14px; }
+.pager-btn.prev svg { transform: scaleX(-1); }
+.pager-gap { min-width: 18px; text-align: center; font: 500 12.5px/1 var(--font-mono); color: var(--ink-3); }
+
 /* файлы: плитки */
 .ex-files { position: relative; }
 .grid { position: relative; display: flex; flex-wrap: wrap; gap: 14px; }

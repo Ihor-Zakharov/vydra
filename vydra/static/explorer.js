@@ -10,7 +10,7 @@ const NAME_PLAT = Object.fromEntries(Object.entries(PLAT_NAME).map(([k, v]) => [
 const TYPE_NAME = { video: 'Видео', audio: 'Аудио' };
 
 export function createExplorer(ctx) {
-  const { $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, pickFolder, artHtml, attachHoverPreview, fileAction, onDest } = ctx;
+  const { $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, pickFolder, artHtml, attachHoverPreview, fileAction, renderPager, toScreenTop, onDest } = ctx;
   const root = $('#explorer');
   const main = $('#ex-main');
   const deptsEl = $('#ex-departments');
@@ -22,12 +22,16 @@ export function createExplorer(ctx) {
   const selbar = $('#selbar');
   const ctxMenu = $('#ctx');
   const saveHereBtn = $('#save-here');
+  const pagerEl = $('#lib-pager');
+  // страница файлов: 120 плиток (порция DIRECTION §7.4 — делится на 2–6 колонок). ex.items — весь отфильтрованный и
+  // отсортированный список папки (выделение, Ctrl+A, стрелки, счётчики — по нему), в DOM — только ex.shown
+  const PAGE = 120;
 
   const ex = {
     supported: null, path: '', data: null, tree: null, rev: null,
     view: 'grid', sort: 'date', search: '', everywhere: false,
     selected: new Set(), focus: null, anchor: null,
-    items: [], library: null, dest: '',
+    items: [], shown: [], page: 0, library: null, dest: '',
     fileEls: new Map(), grid: null, pending: 0,
   };
   const listeners = { navigate: [], change: [], tree: [] };
@@ -104,7 +108,7 @@ export function createExplorer(ctx) {
   }
   function navigate(path, opts = {}) {
     if (path === ex.path && !opts.force) return Promise.resolve();
-    ex.selected.clear(); ex.focus = null; ex.anchor = null;
+    ex.selected.clear(); ex.focus = null; ex.anchor = null; ex.page = 0;
     ex.search = ''; $('#lib-search').value = '';
     emit('navigate', path);
     return load(path, { soft: true });
@@ -143,14 +147,16 @@ export function createExplorer(ctx) {
     replaceKeyed(deptsEl, depts, keyOfFolder, deptEl, soft);
     replaceKeyed(foldersEl, plain, keyOfFolder, folderEl, soft);
     ex.items = visibleFiles();
+    ex.page = Math.min(ex.page, Math.max(0, Math.ceil(ex.items.length / PAGE) - 1));
+    ex.shown = ex.items.slice(ex.page * PAGE, (ex.page + 1) * PAGE);
     let grid = ex.grid;
     if (!grid) { grid = h('<div class="grid" role="list"></div>'); filesEl.append(grid); ex.grid = grid; }
-    const ids = new Set(ex.items.map(keyOfFile));
+    const ids = new Set(ex.shown.map(keyOfFile));
     const removed = [];
     for (const [k, el] of ex.fileEls) if (!ids.has(k)) { removed.push(el); ex.fileEls.delete(k); }
     const first = !soft || !ex.fileEls.size;
     const mutate = () => {
-      ex.items.forEach((it, i) => {
+      ex.shown.forEach((it, i) => {
         const k = keyOfFile(it);
         let el = ex.fileEls.get(k);
         const sig = tileSig(it);
@@ -164,7 +170,10 @@ export function createExplorer(ctx) {
       });
     };
     if (!first && (removed.length || orderChanged(grid))) flip(grid, mutate, removed); else { removed.forEach((el) => el.remove()); mutate(); }
-    for (const k of [...ex.selected]) if (!ids.has(k) && !k.startsWith('f:')) ex.selected.delete(k);
+    // выделение живёт по всему списку папки, а не по странице: Ctrl+A и Shift+стрелки переходят через страницы
+    const allIds = new Set(ex.items.map(keyOfFile));
+    for (const k of [...ex.selected]) if (!allIds.has(k) && !k.startsWith('f:')) ex.selected.delete(k);
+    renderPager(pagerEl, { page: ex.page, size: PAGE, total: ex.items.length }, (p) => goPage(p));
     const nothing = !ex.items.length && !depts.length && !plain.length;
     emptyEl.hidden = !nothing;
     if (nothing) {
@@ -185,7 +194,23 @@ export function createExplorer(ctx) {
     saveHereBtn.querySelector('span').textContent = on ? 'Сохраняется сюда' : 'Сохранять сюда';
     saveHereBtn.title = on ? 'Новые загрузки идут в эту папку. Нажмите, чтобы вернуть автоматический выбор' : 'Сохранять новые загрузки в эту папку';
   }
-  function orderChanged(grid) { return [...grid.children].map((el) => el.dataset.key).join(',') !== ex.items.map(keyOfFile).join(','); }
+  function orderChanged(grid) { return [...grid.children].map((el) => el.dataset.key).join(',') !== ex.shown.map(keyOfFile).join(','); }
+  /** Перейти на страницу p: новые плитки входят ступенями, экран — к началу. */
+  function goPage(p, { scroll = true } = {}) {
+    if (p === ex.page) return;
+    ex.page = p;
+    const hadFocus = main.contains(document.activeElement);
+    render();
+    // фокус был на плитке ушедшей страницы — остаётся в содержимом папки, клавиатура не теряется
+    if (hadFocus && !main.contains(document.activeElement)) main.focus({ preventScroll: true });
+    if (scroll) toScreenTop();
+  }
+  /** Файл key не на текущей странице — открыть его страницу (стрелки, Shift-выделение, фокус). */
+  function revealKey(key) {
+    if (!key?.startsWith('i:') || ex.fileEls.has(key)) return;
+    const i = ex.items.findIndex((it) => keyOfFile(it) === key);
+    if (i >= 0) goPage(Math.floor(i / PAGE), { scroll: false });
+  }
   function replaceKeyed(container, list, keyFn, make, soft) {
     const existing = new Map([...container.children].map((el) => [el.dataset.key, el]));
     const keys = new Set(list.map(keyFn));
@@ -283,7 +308,8 @@ export function createExplorer(ctx) {
   const itemOf = (key) => (key.startsWith('i:') ? ex.items.find((it) => keyOfFile(it) === key) : null);
   const folderOf = (key) => (ex.data?.folders || []).find((f) => keyOfFolder(f) === key);
   const elOf = (key) => (key.startsWith('i:') ? ex.fileEls.get(key) : root.querySelector(`.ex-main [data-key="${CSS.escape(key)}"]`));
-  const orderedKeys = () => [...deptsEl.children, ...foldersEl.children, ...(ex.grid?.children || [])].map((el) => el.dataset.key).filter(Boolean);
+  // порядок для стрелок, Shift-диапазона и Ctrl+A: папки на экране + все файлы папки (со всех страниц)
+  const orderedKeys = () => [...[...deptsEl.children, ...foldersEl.children].map((el) => el.dataset.key).filter(Boolean), ...ex.items.map(keyOfFile)];
   function select(key, { toggle = false, range = false } = {}) {
     if (range && ex.anchor) {
       const keys = orderedKeys(); const a = keys.indexOf(ex.anchor), b = keys.indexOf(key);
@@ -298,6 +324,7 @@ export function createExplorer(ctx) {
   function setFocus(key) {
     if (ex.focus) elOf(ex.focus)?.classList.remove('focused');
     ex.focus = key;
+    revealKey(key);
     const el = key ? elOf(key) : null;
     if (el) { el.classList.add('focused'); el.scrollIntoView?.({ block: 'nearest' }); }
   }
@@ -610,11 +637,11 @@ export function createExplorer(ctx) {
     }
   });
   let searchTimer = 0;
-  $('#lib-search').addEventListener('input', (e) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { ex.search = e.target.value; render({ soft: true }); }, 140); });
-  $('#lib-search').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; ex.search = ''; render({ soft: true }); e.target.blur(); } });
-  $('#search-scope').addEventListener('click', (e) => { ex.everywhere = !ex.everywhere; e.currentTarget.setAttribute('aria-pressed', String(ex.everywhere)); e.currentTarget.textContent = ex.everywhere ? 'везде' : 'здесь'; render({ soft: true }); });
+  $('#lib-search').addEventListener('input', (e) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => { ex.search = e.target.value; ex.page = 0; render({ soft: true }); }, 140); });
+  $('#lib-search').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; ex.search = ''; ex.page = 0; render({ soft: true }); e.target.blur(); } });
+  $('#search-scope').addEventListener('click', (e) => { ex.everywhere = !ex.everywhere; e.currentTarget.setAttribute('aria-pressed', String(ex.everywhere)); e.currentTarget.textContent = ex.everywhere ? 'везде' : 'здесь'; ex.page = 0; render({ soft: true }); });
   $('#sort-select').value = ex.sort;
-  $('#sort-select').addEventListener('change', (e) => { ex.sort = e.target.value; try { localStorage.setItem('vd.sort', ex.sort); } catch { /* */ } render({ soft: true }); });
+  $('#sort-select').addEventListener('change', (e) => { ex.sort = e.target.value; ex.page = 0; try { localStorage.setItem('vd.sort', ex.sort); } catch { /* */ } render({ soft: true }); });
   $('#new-folder').addEventListener('click', newFolder);
   saveHereBtn.addEventListener('click', () => onDest(ex.dest === ex.path ? '' : ex.path));
   function setView(v) { ex.view = v; root.dataset.view = v; try { localStorage.setItem('vd.view', v); } catch { /* */ } }

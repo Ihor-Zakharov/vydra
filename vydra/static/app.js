@@ -118,12 +118,11 @@ const state = {
   bitrate: String(saved.bitrate || '192'),
   autostart: !!saved.autostart,
   autoAccept: !!saved.autoAccept,
-  controlsManual: !!saved.controlsOpen,
   dest: typeof saved.dest === 'string' ? saved.dest : '',
   jobs: [], jobsLoaded: false, library: null, info: null, doctor: null,
   preview: null, range: null, heights: null, down: false, speed: 0,
 };
-const savePrefs = () => store.set('vd.prefs', { mode: state.mode, quality: state.quality, bitrate: state.bitrate, autostart: state.autostart, autoAccept: state.autoAccept, controlsOpen: state.controlsManual, dest: state.dest });
+const savePrefs = () => store.set('vd.prefs', { mode: state.mode, quality: state.quality, bitrate: state.bitrate, autostart: state.autostart, autoAccept: state.autoAccept, dest: state.dest });
 
 /* ============================== тосты ============================== */
 
@@ -387,10 +386,17 @@ function switchTab(tab, { animate = true } = {}) {
   state.tab = tab;
   for (const t of $$('.tab')) t.setAttribute('aria-selected', String(t.dataset.tab === tab));
   moveInk($('.tabs'));
-  const dir = tab === 'file' ? 1 : -1;
-  const show = () => { from.hidden = true; to.hidden = false; if (animate && !REDUCED) { const m = motionOf(to); m.from({ x: 26 * dir, o: 0, b: 6 }); m.to({ x: 0, o: 1, b: 0 }, { response: 0.5, damping: 0.9 }); } };
-  if (animate && !REDUCED && !from.hidden) motionOf(from).to({ x: -22 * dir, o: 0, b: 5 }, { response: 0.28, damping: 1 }).then(show); else show();
-  updateTuners(); updateControls();
+  // панели лежат в одной клетке сцены постоянной высоты: смена — только перекрёстное растворение на месте,
+  // геометрия заголовка, вкладок и поля не меняется ни на кадр (решение пользователя)
+  to.hidden = false; to.inert = false;
+  if (from !== to) {
+    if (animate && !REDUCED && !from.hidden) {
+      from.inert = true;
+      motionOf(to).from({ o: 0 }); motionOf(to).to({ o: 1 }, { response: 0.42, damping: 1 });
+      motionOf(from).to({ o: 0 }, { response: 0.3, damping: 1 }).then(() => { if (state.tab !== from.dataset.panel) { from.hidden = true; motionOf(from).from({ o: 1 }); } from.inert = false; });
+    } else { from.hidden = true; motionOf(to).from({ o: 1 }); }
+  }
+  updateTuners();
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.tab)));
 
@@ -398,22 +404,46 @@ $$('.tab').forEach((t) => t.addEventListener('click', () => switchTab(t.dataset.
 
 function setMode(mode, { save = true } = {}) { state.mode = mode; setPill($('[data-name="mode"]'), mode); updateTuners(); if (save) savePrefs(); }
 function updateTuners() {
-  $('#quality-tuner').classList.toggle('off', state.tab !== 'link' || state.mode === 'mp3');
-  $('#bitrate-tuner').classList.toggle('off', state.mode === 'mp4');
-  $('#autostart-wrap').hidden = state.tab !== 'link';
+  // неприменимые строки окна «Параметры» не исчезают, а гаснут и выключаются (inert): высота окна не прыгает
+  const qOff = state.tab !== 'link' || state.mode === 'mp3', bOff = state.mode === 'mp4';
+  $('#quality-tuner').classList.toggle('off', qOff); $('#quality-tuner').inert = qOff;
+  $('#bitrate-tuner').classList.toggle('off', bOff); $('#bitrate-tuner').inert = bOff;
+  $('#autostart-wrap').inert = state.tab !== 'link';
   $('#clip').hidden = !!(state.tab === 'link' && state.preview?.kind === 'ready' && state.range);
+  renderParamsSummary();
   requestAnimationFrame(() => moveAllInks());
 }
-/** Тонкие настройки раскрываются, когда есть что настраивать: ссылка распознана, конвертер или пользователь открыл сам. */
-function updateControls() {
-  const open = state.tab === 'file' || !!state.preview || state.controlsManual;
-  const c = $('#controls');
-  $('#controls-toggle').setAttribute('aria-expanded', String(open));
-  if (c.dataset.open === String(open)) return;
-  c.dataset.open = String(open);
-  if (open) requestAnimationFrame(() => moveAllInks({ immediate: true }));
+
+/* окно «Параметры»: формат, папка, качество, битрейт, отрезок, переключатели; под полем — сводка-кнопка.
+   Настройки применяются сразу и сохраняются (savePrefs), окно — стандартная модалка (Esc, клик по фону, «Готово»). */
+const paramsDlg = $('#params-dialog');
+let paramsOpener = null;
+function paramsSummary() {
+  const link = state.tab === 'link';
+  const q = effectiveQuality();
+  const mp4 = link ? `MP4 · ${q === 'max' ? 'макс' : `${q}p`}` : 'MP4';
+  const fmt = state.mode === 'mp3' ? `MP3 · ${state.bitrate} кбит/с` : state.mode === 'both' ? `${mp4} + MP3 ${state.bitrate}` : mp4;
+  const parts = [fmt, state.dest ? state.dest.split('/').pop() : 'Автоматически'];
+  // отрезок из превью виден в самом превью — в сводку идёт только отрезок, заданный вручную в окне
+  const byPreview = link && state.preview?.kind === 'ready' && state.range;
+  if (!byPreview && clipOn?.checked) parts.push('отрезок');
+  if (link && state.autostart) parts.push('качать сразу');
+  return parts.join(' · ');
 }
-$('#controls-toggle').addEventListener('click', () => { state.controlsManual = $('#controls').dataset.open !== 'true'; savePrefs(); updateControls(); });
+function renderParamsSummary() {
+  const text = paramsSummary();
+  for (const b of $$('[data-params-open]')) {
+    b.querySelector('[data-params-sum]').textContent = text;
+    b.setAttribute('aria-label', `Параметры: ${text}`);
+  }
+}
+function openParams(opener) {
+  paramsOpener = opener;
+  openModal(paramsDlg);
+  requestAnimationFrame(() => moveAllInks({ immediate: true }));
+}
+$$('[data-params-open]').forEach((b) => b.addEventListener('click', () => openParams(b)));
+paramsDlg.addEventListener('close', () => { if (paramsOpener?.isConnected && !paramsOpener.closest('[hidden]')) paramsOpener.focus({ preventScroll: true }); paramsOpener = null; });
 
 function applyHeights(heights) {
   state.heights = heights && heights.length ? heights : null;
@@ -429,6 +459,7 @@ function applyHeights(heights) {
   }
   if (!effective) { const firstOn = [...group.querySelectorAll('button[data-value]:not(:disabled)')].find((b) => b.dataset.value !== 'max'); effective = firstOn ? firstOn.dataset.value : 'max'; }
   setPill(group, effective);
+  renderParamsSummary();
 }
 const effectiveQuality = () => $('[data-name="quality"] [aria-checked="true"]')?.dataset.value || state.quality;
 
@@ -451,7 +482,7 @@ function renderClipRow() {
   const d = Math.max(e || 0, (s || 0) * 1.6, 1);
   sel.style.setProperty('--a', `${((s || 0) / d) * 100}%`); sel.style.setProperty('--b', `${((e ?? d) / d) * 100}%`);
 }
-clipOn.addEventListener('change', () => { renderClipRow(); if (clipOn.checked) $('#clip-start').focus(); });
+clipOn.addEventListener('change', () => { renderClipRow(); renderParamsSummary(); if (clipOn.checked) $('#clip-start').focus(); });
 $('#clip-start').addEventListener('input', renderClipRow);
 $('#clip-end').addEventListener('input', renderClipRow);
 function clipPayload(useRange) {
@@ -476,6 +507,7 @@ function renderDest() {
   $('#dest-value').textContent = state.dest ? state.dest.split('/').join(' / ') : 'Автоматически';
   b.classList.toggle('custom', !!state.dest);
   b.title = state.dest ? `Загрузки сохраняются в «${state.dest}». Нажмите, чтобы сменить` : 'Папка выбирается по платформе: YouTube, TikTok, Instagram… Нажмите, чтобы выбрать свою';
+  renderParamsSummary();
 }
 $('#dest-btn').addEventListener('click', async () => {
   const tree = explorer.state.tree || await explorer.fetchTree().catch(() => null);
@@ -508,7 +540,6 @@ function setPlatform(p) {
   g.dataset.p = p;
   g.innerHTML = svgUse(p === 'none' ? '#i-link' : glyph(p));
   if (!REDUCED) { const m = motionOf(g); m.from({ s: 0.6, r: -12 }); m.to({ s: 1, r: 0 }, { response: 0.42, damping: 0.7 }); }
-  $$('.pf').forEach((el) => el.classList.toggle('lit', el.dataset.p === p));
   applyAccent();
 }
 function autoGrow() { urlBox.style.height = 'auto'; urlBox.style.height = `${Math.min(urlBox.scrollHeight, 180)}px`; }
@@ -553,7 +584,7 @@ document.addEventListener('paste', (e) => {
 });
 const autostart = $('#autostart');
 autostart.checked = state.autostart;
-autostart.addEventListener('change', () => { state.autostart = autostart.checked; savePrefs(); });
+autostart.addEventListener('change', () => { state.autostart = autostart.checked; savePrefs(); renderParamsSummary(); });
 const autoAccept = $('#auto-accept');
 autoAccept.checked = state.autoAccept;
 autoAccept.addEventListener('change', () => { state.autoAccept = autoAccept.checked; savePrefs(); toast(state.autoAccept ? 'Буду сама выбирать ближайший вариант, если нужного нет' : 'Буду спрашивать, если нужного варианта нет', 'info', { timeout: 2600 }); });
@@ -646,7 +677,7 @@ function setPreview(p) {
     const card = slot.firstElementChild;
     slideSlot(slot, h0, 0);
     if (card) exit(card, { dy: -6, scale: 0.97 }).then(() => { if (!state.preview && card.isConnected) card.remove(); });
-    updateTuners(); updateControls();
+    updateTuners();
     return;
   }
   let card;
@@ -662,7 +693,7 @@ function setPreview(p) {
     if (p.kind === 'ready' && prevKind === 'loading') { m.from({ o: 0.4, b: 14, s: 0.99 }); m.to({ o: 1, b: 0, s: 1 }, { response: 0.7, damping: 0.95 }); }
     else if (p.kind !== prevKind) { m.from({ o: 0, y: -8, s: 0.97, b: 8 }); m.to({ o: 1, y: 0, s: 1, b: 0 }, { response: 0.55, damping: 0.85 }); }
   }
-  updateTuners(); updateControls();
+  updateTuners();
 }
 function previewCard(d) {
   const dur = d.duration && d.duration > 0 ? d.duration : null;
@@ -832,10 +863,39 @@ window.addEventListener('drop', (e) => {
   uploadFiles(files, folder);
 });
 
+/* ============================== страницы: очередь и библиотека ============================== */
+// Сотни задач и файлов не растят DOM: на экране одна страница (очередь — 50 карточек, библиотека — 120 плиток),
+// под списком — листалка: слева положение «121–240 из 312», справа ‹ 1 … 4 5 6 … 12 ›. Счётчики и показания —
+// по всему списку. Одна страница — листалки нет.
+
+const fmtNum = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+/** Номера страниц (с нуля) и разрывы (null): всегда не больше 7 мест — листалка не прыгает по ширине. */
+function pageSlots(page, pages) {
+  if (pages <= 7) return [...Array(pages).keys()];
+  if (page <= 3) return [0, 1, 2, 3, 4, null, pages - 1];
+  if (page >= pages - 4) return [0, null, pages - 5, pages - 4, pages - 3, pages - 2, pages - 1];
+  return [0, null, page - 1, page, page + 1, null, pages - 1];
+}
+/** Нарисовать листалку в nav; go(p) — перейти на страницу p (с нуля). */
+function renderPager(nav, { page, size, total }, go) {
+  const pages = Math.ceil(total / size);
+  nav.hidden = pages <= 1;
+  if (pages <= 1) { nav.replaceChildren(); return; }
+  const hadFocus = nav.contains(document.activeElement);
+  const btn = (p, label, cls = '', aria = '') => `<button class="pager-btn${cls}" type="button" data-page="${p}"${p < 0 || p >= pages ? ' disabled' : ''}${p === page && !cls ? ' aria-current="page"' : ''}${aria ? ` aria-label="${aria}"` : ` aria-label="Страница ${p + 1}"`}>${label}</button>`;
+  nav.innerHTML = `<span class="pager-pos">${fmtNum(page * size + 1)}–${fmtNum(Math.min(total, (page + 1) * size))} из ${fmtNum(total)}</span>
+    <span class="pager-pages">${btn(page - 1, svgUse('#i-chev-r'), ' step prev', 'Предыдущая страница')}${pageSlots(page, pages).map((p) => (p == null ? '<span class="pager-gap" aria-hidden="true">…</span>' : btn(p, fmtNum(p + 1)))).join('')}${btn(page + 1, svgUse('#i-chev-r'), ' step', 'Следующая страница')}</span>`;
+  nav.onclick = (e) => { const b = e.target.closest('.pager-btn'); if (b && !b.disabled) go(Number(b.dataset.page)); };
+  if (hadFocus) nav.querySelector('[aria-current="page"]')?.focus({ preventScroll: true });
+}
+/** После смены страницы — к началу экрана: список читается сверху. */
+const toScreenTop = () => window.scrollTo({ top: 0, behavior: 'instant' });
+
 /* ============================== очередь ============================== */
 
+const JOBS_PAGE = 50;
 const jobEls = new Map();
-let pollTimer = 0, lastOrder = '', seenDone = null, pollBusy = false, jobsRendered = false;
+let pollTimer = 0, lastOrder = '', seenDone = null, pollBusy = false, jobsRendered = false, jobsPage = 0;
 async function pollJobs() {
   clearTimeout(pollTimer);
   if (pollBusy) { pollTimer = setTimeout(pollJobs, 300); return; }
@@ -864,14 +924,17 @@ function onJobs(jobs) {
   if (!jobs.some((j) => ACTIVE.has(j.status))) portal.classList.remove('busy');
   updateReadout();
 }
-function renderJobs(jobs) {
+function renderJobs(jobs, { paged = false } = {}) {
   const list = $('#jobs');
-  const ids = new Set(jobs.map((j) => j.id));
+  // на экране — одна страница; карточки с других страниц не живут в DOM (таймеры повтора — тоже)
+  jobsPage = Math.min(jobsPage, Math.max(0, Math.ceil(jobs.length / JOBS_PAGE) - 1));
+  const shown = jobs.slice(jobsPage * JOBS_PAGE, (jobsPage + 1) * JOBS_PAGE);
+  const ids = new Set(shown.map((j) => j.id));
   const removed = [];
   for (const [id, el] of jobEls) if (!ids.has(id)) { removed.push(el); jobEls.delete(id); clearInterval(countdowns.get(id)); }
-  const order = jobs.map((j) => j.id).join(',');
+  const order = shown.map((j) => j.id).join(',');
   const mutate = () => {
-    jobs.forEach((j, i) => {
+    shown.forEach((j, i) => {
       let el = jobEls.get(j.id);
       if (!el) { el = createJobEl(j); jobEls.set(j.id, el); }
       updateJobEl(el, j);
@@ -879,9 +942,14 @@ function renderJobs(jobs) {
       if (at !== el) list.insertBefore(el, at || null);
     });
   };
-  if (order !== lastOrder || removed.length) flip(list, mutate, removed); else mutate();
+  if (paged) { removed.forEach((el) => el.remove()); mutate(); }
+  else if (order !== lastOrder || removed.length) flip(list, mutate, removed); else mutate();
   lastOrder = order;
   fitPaths();
+  renderPager($('#jobs-pager'), { page: jobsPage, size: JOBS_PAGE, total: jobs.length }, (p) => {
+    jobsPage = p; renderJobs(state.jobs, { paged: true }); toScreenTop();
+    if (!REDUCED) $$('#jobs > .job').forEach((el, i) => enter(el, { scale: 1, delay: Math.min(i, 7) * 24 }));
+  });
   const active = jobs.filter((j) => ACTIVE.has(j.status));
   const waiting = jobs.filter((j) => j.status === 'waiting');
   const known = active.filter((j) => j.progress != null && j.status !== 'waiting');
@@ -1200,7 +1268,10 @@ queueTab.addEventListener('blur', () => { islandFocus = false; islandHold(false)
 /** «Нужен ответ» — экран «Очередь», ждущая карточка по центру, фокус на первичной кнопке через 500 ms. */
 function openWaiting() {
   goScreen('queue').then(() => {
-    const w = state.jobs.find((j) => j.status === 'waiting');
+    const wi = state.jobs.findIndex((j) => j.status === 'waiting');
+    const w = state.jobs[wi];
+    // ждущая задача на другой странице — сначала её страница
+    if (w && !jobEls.has(w.id)) { jobsPage = Math.floor(wi / JOBS_PAGE); renderJobs(state.jobs, { paged: true }); }
     const el = w && jobEls.get(w.id);
     if (!el) return;
     el.scrollIntoView({ behavior: REDUCED ? 'auto' : 'smooth', block: 'center' });
@@ -1696,7 +1767,7 @@ function initIntro() {
   html.classList.remove('intro');
 }
 
-const explorer = createExplorer({ $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, pickFolder, artHtml, attachHoverPreview, fileAction, onDest: (p) => setDest(p) });
+const explorer = createExplorer({ $, api, toast, esc, h, svgUse, glyph, fmtBytes, fmtTime, fmtAgo, libUrl, openPlayer, confirmDialog, pickFolder, artHtml, attachHoverPreview, fileAction, renderPager, toScreenTop, onDest: (p) => setDest(p) });
 explorer.on('change', () => { state.library = explorer.state.library; updateReadout(); if (!state.info?.library?.path && state.library?.root) $('#foot-path').textContent = state.library.root; });
 explorer.on('tree', (tree) => {
   if (!state.dest) return;
@@ -1711,14 +1782,13 @@ function init() {
   delete html.dataset.boot;
   setMode(state.mode, { save: false });
   initPills($('[data-name="mode"]'), (v) => setMode(v));
-  initPills($('[data-name="quality"]'), (v) => { state.quality = v; savePrefs(); });
-  initPills($('[data-name="bitrate"]'), (v) => { state.bitrate = v; savePrefs(); });
+  initPills($('[data-name="quality"]'), (v) => { state.quality = v; savePrefs(); renderParamsSummary(); });
+  initPills($('[data-name="bitrate"]'), (v) => { state.bitrate = v; savePrefs(); renderParamsSummary(); });
   setPill($('[data-name="quality"]'), state.quality);
   setPill($('[data-name="bitrate"]'), state.bitrate);
   setPill($('.view-toggle'), explorer.state.view);
   switchTab('link', { animate: false });
   renderClipRow();
-  updateControls();
   renderDest();
   explorer.setDest(state.dest);
   requestAnimationFrame(() => moveAllInks({ immediate: true }));

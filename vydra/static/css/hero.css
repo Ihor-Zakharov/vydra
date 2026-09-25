@@ -1,10 +1,64 @@
-/* выдра — форма героя: вкладки, поле ссылки, «Вставить», «Скачать», форматы, «Ещё»,
-   «Сохранять в», превью, отрезок, конвертер. Значения — docs/design/DIRECTION.md §7.2, §7.2.1, §3.5–§3.6. */
+/* выдра — форма героя: вкладки, поле ссылки, «Вставить», «Скачать», сводка параметров, превью, отрезок, конвертер;
+   содержимое окна «Параметры» (форматы, «Сохранять в», качество, битрейт, отрезок, переключатели). Значения — docs/design/DIRECTION.md §7.2, §7.2.1, §3.5–§3.6. */
+
+/* ---------- главный экран: без прокрутки, поле ссылки неподвижно (решения пользователя) ----------
+   Ни колесом, ни клавишами, ни полосой, без «резинки»; «Очередь» и «Библиотека» прокручиваются как раньше.
+   Колонка героя — сетка на всю высоту окна: кикер, заголовок, вкладки и «сцена формы» постоянной высоты; зазоры
+   растут с высотой окна до потолка (minmax(мин., clamp(… svh …))), остаток делят поровну поля сверху и снизу —
+   блок стоит по центру высоты окна. Высота сцены не зависит от содержимого: в ней поле ссылки, сводка параметров
+   и заранее отведённое место под превью; «По ссылке» и «Конвертер» лежат в одной клетке и сменяются на месте.
+   Поэтому ни вставка ссылки (превью), ни смена вкладки не двигают поле, «Скачать», заголовок и вкладки — 0 px.
+   Параметры (формат, папка, качество, отрезок, переключатели) — в окне «Параметры» (dialogs.css, #params-dialog).
+   .console — display: contents: её части — строки той же сетки. Правило колонки (.hero-copy) — поверх shell.css:
+   фундамент заморожен на этапе регионов. */
+
+:root[data-screen="home"] { overflow: hidden; overscroll-behavior: none; }
+:root[data-screen="home"] body { overscroll-behavior: none; }
+
+.hero {
+  --hero-console-w: min(51vw, max(700px, 36.5vw));
+  --hero-gap-title: minmax(14px, clamp(24px, 6.4svh, 96px));   /* заголовок → вкладки */
+  --hero-gap-tabs: minmax(10px, clamp(14px, 2.6svh, 36px));    /* вкладки → поле ссылки */
+  --hero-pad-top: minmax(clamp(8px, 2svh, 40px), 1fr);          /* под панелью: остаток высоты — поровну сверху и снизу */
+  --hero-pad-bottom: minmax(clamp(12px, 3.6svh, 56px), 1fr);
+  --hero-field-h: 66px;                                         /* поле ссылки (плита 48 + 2 × 8 + рамка) */
+  --hero-sum-gap: 12px;                                         /* поле → сводка → превью: равные зазоры, шкала 12 */
+  --hero-sum-h: 32px;
+  --pv-reserve: clamp(270px, 30svh, 290px);                     /* место под превью: худший случай — 2 строки заголовка и 2 ряда чипов */
+  --hero-stage-h: calc(var(--hero-field-h) + 2 * var(--hero-sum-gap) + var(--hero-sum-h) + var(--pv-reserve));
+}
+.hero > .hero-copy {
+  box-sizing: border-box; height: 100svh; padding: var(--topbar-h) 0 0 var(--datum);
+  display: grid; grid-template-columns: minmax(0, 1fr); align-items: start;
+  grid-template-rows: var(--hero-pad-top) auto auto var(--hero-gap-title) auto var(--hero-gap-tabs) var(--hero-stage-h) var(--hero-pad-bottom);
+}
+.hero-copy > .kicker { grid-row: 2; }
+.hero-copy > h1 { grid-row: 3; }
+.console { display: contents; }
+.console > .tabs { grid-row: 5; justify-self: start; }
+.hero-stage { grid-row: 7; display: grid; height: var(--hero-stage-h); width: min(100%, var(--hero-console-w)); }
+.hero-stage > [role="tabpanel"] { grid-area: 1 / 1; align-self: start; display: grid; justify-items: start; min-width: 0; }
+.hero-stage > [role="tabpanel"] > * { justify-self: stretch; }
+
+/* сводка параметров под полем: тихая строка на всю ширину колонки — левый и правый край те же, что у поля и превью,
+   иконка начинается ровно по внешнему краю рамки поля (решение пользователя). Она же кнопка окна «Параметры»:
+   наведение — только цвет текста и шеврон, подложки нет. */
+.params-sum { display: flex; align-items: center; gap: 8px; box-sizing: border-box; width: 100%; height: var(--hero-sum-h); margin: var(--hero-sum-gap) 0 0;
+  padding: 0; border-radius: var(--r-s); color: var(--ink-2); font-size: 13.5px; white-space: nowrap; text-align: left;
+  transition: color var(--t-fast) var(--ease-out); }
+.params-sum:hover { color: var(--ink); }
+.params-sum svg { width: 16px; height: 16px; flex: none; }
+.params-sum .ps-label { font: 500 11px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
+.params-sum .ps-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 500 12.5px/1 var(--font-mono); letter-spacing: .02em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.params-sum .ps-chev { width: 14px; height: 14px; color: var(--ink-3); transition: transform var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
+.params-sum:hover .ps-chev { transform: translateX(2px); color: var(--ink); }
+/* главный экран не прокручивается — растворение строк героя у кромки панели по прокрутке (shell.css, stage-out) здесь
+   не наступает и только гасило бы кикер, поднявшийся к панели в коротком окне; !important — чтобы перекрыть ветку ?motion=0 */
+:root[data-screen="home"] .hero .hero-copy > :is(.kicker, h1), :root[data-screen="home"] .hero .hero-copy > h1 > * { animation: none !important; }
 
 /* ---------- консоль ---------- */
 
-.console { position: relative; max-width: min(51vw, max(700px, 36.5vw)); margin-top: max(22px, 3.8svh); }
-.tabs { position: relative; display: inline-flex; margin: 0 0 16px; border-radius: var(--r-m); padding: 3px; background: var(--plate); border: 1px solid var(--line-2); box-shadow: none; }
+.tabs { position: relative; display: inline-flex; margin: 0; border-radius: var(--r-m); padding: 3px; background: var(--plate); border: 1px solid var(--line-2); box-shadow: none; }
 .tab { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); font-weight: 500; transition: color var(--t-fast) var(--ease-out); border-radius: var(--r-s); padding: 7px 14px; font-size: 13.5px; }
 .tab svg { width: 16px; height: 16px; }
 .tab:hover { color: var(--ink); }
@@ -20,13 +74,17 @@
 .portal.lit .portal-ring, .portal:focus-within .portal-ring { opacity: 1; filter: drop-shadow(0 0 6px color-mix(in oklab, var(--el-a) 60%, transparent)); animation-duration: 12s; }
 .portal.busy .portal-ring { animation-duration: 6s; }
 @keyframes spin { to { --angle: 360deg; } }
-.portal-body { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; border-radius: var(--r-l); padding: 8px; gap: 6px; border: 1px solid var(--line-2); background: var(--lit-from-hole), linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 40%), var(--s1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 30px 80px -24px rgba(0, 0, 0, .95); transition: border-color var(--t-fast) var(--ease-out); }
+.portal-body { display: grid; grid-template-columns: auto 1fr auto auto; align-items: start; border-radius: var(--r-l); padding: 8px; gap: 6px; border: 1px solid var(--line-2); background: var(--lit-from-hole), linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 40%), var(--s1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 30px 80px -24px rgba(0, 0, 0, .95); transition: border-color var(--t-fast) var(--ease-out); }
 .portal:hover .portal-body { border-color: var(--line-3); }
+/* элементы прибиты к верху, центры первой строки — на оси «Скачать»: поле из нескольких ссылок растёт вниз, «Скачать» не едет */
+.portal-body > .portal-glyph, .portal-body > #paste, .portal-body > #url { margin-top: 2px; }
 .portal-glyph { display: grid; place-items: center; transition: background var(--t-base) var(--ease-out), color var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out); width: 44px; height: 44px; border-radius: var(--r-m); background: var(--s2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-1); }
 .portal-glyph svg { width: 20px; height: 20px; }
 /* распознанная платформа — единственная плита формы, залитая цветом (§3.1): градиент 135° излучения, белый глиф */
 .portal-glyph[data-p]:not([data-p="none"]) { color: #fff; background: linear-gradient(135deg, var(--el-a), var(--el-b)); box-shadow: var(--el-glow-soft); }
-#url { width: 100%; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.35; max-height: calc(5 * 23px + 20px); overflow-y: auto; scrollbar-width: thin; font-size: 17px; padding: 10px 4px; }
+/* строка ссылки не переносится (длинная — уходит под край, как в адресной строке): поле растёт только новыми строками
+   (несколько ссылок) — одна ссылка любой длины не меняет высоту поля и не сдвигает превью */
+#url { white-space: pre; overflow-wrap: normal; overflow-x: hidden; width: 100%; min-width: 0; resize: none; border: 0; outline: 0; background: transparent; color: var(--ink); line-height: 1.35; max-height: calc(5 * 23px + 20px); overflow-y: auto; scrollbar-width: thin; font-size: 17px; padding: 10px 4px; }
 #url::placeholder { color: var(--ink-3); }
 #url:placeholder-shown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 /* фокус показывает кайма поля (.portal:focus-within), второй рамки нет */
@@ -45,9 +103,8 @@
 .go-btn:disabled { filter: opacity(.72); cursor: default; }
 @keyframes dive { 0% { transform: none; } 40% { transform: translateY(18px); opacity: 0; } 41% { transform: translateY(-18px); opacity: 0; } 100% { transform: none; opacity: 1; } }
 
-/* ---------- ряд: форматы + папка назначения + «Ещё» ---------- */
+/* ---------- окно «Параметры»: форматы, папка назначения, качество, битрейт, отрезок, переключатели ---------- */
 
-.dest-row { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: nowrap; }
 .dest { display: inline-flex; align-items: center; gap: 8px; color: var(--ink-2); max-width: 100%; height: 38px; border-radius: var(--r-m); padding: 0 12px; background: var(--plate); border: 1px solid var(--line-2); box-shadow: none; font-size: 13.5px; font-weight: 500; transition: background-color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out); }
 .dest:hover { background: var(--s3); border-color: var(--line-3); color: var(--ink); }
 .dest svg { width: 16px; height: 16px; flex: none; }
@@ -56,19 +113,7 @@
 .dest svg.dest-chev { width: 14px; height: 14px; color: var(--ink-3); }
 .dest.custom { border-color: color-mix(in oklab, var(--el-a) 55%, var(--line-2)); }
 .dest.custom svg:first-child { color: var(--el-a); }
-/* «Ещё» — плита: на s и m конец ряда лежит над светом плоскости, текст без подложки там не проходит AA */
-.controls-toggle { display: inline-flex; align-items: center; gap: 7px; margin-left: auto; height: 38px; padding: 0 12px; border-radius: var(--r-m); background: var(--plate); border: 1px solid var(--line-2); font: 600 12px/1 var(--font-text); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); transition: color var(--t-fast) var(--ease-out), border-color var(--t-fast) var(--ease-out), background-color var(--t-fast) var(--ease-out); }
-.controls-toggle:hover { color: var(--ink); border-color: var(--line-3); background: var(--s3); }
-.controls-toggle svg { width: 15px; height: 15px; }
-.controls-toggle[aria-expanded="true"] { color: var(--ink); border-color: var(--line-3); }
-
-/* содержимое «Ещё»: высота раскрывается сеткой; закрытое — не видно и не в фокусе */
-.controls { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .55s var(--ease-out); }
-.controls[data-open="true"] { grid-template-rows: 1fr; }
-.controls-inner { min-height: 0; overflow: hidden; }
-.controls[data-open="false"] .controls-inner { visibility: hidden; opacity: 0; transition: visibility 0s linear .55s, opacity var(--t-base) var(--ease-out); }
-.controls[data-open="true"] .controls-inner { visibility: visible; opacity: 1; transition: visibility 0s, opacity var(--t-base) var(--ease-out); }
-.options { display: grid; gap: 12px; padding-top: 16px; }
+.params-body, .params-body .options { display: grid; gap: 14px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
 .row-label { min-width: 96px; font: 500 12px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .tuner.off { display: none; }
@@ -97,7 +142,7 @@
 .switch-text { display: inline-flex; align-items: center; gap: 7px; }
 .switch-text svg { width: 16px; height: 16px; }
 .switch input:checked ~ .switch-text { color: var(--ink); }
-.extras { gap: 12px 24px; }
+.extras { gap: 14px 28px; }
 
 /* отрезок по вводу (без превью) */
 .clip-fields { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
@@ -151,8 +196,10 @@
 /* ---------- превью ссылки ---------- */
 
 .preview-slot { position: relative; }
-.preview { --pv-media: 280px; position: relative; margin-top: 12px; display: grid; grid-template-columns: var(--pv-media) minmax(0, 1fr); transform-origin: top center; border-radius: var(--r-xl); background: var(--lit-from-hole), var(--s1); border: 1px solid var(--line-2); box-shadow: var(--shadow); padding: 10px; gap: 16px; }
-.preview.portrait { --pv-media: 160px; }
+.preview { --pv-media: 280px; position: relative; margin-top: var(--hero-sum-gap, 12px); display: grid; grid-template-columns: var(--pv-media) minmax(0, 1fr); transform-origin: top center; border-radius: var(--r-xl); background: var(--lit-from-hole), var(--s1); border: 1px solid var(--line-2); box-shadow: var(--shadow); padding: 10px; gap: 16px; }
+.preview.portrait { --pv-media: calc((var(--pv-reserve, 306px) - 22px) * 9 / 16); }
+/* карточка превью (и её скелетон) — в отведённом месте, не выше его: вставка ссылки ничего не двигает */
+.preview:not(.compact) { box-sizing: border-box; max-height: var(--pv-reserve); }
 /* компактные плиты: «N ссылок», «превью не получилось» */
 .preview.compact { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--r-l); background: var(--s1); box-shadow: none; color: var(--ink-2); font-size: 14.5px; line-height: 1.4; }
 .preview.compact svg { flex: none; width: 18px; height: 18px; color: var(--el-a); }
@@ -171,7 +218,8 @@
 .pv-media.video-ready .pv-play { opacity: 1; transform: none; }
 .pv-media.playing .pv-play { opacity: 0; transform: scale(.8); }
 .pv-play svg { width: 20px; height: 20px; fill: #000; stroke: none; margin-left: 3px; }
-.pv-body { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 4px 2px 0; }
+/* справа тело карточки кончается на внутреннем поле карточки (10) — так же, как слева кадр превью */
+.pv-body { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 4px 0 2px 0; }
 .pv-title { margin: 0; font: 600 18px/1.3 var(--font-text); letter-spacing: -.01em; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .pv-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
 .meta-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 9px; border: 1px solid var(--line-2); color: var(--ink-2); font-size: 12.5px; max-width: 100%; border-radius: var(--r-s); }
@@ -182,8 +230,12 @@
 .pv-meta .meta-chip { box-sizing: border-box; height: 26px; padding: 0 8px; border-radius: var(--r-xs); font: 500 11.5px/1 var(--font-mono); letter-spacing: .02em; }
 
 /* отрезок по превью: плёнка 44, белые ручки, затенение вне отрезка 74 % */
-.range { position: relative; height: 62px; margin-top: auto; padding-top: 18px; touch-action: none; user-select: none; -webkit-user-select: none; }
-.preview.portrait .range { margin-top: 14px; }
+/* лента отрезка: сразу под чипами (у вертикального превью — прижата к низу кадра, по его нижней кромке);
+   ручки стоят внутри ленты (левая — от начала выделения вправо, правая — от конца влево), свечение ручек и выделения
+   срезано по краям ленты (clip-path по горизонтали, по вертикали — место подсказкам): ничего не выходит за ленту */
+.range { position: relative; height: 62px; margin-top: 4px; padding-top: 18px; touch-action: none; user-select: none; -webkit-user-select: none;
+  clip-path: inset(-40px 0 -12px 0); }
+.preview.portrait .range { margin-top: auto; }
 .range-track { position: absolute; left: 0; right: 0; top: 18px; bottom: 0; overflow: hidden; background-color: #050507; background-image: var(--strip, none); background-size: auto 100%; background-repeat: repeat-x; background-position: center; border-radius: var(--r-s); }
 .range-track::after, .range-track::before { content: ""; position: absolute; left: 0; right: 0; height: 6px; z-index: 1; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='6'%3E%3Crect x='3' y='1' width='6' height='4' rx='1.2' fill='%23fff' fill-opacity='.5'/%3E%3C/svg%3E") repeat-x, rgba(0, 0, 0, .7); opacity: .55; }
 .range-track::before { top: 0; } .range-track::after { bottom: 0; }
@@ -197,7 +249,9 @@
 .range.has-playhead .range-playhead { opacity: 1; }
 .range-handle { position: absolute; top: 18px; bottom: 0; cursor: ew-resize; touch-action: none; display: grid; place-items: center; width: 10px; margin-left: -5px; border-radius: 5px; background: #fff; box-shadow: 0 0 0 1px color-mix(in oklab, var(--el-a) 70%, transparent), 0 0 12px color-mix(in oklab, var(--el-a) 50%, transparent); }
 .range-handle::before { content: ""; width: 2px; height: 40%; border-radius: 2px; background: rgba(0, 0, 0, .55); }
-.range-handle.a { left: var(--a); } .range-handle.b { left: var(--b); }
+.range-handle.a { left: var(--a); margin-left: 0; } .range-handle.b { left: var(--b); margin-left: -10px; }
+/* подсказка времени — внутрь ленты от своей ручки: у краёв не срезается */
+.range-handle.a .range-bubble { left: 0; translate: 0 0; } .range-handle.b .range-bubble { left: auto; right: 0; translate: 0 0; }
 .range-handle:focus-visible { border-radius: 5px; outline-offset: 2px; }
 .range-bubble { position: absolute; bottom: calc(100% + 6px); left: 50%; translate: -50% 0; padding: 4px 8px; border-radius: var(--r-xs); font: 500 11.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); background: var(--s-raised); border: 1px solid var(--line-2); white-space: nowrap; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity var(--t-fast) var(--ease-out), transform var(--t-base) var(--ease-out); }
 .range-handle:hover .range-bubble, .range-handle.dragging .range-bubble, .range-handle:focus-visible .range-bubble { opacity: 1; transform: none; }
@@ -215,7 +269,7 @@
 .skel-title .skel-line:first-child { width: 70%; }
 .skel-title .skel-line:last-child { width: 45%; }
 .skel-chip { width: 64px; height: 26px; border-radius: var(--r-xs); }
-.skel-range { height: 44px; margin-top: auto; border-radius: var(--r-s); }
+.skel-range { height: 44px; margin-top: 22px; border-radius: var(--r-s); }   /* 4 + 18 — как у ленты */
 .skel-legend { display: flex; gap: 12px; margin-top: 4px; }
 .skel-legend .skel { width: 108px; height: 36px; }
 
@@ -223,7 +277,6 @@
 
 @media (max-width: 1439px) {
   .preview { --pv-media: 220px; }
-  .preview.portrait { --pv-media: 110px; }
   .pv-title { font-size: 16px; }
   .skel-title { height: calc(2 * 1.3 * 16px); }
 }
@@ -238,7 +291,7 @@
   .ghost-btn { height: 50px; font-size: 15px; }
   .go-btn { height: 54px; font-size: 16.5px; padding: 0 24px 0 20px; }
   .dest { height: 42px; font-size: 15px; }
-  .controls-toggle { height: 42px; font-size: 12.5px; }
+  .hero { --hero-field-h: 72px; }
 }
 
 /* ---------- адаптив (телефон — вне спринта, правила сохранены как были) ---------- */
@@ -247,7 +300,6 @@
   .preview { --pv-media: 220px; }
 }
 @media (max-width: 680px) {
-  .console { margin-top: 22px; }
   .tabs { width: 100%; display: flex; }
   .tab { flex: 1; justify-content: center; padding: 8px 6px; font-size: 13.5px; }
   .portal-body { grid-template-columns: 1fr auto; padding: 8px 8px 8px 14px; gap: 6px; }
@@ -255,8 +307,6 @@
   #paste { grid-column: 1; grid-row: 2; justify-self: start; height: 34px; margin-left: -8px; padding: 0 10px; font-size: 13.5px; }
   .go-btn { grid-column: 2; grid-row: 1 / span 2; width: 52px; height: 52px; }
   #url { font-size: 16.5px; padding: 8px 0 2px; }
-  .dest-row .formats { width: 100%; display: flex; }
-  .dest-row .formats button { flex: 1; justify-content: center; padding: 7px 8px; font-size: 13px; }
   .dest { max-width: calc(100% - 70px); }
   .dest-value { max-width: 150px; }
   .preview { grid-template-columns: 1fr; gap: 14px; padding: 10px; }
@@ -268,11 +318,28 @@
   .pills button { padding: 7px 11px; }
 }
 
+/* ---------- главный экран в невысоком окне (≤ 720 px: 1280×720 / 1366×768 с вкладками и панелью задач, масштаб 125–150 %) ----------
+   Заголовок на ступень меньше, место под превью ниже: в превью заголовок в одну строку, чипы в один ряд (лишние уходят
+   под мягкий край), отрезок плотнее — всё помещается без прокрутки. Функции те же. */
+@media (max-height: 720px) {
+  .hero { --hero-gap-title: minmax(10px, clamp(24px, 6.4svh, 96px)); --hero-gap-tabs: minmax(8px, clamp(14px, 2.6svh, 36px));
+    --hero-pad-top: minmax(4px, 1fr); --hero-pad-bottom: minmax(10px, 1fr); --pv-reserve: 214px; }
+  .hero .hero-copy > h1 .thin { font-size: max(30px, 5.8svh); }
+  .hero .hero-copy > h1 .slab { font-size: max(46px, 9.2svh); }
+  .pv-body { gap: 8px; }
+  .pv-title { -webkit-line-clamp: 1; }
+  .pv-meta { flex-wrap: nowrap; overflow: hidden; -webkit-mask: linear-gradient(90deg, #000 calc(100% - 24px), transparent); mask: linear-gradient(90deg, #000 calc(100% - 24px), transparent); }
+  .pv-meta .meta-chip { flex: none; }
+  .skel-title { height: calc(1.3 * 16px); }
+  .skel-title .skel-line:last-child { display: none; }
+  .range { height: 54px; }
+  .skel-range { height: 36px; }
+}
+
 /* ---------- меньше движения ---------- */
 
 @media (prefers-reduced-motion: reduce) {
   .portal-ring { animation: none !important; }
-  .controls { transition: none; }
   .skel::after { animation: none; transform: none; opacity: 0; }
   #dragveil .dragveil-ring::before { animation: none; }
   .go-btn.fire svg { animation: none; }

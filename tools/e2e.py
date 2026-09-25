@@ -119,13 +119,13 @@ async def submit_via_ui(ctx: Ctx, url: str, mode: str, *, clip: tuple[str, str] 
             await page.fill(".pv-start", start)
             await page.fill(".pv-end", end)
         except Exception:
-            is_open = await page.locator("#controls").get_attribute("data-open")
-            if is_open != "true":
-                await page.click("#controls-toggle")
-                await page.wait_for_selector("#clip-on", state="visible", timeout=5000)
+            # отрезок без превью — в окне «Параметры» (сводка под полем)
+            await page.click("#params-btn")
+            await page.wait_for_selector("#params-dialog[open]", timeout=5000)
             await page.check("#clip-on")
             await page.fill("#clip-start", start)
             await page.fill("#clip-end", end)
+            await page.keyboard.press("Escape")
     before = {j["id"] for j in await api_get(ctx, "/api/jobs")}
     await page.click("#go")
     # находим новую задачу с этим source

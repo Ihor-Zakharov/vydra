@@ -73,10 +73,21 @@ CDP_URL = "http://localhost:9333"
 DEFAULT_BASE_URL = "http://localhost:8799"
 
 VIEWPORTS: dict[str, dict[str, Any]] = {
+    # xs — экран 1280×720 минус рамка браузера (те же 111 px, что у s: 768 → 657); только по запросу
+    "xs": {"width": 1280, "height": 609},
     "s": {"width": 1366, "height": 657},
     "m": {"width": 1536, "height": 730, "device_scale_factor": 1.25},
     "l": {"width": 1920, "height": 960},
     "xl": {"width": 2560, "height": 1305},
+    # реальные высоты окна браузера на ПК (вкладки + панель задач Windows съедают 130–180 px) и масштаб Windows —
+    # для проверки «главный экран без прокрутки»; только по запросу (--viewports h600,h625,…)
+    "h600": {"width": 1280, "height": 600},
+    "h625": {"width": 1366, "height": 625},
+    "h940": {"width": 1920, "height": 940},
+    "h1300": {"width": 2560, "height": 1300},
+    "h600x150": {"width": 1280, "height": 600, "device_scale_factor": 1.5},    # 1920×1080 при 150 %
+    "h625x125": {"width": 1366, "height": 625, "device_scale_factor": 1.25},   # 1707×960 → окно при 125 %
+    "h840x150": {"width": 1707, "height": 840, "device_scale_factor": 1.5},    # 2560×1440 при 150 %
 }
 DEFAULT_VIEWPORTS = ["s", "m", "l"]
 
@@ -666,6 +677,18 @@ async def a_expand_island(page: Page, rt: dict) -> None:
     await page.wait_for_selector("#island[data-card]", timeout=5000)
 
 
+async def a_open_params(page: Page, rt: dict) -> None:
+    await page.click("#params-btn")
+    await page.wait_for_selector("#params-dialog[open]", timeout=4000)
+    await page.wait_for_timeout(120)
+
+
+async def a_close_params(page: Page, rt: dict) -> None:
+    await page.keyboard.press("Escape")
+    await page.wait_for_selector("#params-dialog:not([open])", state="attached", timeout=4000)
+    await page.wait_for_timeout(80)
+
+
 def a_pill(group_sel: str, value: str) -> Action:
     return a_click(f'{group_sel} [data-value="{value}"]')
 
@@ -831,6 +854,73 @@ def rt_library_loading(delay_ms: int = 6000):
     return setup
 
 
+def many_library_items(n: int = 300) -> list[dict]:
+    """~300 файлов в одной папке «YouTube/Видео» — страницы библиотеки (JSON в памяти, без файлов на диске)."""
+    base = FIXED_NOW.timestamp() - 3600
+    words = ["выдры", "река", "рассвет", "снег", "рыба", "камни", "лес", "закат", "детёныши", "плотина", "берег", "туман"]
+    out = []
+    for i in range(n):
+        typ = "audio" if i % 7 == 3 else "video"
+        ext = "mp3" if typ == "audio" else "mp4"
+        title = f"{words[i % 12].capitalize()} {words[(i * 5 + 3) % 12]} — выпуск {i + 1}"
+        item = {"id": f"many{i:04d}", "platform": "youtube", "type": typ, "folder": "YouTube/Видео",
+                "path": f"YouTube/Видео/many-{i:04d}.{ext}", "title": title, "size": 3_000_000 + (i * 7919) % 900_000_000,
+                "duration": 30 + (i * 37) % 3600, "added": base - i * 5400, "uploader": f"автор-{i % 23}",
+                "poster": None, "source": f"https://youtube.com/watch?v=many{i:04d}"}
+        if typ == "video":
+            item["width"], item["height"] = 1920, 1080
+        out.append(item)
+    return out
+
+
+def rt_library_many(n: int = 300):
+    def setup(rt: dict) -> None:
+        rt["library_items"] = many_library_items(n)
+    return setup
+
+
+def rt_jobs_many(n: int = 300):
+    """~300 задач: сверху ждущая, активные и в очереди, дальше — готовые (страницы очереди)."""
+    def setup(rt: dict) -> None:
+        head = [dict(CATALOG["jobs"][k]) for k in ("waiting", "downloading", "converting", "queued")]
+        done = CATALOG["jobs"]["done"]
+        tail = []
+        for i in range(n - len(head)):
+            j = json.loads(json.dumps(done))
+            j["id"] = f"job-many{i:04d}"
+            j["title"] = f"Выдры — выпуск {i + 1}"
+            j["source"] = f"https://youtube.com/watch?v=many{i:04d}"
+            for f in j.get("files", []):
+                f["id"] = f"many{i:04d}"
+            tail.append(j)
+        rt["jobs"] = head + tail
+    return setup
+
+
+def a_pager_to(which: str, target: str) -> Action:
+    """Клик по кнопке листалки: target — номер страницы (1…) или «last»."""
+    async def run(page: Page, rt: dict) -> None:
+        nav = f"#{which}-pager"
+        await page.wait_for_selector(f"{nav}:not([hidden]) .pager-btn", timeout=6000)
+        if target == "last":
+            await page.evaluate(f"() => {{ const b = [...document.querySelectorAll('{nav} .pager-btn:not(.step)')].pop(); b.click(); }}")
+        else:
+            await page.evaluate(f"() => document.querySelector('{nav} .pager-btn[data-page=\"{int(target) - 1}\"]').click()")
+        await page.wait_for_timeout(200)
+    return run
+
+
+async def a_scroll_bottom(page: Page, rt: dict) -> None:
+    await page.evaluate("() => window.scrollTo({ top: document.scrollingElement.scrollHeight, behavior: 'instant' })")
+    await page.wait_for_timeout(160)
+
+
+async def a_select_all_files(page: Page, rt: dict) -> None:
+    await a_select_tile(0)(page, rt)
+    await page.keyboard.press("Control+a")
+    await page.wait_for_selector("#selbar:not([hidden])", timeout=4000)
+
+
 def rt_doctor(key: str):
     def setup(rt: dict) -> None:
         rt["doctor"] = CATALOG[key]
@@ -868,11 +958,17 @@ STATES: list[StateDef] = [
     StateDef("preview-landscape", action=a_ready_preview("youtube", thumb="thumb-landscape.png")),
     StateDef("preview-portrait", action=a_ready_preview("tiktok", thumb="thumb-portrait.png")),
     StateDef("preview-trim", action=a_trim("youtube", "1:00", "5:30")),
-    StateDef("format-mp4", action=a_pill('[data-name="mode"]', "mp4")),
-    StateDef("format-mp3", action=a_pill('[data-name="mode"]', "mp3")),
-    StateDef("format-both", action=a_pill('[data-name="mode"]', "both")),
-    StateDef("controls-open", action=a_click("#controls-toggle")),
-    StateDef("dest-menu", action=a_click("#dest-btn", wait_for="#folder-dialog[open]")),
+    # параметры (формат, папка, качество, отрезок, переключатели) живут в окне «Параметры» (решение пользователя)
+    StateDef("format-mp4", action=a_seq(a_open_params, a_pill('[data-name="mode"]', "mp4"))),
+    StateDef("format-mp3", action=a_seq(a_open_params, a_pill('[data-name="mode"]', "mp3"))),
+    StateDef("format-both", action=a_seq(a_open_params, a_pill('[data-name="mode"]', "both"))),
+    StateDef("preview-both-portrait", action=a_seq(
+        a_open_params, a_pill('[data-name="mode"]', "both"), a_close_params,
+        a_ready_preview("tiktok", thumb="thumb-portrait.png"),
+    ), note="вертикальное превью + «Оба»: поле и «Скачать» на месте, превью в отведённом месте, сводка «MP4 · … + MP3 …»"),
+    StateDef("controls-open", action=a_open_params,
+             note="бывшее «Ещё» — окно «Параметры», открыто сводкой под полем"),
+    StateDef("dest-menu", action=a_seq(a_open_params, a_click("#dest-btn", wait_for="#folder-dialog[open]"))),
     StateDef("converter", action=a_click("#tab-file", wait_for='#panel-file:not([hidden])')),
     StateDef("converter-drag", action=a_seq(
         a_click("#tab-file", wait_for='#panel-file:not([hidden])'), a_drag_files_over_window,
@@ -898,6 +994,10 @@ STATES: list[StateDef] = [
     StateDef("screen-queue", rt=rt_jobs("queued", "downloading", "waiting", "done"), screen="queue",
              action=a_show_queue,
              note="отдельный экран «Очередь» (решение пользователя); до роутинга (S2/S3) — тот же вид с прокруткой"),
+    StateDef("jobs-300", rt=rt_jobs_many(), screen="queue", action=a_seq(a_show_queue, a_scroll_bottom),
+             note="300 задач: на экране 50, внизу листалка «1–50 из 300» и страницы; счётчики — по всем"),
+    StateDef("jobs-300-last", rt=rt_jobs_many(), screen="queue", action=a_seq(a_show_queue, a_pager_to("jobs", "last")),
+             note="300 задач, последняя страница (251–300)"),
     StateDef("screen-queue-empty", rt=rt_jobs(), screen="queue", action=a_noop,
              note="экран «Очередь» без задач; до роутинга раздел скрыт, как сейчас в одностраничной вёрстке"),
 
@@ -935,6 +1035,17 @@ STATES: list[StateDef] = [
                    "папка разложена по месяцам, поэтому кадр — список папок-месяцев (быстро и без интерфейса "
                    "постраничной подгрузки, которого пока нет); /api/library и /api/fs уже отвечают постранично "
                    "по limit/offset/sort/order/q/type/folder — интерфейс начнёт их использовать на S2/S3")),
+    StateDef("library-300", rt=rt_library_many(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_show_library, a_scroll_bottom),
+             note="300 файлов в одной папке: 120 плиток на странице, внизу листалка «1–120 из 300»"),
+    StateDef("library-300-page3", rt=rt_library_many(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_pager_to("lib", "3"), a_show_library),
+             note="300 файлов, третья страница (241–300)"),
+    StateDef("library-300-list", rt=rt_library_many(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_pill(".view-toggle", "list"), a_pager_to("lib", "2"), a_show_library)),
+    StateDef("library-300-select-all", rt=rt_library_many(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_select_all_files, a_show_library),
+             note="Ctrl+A на странице 1 из 3 — выделены все 300 файлов папки, панель выделения «300 объектов»"),
     StateDef("library-loading", rt=rt_library_loading(), query={"folder": "YouTube/Видео"}, screen="library",
              action=a_seq(a_capture_before_fs_reply, a_show_library),
              note=("DIRECTION §7.4 library-loading: /api/fs искусственно задержан фикстурой, кадр снят до ответа — "
@@ -997,7 +1108,23 @@ def match_states(patterns: list[str]) -> list[StateDef]:
 
 # ============================== проверки страницы ==============================
 
-LAYOUT_JS = "() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth })"
+LAYOUT_JS = """
+() => {
+  const root = document.documentElement;
+  const out = { scrollWidth: root.scrollWidth, clientWidth: root.clientWidth };
+  // главный экран без прокрутки (решение пользователя): низ формы должен помещаться в окно
+  if (root.dataset.screen === 'home') {
+    const kids = [...document.querySelectorAll('#screen-home .hero-copy > *, #screen-home .console > *, #screen-home .hero-stage [role="tabpanel"]:not([hidden]) > *')].filter((el) => el.offsetParent !== null);
+    out.home = { scrollHeight: document.scrollingElement.scrollHeight, contentBottom: Math.round(Math.max(0, ...kids.map((el) => el.getBoundingClientRect().bottom + scrollY))),
+                 viewportHeight: innerHeight, overflowY: getComputedStyle(root).overflowY,
+                 parts: Object.fromEntries(['.hero .kicker', '.hero h1', '.console .tabs', '#panel-link', '#panel-file', '.preview',
+                   '.params-sum', '.hero-stage'].map((q) => { const el = document.querySelector(q);
+                   const r = el && el.offsetParent !== null ? el.getBoundingClientRect() : null;
+                   return [q, r ? [Math.round(r.top + scrollY), Math.round(r.height)] : null]; })) };
+  }
+  return out;
+}
+"""
 
 TRUNCATION_JS = """
 () => {
@@ -1164,6 +1291,8 @@ async def capture_state(
             "scroll_width": layout["scrollWidth"],
             "client_width": layout["clientWidth"],
             "horizontal_overflow": layout["scrollWidth"] > layout["clientWidth"] + 1,
+            **({"home_fit": {**layout["home"], "fits": max(layout["home"]["contentBottom"] or 0, layout["home"]["scrollHeight"]) <= layout["home"]["viewportHeight"]}}
+               if layout.get("home") else {}),
             "truncated_text": truncated,
             "overlaps": overlaps,
             "axe_violations": axe_violations,
@@ -1435,7 +1564,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     args.states = [s.strip() for s in args.states.split(",") if s.strip()]
     vp_arg = [v.strip() for v in args.viewports.split(",") if v.strip()]
-    args.viewports = list(VIEWPORTS.keys()) if vp_arg == ["all"] else vp_arg
+    args.viewports = ["s", "m", "l", "xl"] if vp_arg == ["all"] else vp_arg
 
     if args.live:
         # без фикстур опасно гонять состояния, которые шлют изменяющие запросы (папки, удаление,
