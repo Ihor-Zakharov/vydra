@@ -184,3 +184,27 @@ def test_slow_library_does_not_delay_server_start(settings, monkeypatch):
         assert client.get("/api/health").status_code == 200
         assert time.monotonic() - started < 3
         release.set()
+
+
+def test_slow_windows_interop_does_not_block_other_requests(settings, library, monkeypatch):
+    """Проводник/PowerShell из WSL отвечают секундами — остальной API (и SSE) в это время работает."""
+    import threading
+
+    from fastapi.testclient import TestClient
+
+    from vydra import main
+
+    media = library.root / "YouTube" / "Видео" / "clip.mp4"
+    media.write_bytes(b"x")
+    library.scan(force=True)
+    item = library.items()[0]
+    monkeypatch.setattr(system, "reveal", lambda path: time.sleep(2))
+    with TestClient(main.create_app(settings, watch=False), base_url="http://localhost") as client:
+        slow = threading.Thread(target=lambda: client.post(f"/api/library/{item['id']}/reveal"))
+        slow.start()
+        time.sleep(0.2)
+        started = time.monotonic()
+        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/jobs").status_code == 200
+        assert time.monotonic() - started < 1
+        slow.join()
