@@ -463,7 +463,9 @@ class JobManager:
             time.sleep(0.05)
         with self._lock:
             for job in self._jobs.values():
-                if job.active:
+                if job.active and self.store is None:
+                    self._finish(job, "cancelled")  # консоль: продолжать некому — прибираем сразу
+                elif job.active:
                     job.status, job.stage, job.progress = "queued", "Прервано — продолжу при следующем запуске", None
                     job.speed = job.eta = None
         self._save()
@@ -603,7 +605,9 @@ class JobManager:
             self.changed()
 
     def _interrupted_or_cancelled(self, job: Job) -> None:
-        if job.interrupted:
+        # продолжить после перезапуска может только сервер (очередь на диске); у консоли прерванная
+        # задача — это отмена: её папку с недокачанным убираем сразу, а не через час
+        if job.interrupted and self.store is not None:
             job.status, job.stage, job.progress = "queued", "Прервано — продолжу при следующем запуске", None
         else:
             self._finish(job, "cancelled")

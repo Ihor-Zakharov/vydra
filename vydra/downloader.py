@@ -130,6 +130,8 @@ _PERMANENT = [
      "Видео недоступно: удалено или закрыто в вашем регионе."),
     (("http error 404", "404: not found", "http error 410"), "Страница не найдена — проверьте ссылку."),
     (("drm",), "Видео защищено DRM — скачать его нельзя."),
+    (("live event will begin", "premieres in", "this live event", "is_upcoming", "will begin in"),
+     "Трансляция или премьера ещё не началась — попробуйте, когда она начнётся и закончится."),
     (("requested format is not available", "no video formats found"),
      "Нужного формата у ролика нет — попробуйте другое качество или MP3."),
     (("ffmpeg not found", "ffprobe and ffmpeg not found", "ffmpeg is not installed"),
@@ -572,6 +574,7 @@ def _preview(req: dict) -> dict:
         "playlist": False,
         "count": None,
         "preview_url": progressive[-1]["url"] if progressive else None,
+        "is_live": bool(info.get("is_live")),  # прямой эфир скачать нельзя, пока он идёт
     }
 
 
@@ -790,6 +793,9 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
     """До загрузки: если нужного варианта нет — сказать об этом и предложить замену."""
     from .timecode import format_time
 
+    if info.get("is_live") or info.get("live_status") == "is_live":
+        # yt-dlp писал бы эфир, пока тот не кончится (у круглосуточных — никогда): задача висела бы вечно
+        raise _Permanent("Это прямой эфир — его можно будет скачать, когда трансляция закончится")
     formats = info.get("formats") or []
     chosen = _chosen(info)
     mode, quality = req["mode"], req["quality"]

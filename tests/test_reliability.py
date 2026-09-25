@@ -281,3 +281,22 @@ def test_clean_work_dir_never_touches_live_or_queued_jobs(settings):
     freed = clean_work_dir(settings.work_dir, protected={"queued"}, force=True)
     assert live.exists() and queued.exists() and not dead.exists()
     assert freed == 10
+
+
+def test_console_shutdown_cleans_interrupted_jobs(settings, library, monkeypatch):
+    """У консоли (очередь не сохраняется) прерванную задачу никто не продолжит — её папка убирается сразу."""
+    started = threading.Event()
+
+    def blocking(url, mode, quality, work_dir, cancel, **kw):
+        (work_dir / "video.part").write_bytes(b"x" * 1024)
+        started.set()
+        cancel.wait(10)
+        raise Cancelled
+
+    monkeypatch.setattr(jobs, "download", blocking)
+    manager = JobManager(settings, library)  # как в консоли: persist=False
+    running = manager.submit(Job(kind="url", source=URL, mode="mp4"))
+    assert started.wait(5)
+    manager.shutdown()
+    assert running.status == "cancelled"
+    assert not any((settings.work_dir / "jobs").iterdir())

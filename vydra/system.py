@@ -210,7 +210,9 @@ def parse_user_path(text: str) -> Path:
     if looks_windows and OS == "wsl":
         converted = from_windows(raw)
         if converted is None:
-            raise ValueError("Не удалось преобразовать путь Windows")
+            if raw[1:2] == ":":
+                raise ValueError(f"Диск {raw[0].upper()}: не виден из WSL — подключите его или выберите другую папку")
+            raise ValueError(f"Не удалось открыть сетевой путь {raw} из WSL — скопируйте файлы на диск C: или D:")
         return converted
     path = Path(raw).expanduser()
     if not path.is_absolute():

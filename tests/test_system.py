@@ -102,3 +102,21 @@ def test_run_times_out_instead_of_hanging():
     started = time.monotonic()
     assert system.run(["sleep", "5"], timeout=0.3) is None
     assert time.monotonic() - started < 2
+
+
+def test_unreachable_windows_drive_is_explained(monkeypatch):
+    as_os(monkeypatch, "wsl")
+    monkeypatch.setattr(system, "from_windows", lambda text: None)
+    with pytest.raises(ValueError, match="Диск Z: не виден из WSL"):
+        system.parse_user_path("Z:\\Видео")
+    with pytest.raises(ValueError, match="сетевой путь"):
+        system.parse_user_path("\\\\nas\\share")
+
+
+def test_to_windows_is_cached(monkeypatch):
+    as_os(monkeypatch, "wsl")
+    calls = []
+    monkeypatch.setattr(system, "_win_paths", {})
+    monkeypatch.setattr(system, "run", lambda cmd, timeout=20: calls.append(cmd) or "C:\\x")
+    assert system.to_windows(Path("/mnt/c/x")) == system.to_windows(Path("/mnt/c/x")) == "C:\\x"
+    assert len(calls) == 1

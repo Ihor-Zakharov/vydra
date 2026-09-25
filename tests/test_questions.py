@@ -250,3 +250,16 @@ def test_answer_endpoint_takes_json_body(settings, library, monkeypatch):
         assert client.post(f"/api/jobs/{job_id}/answer", json={"option": "bogus"}).status_code == 409
         assert client.post(f"/api/jobs/{job_id}/answer", json={"option": "cancel"}).status_code == 200
         assert wait_for(lambda: client.get("/api/jobs").json()[0]["status"] == "cancelled")
+
+
+def test_live_stream_is_refused_not_recorded_forever(monkeypatch):
+    """Круглосуточный эфир yt-dlp писал бы бесконечно — задача обязана сразу объяснить, а не висеть."""
+    ydl, info = processed([fmt("v", v="avc1", a="mp4a", h=720, w=1280)])
+    info["is_live"], info["live_status"] = True, "is_live"
+    with pytest.raises(downloader._Permanent, match="прямой эфир"):
+        _review(ydl, info, {"mode": "mp3", "quality": "1080"}, Asked(monkeypatch))
+
+
+def test_upcoming_stream_is_permanent_error():
+    text, transient = downloader.classify("ERROR: [youtube] abc: This live event will begin in 3 hours.")
+    assert "ещё не началась" in text and not transient

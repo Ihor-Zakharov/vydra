@@ -380,3 +380,17 @@ def test_cookies_command(cli_env, tmp_path):
 def test_cookie_errors_point_to_cookies_command():
     assert "выдра cookies" in cli.error_hint("Сайт просит войти в аккаунт. Добавьте cookies в настройках и повторите.")
     assert cli.error_hint("Не найден FFmpeg — запустите «vydra doctor --fix»") is None  # уже сказано, что делать
+
+
+@needs_ffmpeg
+def test_missing_folder_is_created(cli_env, make_clip, monkeypatch):
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), []))
+    result = runner.invoke(cli.app, ["d", URL, "-f", "mp3", "--папка", "TikTok/Танцы"])
+    assert result.exit_code == 0, result.output
+    assert "создана" in result.output
+    assert (cli_env / "lib" / "TikTok" / "Танцы" / "Ролик.mp3").is_file()
+
+
+def test_bad_folder_name_is_explained(cli_env):
+    result = runner.invoke(cli.app, ["d", URL, "--папка", "Мои:видео"])
+    assert result.exit_code == 1 and "Нельзя использовать символы" in result.output

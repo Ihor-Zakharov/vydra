@@ -368,6 +368,7 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
     started = time.monotonic()
     reported: set[str] = set()
     asked: set[tuple[str, str]] = set()
+    stages: dict[str, str] = {}  # последний показанный этап (вывод без терминала)
     interrupted = False
 
     def row(job: Job) -> Table:
@@ -485,6 +486,10 @@ def run_jobs(env: Env, jobs: list[Job]) -> int:
                         live.stop()
                         report(job)
                         live.start()
+                    elif not console.is_terminal and job.active and stages.get(job.id) != job.stage:
+                        # без терминала прогресс-бара не видно — пишем в журнал смену этапов (без процентов)
+                        stages[job.id] = job.stage
+                        console.print(Text(f"  · {(job.title or job.source)[:70]}: {job.stage}", style="dim"))
                 live.update(view())
                 if all(not j.active for j in jobs):
                     break
@@ -620,9 +625,9 @@ def download(
     cut = resolve_clip(clip, start, end)
     links = _unique_links(links_or_clipboard(urls))
     env = make_env(out)
-    folder_rel = _folder(env, folder)
     banner(f"{MODE_LABEL[mode]} · {qual if mode != 'mp3' else bitrate.value + ' кбит/с'}")
     auto = _auto_accept(yes)
+    folder_rel = _folder(env, folder, auto)
     console.print()
     jobs, skipped = [], []
     for url in links:
@@ -690,18 +695,34 @@ def _jobs_json(env: Env, jobs: list[Job], skipped: list[dict], code: int) -> dic
     }
 
 
-def _folder(env: Env, folder: str | None) -> str | None:
+def _folder(env: Env, folder: str | None, auto: bool = False) -> str | None:
+    """--папка: своя папка внутри хранилища. Нет такой — создаём (с вопросом, если есть терминал)."""
     if not folder:
         return None
-    from .library import FsError, validate_rel
+    from .library import FsError, validate_name, validate_rel
 
     try:
         rel = validate_rel(folder.replace("\\", "/"))
+        for part in rel.split("/") if rel else []:
+            validate_name(part)
     except FsError as exc:
-        raise fail(str(exc)) from exc
-    if rel and not env.library.folder_exists(rel):
         env.manager.shutdown()
-        raise fail(f"Папки «{rel}» нет в хранилище", "Создайте её в интерфейсе или в Проводнике")
+        raise fail(f"Папка «{folder}»: {exc}") from exc
+    if rel and not env.library.folder_exists(rel):
+        create = auto or not _tty(sys.stdin)
+        if not create:
+            answer = Prompt.ask(Text(f"  Папки «{rel}» в хранилище нет. Создать?", style="bold"),
+                                choices=["д", "н"], default="д")  # fmt: skip
+            create = answer == "д"
+        if not create:
+            env.manager.shutdown()
+            raise fail(f"Папки «{rel}» нет в хранилище", "Создайте её или укажите другую: выдра папка — что есть")
+        try:
+            (env.library.root / rel).mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            env.manager.shutdown()
+            raise fail(f"Не удалось создать папку «{rel}»: {exc.strerror or exc}") from exc
+        console.print(Text("  + ", style="bold green") + Text(f"папка «{rel}» создана в хранилище"))
     return rel or None
 
 
@@ -742,6 +763,11 @@ def info(
     ]
     if data.get("playlist"):
         rows.insert(1, (" ", "роликов", Text(str(data.get("count") or "?"), style="cyan")))
+    if data.get("is_live"):
+        console.print(attr_table(rows))
+        console.print()
+        raise fail("Это прямой эфир — скачать его можно, когда трансляция закончится",
+                   "Запись эфира появится на канале; тогда повторите")  # fmt: skip
     root = Prefs(settings).library_dir
     platform_dir = PLATFORM_DIRS.get(platform, PLATFORM_DIRS["other"])
     rows += [
@@ -774,9 +800,9 @@ def convert(
     mode = fmt_value(fmt)
     cut = resolve_clip(clip, start, end)
     env = make_env(out)
-    folder_rel = _folder(env, folder)
     banner(f"конвертер · {MODE_LABEL[mode]}")
     auto = _auto_accept(yes)
+    folder_rel = _folder(env, folder, auto)
     console.print()
     jobs = []
     for file in files:
@@ -1206,7 +1232,7 @@ def doctor(
         table = Table.grid(padding=(0, 2))
         table.add_column(width=3)
         table.add_column(style="bold", no_wrap=True)
-        table.add_column()
+        table.add_column(overflow="fold")  # длинный путь хранилища — целиком
         for c in checks:
             icon, color = STATUS_ICON[c.status]
             detail = Text(c.detail, style="" if c.status == "ok" else color)
