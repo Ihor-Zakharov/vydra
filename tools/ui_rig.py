@@ -648,8 +648,10 @@ async def a_expand_island(page: Page, rt: dict) -> None:
     # Playwright.click() по этой хит-зоне в связке CDP→реальный Edge в этом окружении иногда
     # не долетает до обработчика (воспроизводимо и на #ctx, см. a_rename_folder_favorite) —
     # настоящий клик надёжнее диспетчить прямо в JS.
-    await page.eval_on_selector("#island-hit", "el => el.click()")
-    await page.wait_for_selector('.island[data-state="expanded"]', timeout=6000)
+    # После S2 остров живёт во вкладке «Очередь»: клик ведёт на экран, карточка раскрывается наведением.
+    box = await page.eval_on_selector("#island-hit", "el => { const r = el.getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; }")
+    await page.mouse.move(box[0], box[1])
+    await page.wait_for_selector("#island[data-card]", timeout=5000)
 
 
 def a_pill(group_sel: str, value: str) -> Action:
@@ -880,7 +882,7 @@ STATES: list[StateDef] = [
     StateDef("job-error", rt=rt_jobs("error"), screen="queue", action=a_seq(a_show_queue, a_wait(".job-note"))),
     StateDef("job-cancelled", rt=rt_jobs("cancelled"), screen="queue", action=a_show_queue),
     StateDef("jobs-many", rt=rt_jobs("queued", "downloading", "converting", "waiting", "done"), screen="queue",
-             action=a_seq(a_show_queue, a_expand_island)),
+             action=a_show_queue),
     StateDef("screen-queue", rt=rt_jobs("queued", "downloading", "waiting", "done"), screen="queue",
              action=a_show_queue,
              note="отдельный экран «Очередь» (решение пользователя); до роутинга (S2/S3) — тот же вид с прокруткой"),
