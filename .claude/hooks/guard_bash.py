@@ -7,7 +7,10 @@ from _common import block, read_input
 cmd = (read_input().get("tool_input") or {}).get("command", "")
 low = cmd.lower()
 
-if re.search(r"\bgit\s+commit\b", low) and re.search(r"co-authored-by|generated with|claude|anthropic", low):
+# Пути вида .claude/… и /tmp/claude-… — не атрибуция: убираем их перед проверкой текста коммита.
+attrib_text = re.sub(r"\S*\.claude\S*|\S*/claude-\S*", " ", low)
+if re.search(r"\bgit\s+commit\b", low) and re.search(
+        r"co-authored-by|generated with|anthropic|(?<![\w./-])claude(?![\w-])", attrib_text):
     block("Правило пользователя: никакой атрибуции ассистента в коммитах (Co-Authored-By, «Generated with», Claude). "
           "Убери эти строки из сообщения и повтори.")
 

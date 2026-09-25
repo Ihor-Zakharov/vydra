@@ -122,7 +122,7 @@ ${reports}
 По каждому региону — approved и замечания с точными значениями. Одобряй, только если нет blocker и major.
 Решения исполнителей вне DIRECTION, с которыми согласен, внеси в DIRECTION.md. Просьбы к фундаменту реши сам:
 либо «сделать локально в регионе» (замечание региону), либо правка фундамента — в поле foundation; её сделают после
-этапа, когда фундамент разморозят.`,
+этапа, когда фундамент разморозят.${NOTES}`,
     { label: `ревью ${round}`, phase: 'Ревью', agentType: 'vydra-designer', schema: REVIEW })
   if (!review) break
   foundationNotes.push(...(review.foundation || []))
@@ -142,7 +142,7 @@ ${reports}
 ${scope(key)}
 Замечания (blocker и major обязательно, minor — если не ломает остальное):
 ${notes || '- замечаний по региону нет в ответе: перепроверь регион по чек-листу DIRECTION.md'}
-Работай по скиллу region-pass; метка стенда s3-${key}-fix-${round}.`,
+Работай по скиллу region-pass; метка стенда s3-${key}-fix-${round}.${NOTES}`,
       { label: `правки: ${REGIONS[key].title}`, phase: 'Правки', agentType: 'vydra-ui', schema: BUILD })
   }))
   todo.forEach((key, i) => { if (fixed[i]) builds[key] = fixed[i] })

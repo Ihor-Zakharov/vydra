@@ -97,7 +97,7 @@ const measure = n => agent(`Приёмочный замер интерфейса
 4. Функции (G10): uv run pytest -q; python3 tools/e2e.py --label s4-${n} --compare .sprint/baseline/e2e.json (скилл dev-server).
 5. Чистота (G12): id и классы без пары между index.html / app.js / explorer.js / css, отладочный код (console.log,
    debugger, закомментированные блоки), CSS-правила без элементов.
-Открой через Read листы-контакты всех окон. Каждый дефект — с доказательством. Отчёт — .sprint/qa/s4-${n}.md.`,
+Открой через Read листы-контакты всех окон. Каждый дефект — с доказательством. Отчёт — .sprint/qa/s4-${n}.md.${NOTES}`,
   { label: `замер ${n}`, phase: 'Замер', agentType: 'vydra-qa', schema: MEASURE })
 
 let m = null
@@ -134,7 +134,7 @@ if (s && (!s.approved || blocking(s).length)) {
   await parallel(Object.entries(byRegion).map(([region, notes]) => () =>
     agent(`Последние правки региона «${region}» интерфейса выдры по финальному ревью арт-директора.
 Работай по скиллу region-pass (метка стенда s4-last-${region}); фундамент можно править, только если замечание о нём.
-${notes.map(n => `- [${n.level}] ${n.state || ''} ${n.viewport || ''}: ${n.what} → ${n.fix}`).join('\n')}`,
+${notes.map(n => `- [${n.level}] ${n.state || ''} ${n.viewport || ''}: ${n.what} → ${n.fix}`).join('\n')}${NOTES}`,
       { label: `правки: ${region}`, phase: 'Последние правки', agentType: 'vydra-ui', schema: FIX })))
   phase('Подпись')
   s = await sign()

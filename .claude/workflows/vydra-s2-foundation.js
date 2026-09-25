@@ -72,7 +72,7 @@ ${SCOPE}
 Его решения вне DIRECTION: ${build && build.decisions.length ? build.decisions.join('; ') : 'нет'}
 Сними стендом сам (скилл ui-rig): idle, typing-youtube, preview-landscape, job-downloading, library-grid, offline в окнах s, l, xl
 с меткой s2-review-${round}; открой кадры через Read и сравни с DIRECTION и с baseline (.sprint/shots/baseline).
-Одобряй, только если нет blocker и major. Решения исполнителя вне DIRECTION, с которыми согласен, внеси в DIRECTION.md.`,
+Одобряй, только если нет blocker и major. Решения исполнителя вне DIRECTION, с которыми согласен, внеси в DIRECTION.md.${NOTES}`,
     { label: `ревью ${round}`, phase: 'Ревью', agentType: 'vydra-designer', schema: REVIEW })
   const blocking = review ? review.notes.filter(n => n.level !== 'minor') : []
   if (review && review.approved && !blocking.length) break
@@ -83,7 +83,7 @@ ${SCOPE}
 ${SCOPE}
 Замечания (blocker и major обязательно, minor — если не ломает остальное):
 ${todo || '- арт-директор не вернул замечаний: перепроверь фундамент по чек-листу DIRECTION.md'}
-Работай по скиллу region-pass; метка стенда s2-fix-${round}.`,
+Работай по скиллу region-pass; метка стенда s2-fix-${round}.${NOTES}`,
     { label: `правки ${round}`, phase: 'Правки', agentType: 'vydra-ui', schema: BUILD })
 }
 
