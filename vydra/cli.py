@@ -262,12 +262,18 @@ def links_or_clipboard(urls: list[str] | None) -> list[str]:
     """Ссылки из аргументов, а если их нет — из буфера обмена."""
     if urls:
         return [_normalize(u) for u in urls]
-    found = clipboard.links()
+    quote_hint = "или укажите ссылку в кавычках: выдра скачать 'https://…' -ф мп3"
+    try:
+        with console.status(Text("Смотрю буфер обмена…", style="dim"), spinner="dots"):
+            text = clipboard.read_strict()
+    except clipboard.Unavailable as exc:
+        raise fail(f"Ссылка не указана, а буфер обмена прочитать не удалось: {exc}", quote_hint.capitalize()) from exc
+    found = clipboard.extract_links(text)
     if not found:
+        what = "там текст, но не ссылка" if text.strip() else "он пуст"  # сам текст не показываем: вдруг пароль
         raise fail(
-            "Ссылка не указана, а в буфере обмена ссылки нет",
-            "Скопируйте ссылку в браузере и повторите: выдра скачать -ф мп3 — или укажите её в кавычках: "
-            "выдра скачать 'https://…' -ф мп3",
+            f"Ссылка не указана, а в буфере обмена ссылки нет ({what})",
+            f"Скопируйте ссылку в браузере и повторите — {quote_hint}",
         )
     for link in found:
         console.print(Text("  Ссылка из буфера: ", style="dim") + Text(link, style="cyan"))
@@ -521,6 +527,7 @@ def download(
     yes: YesOpt = False,
     force: ForceOpt = False,
     yes_playlist: PlaylistOpt = False,
+    show: Annotated[bool, typer.Option("--show", "--показать", help="Когда скачается — показать файл в папке")] = False,
 ) -> None:
     """Скачать видео или звук по ссылке. [dim](синонимы: скачать, d)[/]"""
     mode, qual = fmt_value(fmt), quality_value(quality)
@@ -551,8 +558,14 @@ def download(
     if not jobs:
         env.manager.shutdown()
         console.print(Text("\nНечего делать: всё уже скачано.", style="bold green"))
+        if show and existing:
+            _show(env.library.root / existing[0]["path"])
         raise typer.Exit(0)
-    raise typer.Exit(run_jobs(env, jobs))
+    code = run_jobs(env, jobs)
+    files = [f for j in jobs if j.status == "done" for f in j.files]
+    if show and files:
+        _show(env.library.root / files[0]["path"])
+    raise typer.Exit(code)
 
 
 def _folder(env: Env, folder: str | None) -> str | None:
@@ -883,6 +896,38 @@ def list_items(
         Text(f"  {stats['videos']} видео · {stats['audios']} аудио · {size(stats['size'])}", style="dim")
         + (Text(f"   (показано {limit} из {len(items)}, все: --сколько 1000)", style="dim") if len(items) > limit else Text(""))
     )
+
+
+def open_cmd(
+    query: Annotated[str | None, typer.Argument(help="Часть названия; без него — последний скачанный файл", show_default=False)] = None,  # noqa: E501
+    play: Annotated[bool, typer.Option("--play", "--запустить", help="Открыть в плеере, а не показать в папке")] = False,
+) -> None:
+    """Показать скачанный файл выделенным в Проводнике / Finder. [dim](синонимы: показать, открыть)[/]"""
+    settings = Settings.from_env()
+    library = Library(Prefs(settings), Media(settings))
+    items = library.items()
+    if query:
+        wanted = query.casefold()
+        items = [i for i in items if wanted in (i["title"] or "").casefold() or wanted in Path(i["path"]).name.casefold()]
+    if not items:
+        if query:
+            raise fail(f"В хранилище нет файла, в названии которого есть «{query}»", "Что есть: выдра список")
+        raise fail("Хранилище пусто — показывать нечего", "Скачайте что-нибудь: выдра скачать -ф мп3")
+    path = library.root / items[0]["path"]
+    _show(path, play)
+    if query and len(items) > 1:
+        console.print(Text(f"    Подходит ещё {len(items) - 1} — взяла самый свежий; уточните название, если не тот", style="dim"))
+
+
+def _show(path: Path, play: bool = False) -> None:
+    try:
+        (system.open_path if play else system.reveal)(path)
+    except FileNotFoundError as exc:
+        raise fail(f"Файла уже нет: {system.display_path(path)}", "Его удалили или переместили: выдра список") from exc
+    except system.NotSupported as exc:
+        raise fail(str(exc)) from exc
+    action = "Открываю " if play else "Показываю в папке "
+    console.print(Text("  ✓ ", style="bold green") + Text(action) + linked(path, "#e6d9a8"))
 
 
 def folder(
@@ -1240,6 +1285,7 @@ COMMANDS = [
     (stop, "stop", MAIN),
     (restart_cmd, "restart", SERVICE),
     (list_items, "list", STORE),
+    (open_cmd, "open", STORE),
     (folder, "folder", STORE),
     (doctor, "doctor", SERVICE),
     (update, "update", SERVICE),

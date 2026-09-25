@@ -39,6 +39,7 @@ STATIC = Path(__file__).parent / "static"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 MAX_COOKIES = 5 * 1024 * 1024
 SSE_HEARTBEAT = 15
+LAYOUT_WAIT = 2.0
 
 log = logging.getLogger("vydra")
 
@@ -148,10 +149,19 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
             if stopping.wait(6 * 3600):
                 return
 
+    layout_ready = threading.Event()
+
+    def boot() -> None:
+        prepare_layout()
+        layout_ready.set()
+        initial_scan()
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        await run_in_threadpool(prepare_layout)
-        threading.Thread(target=initial_scan, name="library-init", daemon=True).start()
+        # Раскладку хранилища готовим до приёма запросов, но ждём не дольше LAYOUT_WAIT: на медленном
+        # диске (/mnt/c в WSL, сетевой диск) сервер всё равно должен ответить за секунды — остальное доделает фон
+        threading.Thread(target=boot, name="library-init", daemon=True).start()
+        await run_in_threadpool(layout_ready.wait, LAYOUT_WAIT)
         threading.Thread(target=freshness, name="ytdlp-freshness", daemon=True).start()
         log.info("выдра %s запущена, хранилище: %s", __version__, library.root)
         yield

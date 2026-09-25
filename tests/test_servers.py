@@ -167,3 +167,20 @@ def test_restart_quiet_when_nothing_runs(tmp_path, monkeypatch):
     monkeypatch.setenv("VD_WORK_DIR", str(tmp_path))
     result = runner.invoke(app, ["restart", "--quiet"])
     assert result.exit_code == 0 and result.output.strip() == ""
+
+
+def test_slow_library_does_not_delay_server_start(settings, monkeypatch):
+    """Хранилище на медленном диске (/mnt/c, сетевой диск): сервер всё равно отвечает за секунды."""
+    from fastapi.testclient import TestClient
+
+    from vydra import main
+    from vydra.library import Library
+
+    release = __import__("threading").Event()
+    monkeypatch.setattr(main, "LAYOUT_WAIT", 0.3)
+    monkeypatch.setattr(Library, "ensure_layout", lambda self: release.wait(10))
+    started = time.monotonic()
+    with TestClient(main.create_app(settings, watch=False), base_url="http://localhost") as client:
+        assert client.get("/api/health").status_code == 200
+        assert time.monotonic() - started < 3
+        release.set()

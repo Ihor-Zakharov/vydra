@@ -99,6 +99,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         **{k: SHARED[k] for k in ("format", "quality", "bitrate", "clip", "from", "to", "out", "folder", "yes")},
         "force": Opt(("--force", "--заново")),
         "yes_playlist": Opt(("--yes-playlist", "--весь-плейлист")),
+        "show": Opt(("--show", "--показать")),
     },
     "convert": {k: SHARED[k] for k in ("format", "bitrate", "clip", "from", "to", "out", "folder", "yes")},
     "info": {},
@@ -111,6 +112,7 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "limit": Opt(("--limit", "-n", "--сколько"), True),
         "paths": Opt(("--paths", "--пути")),
     },
+    "open": {"play": Opt(("--play", "--запустить"))},
     "folder": {
         "reset": Opt(("--reset", "--сброс")),
         "pick": Opt(("--pick", "--выбрать")),
@@ -143,6 +145,7 @@ COMMAND_ALIASES = {
     "stop": ("stop", "стоп", "остановить"),
     "restart": ("restart", "перезапустить"),
     "list": ("list", "список", "ls"),
+    "open": ("open", "показать", "открыть", "show"),
     "folder": ("folder", "папка"),
     "doctor": ("doctor", "доктор", "health"),
     "update": ("update", "обновить"),

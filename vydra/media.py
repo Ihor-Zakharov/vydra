@@ -174,16 +174,19 @@ class Media:
 
     def make_cover(self, image: Path, dst: Path) -> Path | None:
         """Превью ролика (webp/png/jpg) → JPEG для обложки MP3. Не вышло — просто без обложки."""
-        result = subprocess.run(
-            [
-                self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
-                "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(dst),
-            ],  # fmt: skip
-            capture_output=True,
-            check=False,
-            timeout=60,
-            **system.child_flags(),
-        )
+        try:
+            result = subprocess.run(
+                [
+                    self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+                    "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(dst),
+                ],  # fmt: skip
+                capture_output=True,
+                check=False,
+                timeout=60,
+                **system.child_flags(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
         return dst if result.returncode == 0 and dst.is_file() and dst.stat().st_size > 0 else None
 
     def make_poster(self, src: Path, dst: Path, probe: Probe) -> bool:

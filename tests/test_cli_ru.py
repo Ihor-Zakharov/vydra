@@ -155,16 +155,41 @@ def test_download_with_cyrillic_flags_prints_full_path(cli_env, make_clip, monke
 def test_no_url_takes_links_from_clipboard(cli_env, make_clip, monkeypatch):
     calls = []
     monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), calls))
-    monkeypatch.setattr(clipboard, "read", lambda: f"вот: {URL}")
+    monkeypatch.setattr(clipboard, "read_strict", lambda: f"вот: {URL}")
     result = runner.invoke(cli.app, ["скачать", "-ф", "мп3"])
     assert result.exit_code == 0, result.output
     assert "Ссылка из буфера" in result.output and calls[0]["url"] == URL
 
 
 def test_no_url_and_empty_clipboard_explains_both_ways(cli_env, monkeypatch):
-    monkeypatch.setattr(clipboard, "read", lambda: "не ссылка")
+    monkeypatch.setattr(clipboard, "read_strict", lambda: "мой-пароль-123")
     result = runner.invoke(cli.app, ["скачать", "-ф", "мп3"])
     assert result.exit_code == 1
+    assert "текст, но не ссылка" in result.output and "кавычках" in result.output
+    assert "мой-пароль" not in result.output  # содержимое буфера не печатаем
+
+
+def test_unavailable_clipboard_is_not_called_empty(cli_env, monkeypatch):
+    def broken():
+        raise clipboard.Unavailable("PowerShell не ответил за 8 с")
+
+    monkeypatch.setattr(clipboard, "read_strict", broken)
+    result = runner.invoke(cli.app, ["скачать"])
+    assert result.exit_code == 1
+    assert "не удалось" in result.output and "PowerShell не ответил" in result.output
+
+
+def test_clipboard_timeout_and_failure_are_unavailable(monkeypatch):
+    monkeypatch.setattr(system, "WINDOWS_LIKE", True)
+    monkeypatch.setattr(clipboard.shutil, "which", lambda name: "/x/powershell.exe")
+    seen = {}
+    monkeypatch.setattr(system, "powershell", lambda script, timeout=30, sta=False: seen.update(t=timeout))
+    with pytest.raises(clipboard.Unavailable):
+        clipboard.read_strict()
+    assert seen["t"] <= 10  # команда не ждёт PowerShell дольше нескольких секунд
+    assert clipboard.read() is None
+    monkeypatch.setattr(system, "powershell", lambda script, timeout=30, sta=False: "")
+    assert clipboard.read_strict() == ""  # пусто — это не ошибка
 
 
 def test_nothing_downloaded_is_a_failure_not_done(cli_env, monkeypatch):
@@ -218,3 +243,42 @@ def test_folder_move_via_cli(cli_env, make_clip, monkeypatch):
     assert result.exit_code == 0, result.output
     assert (cli_env / "новая" / "TikTok" / "Видео" / "клип.mp4").is_file()
     assert not (cli_env / "старая").exists()
+
+
+# --- показать в папке ---------------------------------------------------------------------
+
+
+@needs_ffmpeg
+def test_download_show_reveals_the_file(cli_env, make_clip, monkeypatch):
+    shown = []
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), []))
+    monkeypatch.setattr(system, "reveal", shown.append)
+    result = runner.invoke(cli.app, ["d", URL, "-f", "mp3", "--показать"])
+    assert result.exit_code == 0, result.output
+    assert [p.name for p in shown] == ["Ролик.mp3"] and shown[0].is_file()
+    assert "Показываю в папке" in result.output
+
+
+def test_open_command_reveals_latest_or_match(cli_env, monkeypatch):
+    lib = cli_env / "lib"
+    runner.invoke(cli.app, ["папка"])  # раскладка хранилища
+    (lib / "YouTube" / "Видео" / "Старое.mp4").write_bytes(b"x")
+    newer = lib / "TikTok" / "Аудио" / "Новое.mp3"
+    newer.write_bytes(b"x")
+    import os
+    import time
+
+    os.utime(lib / "YouTube" / "Видео" / "Старое.mp4", (time.time() - 100, time.time() - 100))
+    shown, played = [], []
+    monkeypatch.setattr(system, "reveal", shown.append)
+    monkeypatch.setattr(system, "open_path", played.append)
+    assert runner.invoke(cli.app, ["показать"]).exit_code == 0
+    assert runner.invoke(cli.app, ["open", "стар", "--play"]).exit_code == 0
+    assert [p.name for p in shown] == ["Новое.mp3"] and [p.name for p in played] == ["Старое.mp4"]
+    result = runner.invoke(cli.app, ["open", "нет-такого"])
+    assert result.exit_code == 1 and "нет файла" in result.output
+
+
+def test_open_command_on_empty_library(cli_env):
+    result = runner.invoke(cli.app, ["открыть"])
+    assert result.exit_code == 1 and "пусто" in result.output
