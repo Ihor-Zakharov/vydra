@@ -303,3 +303,33 @@ def test_console_shutdown_cleans_interrupted_jobs(settings, library, monkeypatch
     manager.shutdown()
     assert running.status == "cancelled"
     assert not any((settings.work_dir / "jobs").iterdir())
+
+
+def test_console_library_starts_no_background_ffmpeg(settings):
+    """Консоль живёт секунды: фоновые постеры (ffmpeg) пережили бы её сиротами."""
+    from vydra.config import Prefs
+    from vydra.library import Library
+    from vydra.media import Media
+
+    def enrichers():
+        return sum(1 for t in threading.enumerate() if t.name == "library-enrich")
+
+    before = enrichers()
+    Library(Prefs(settings), Media(settings), enrich=False)
+    assert enrichers() == before
+    from vydra import cli
+
+    assert "enrich=False" in open(cli.__file__, encoding="utf-8").read()
+
+
+@pytest.mark.parametrize("persist", [False, True])
+def test_failed_conversion_keeps_upload_only_for_the_server(settings, library, persist):
+    """Сервер хранит исходник для «Повторить»; консоль повторять не умеет — копию убирает (найдено Ctrl+C-тестом)."""
+    manager = JobManager(settings, library, persist=persist)
+    upload = manager.new_upload_dir() / "не-видео.mp4"
+    upload.write_text("это не видео")
+    job = manager.submit(Job(kind="file", source=upload.name, mode="mp3", input_path=upload))
+    assert wait_for(lambda: job.status in FINAL)
+    manager.shutdown()
+    assert job.status == "error"
+    assert upload.parent.exists() is persist

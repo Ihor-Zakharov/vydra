@@ -631,8 +631,9 @@ class JobManager:
         job.finished = time.time()
         log.info("job %s %s files=%d error=%s", job.id, status, len(job.files), error)
         _wipe(self.jobs_root / job.id)
-        # исходник своего файла храним до успеха: без него не получится «Повторить»
-        if status == "done" and job.input_path is not None:
+        # исходник своего файла храним до успеха: без него не получится «Повторить» (у консоли повтора нет)
+        if (job.input_path is not None and job.input_path.parent.parent == self.uploads_dir
+                and (status == "done" or self.store is None)):
             shutil.rmtree(job.input_path.parent, ignore_errors=True)
         self.changed()
 

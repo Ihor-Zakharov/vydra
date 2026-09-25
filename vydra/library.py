@@ -180,7 +180,9 @@ def _platform_from_path(rel: str) -> str:
 
 
 class Library:
-    def __init__(self, prefs: Prefs, media: Media):
+    def __init__(self, prefs: Prefs, media: Media, enrich: bool = True):
+        """enrich=False — без фоновых постеров и длительностей (консоль: она живёт секунды, а ffmpeg,
+        запущенный фоном, пережил бы её сиротой; постеры доделает сервер при следующем запуске)."""
         self.prefs = prefs
         self.media = media
         self._lock = threading.RLock()
@@ -196,7 +198,8 @@ class Library:
         self._watching = threading.Event()
         self._idle = threading.Event()  # снят, пока хранилище переезжает в другую папку
         self._idle.set()
-        threading.Thread(target=self._enrich_loop, name="library-enrich", daemon=True).start()
+        if enrich:
+            threading.Thread(target=self._enrich_loop, name="library-enrich", daemon=True).start()
 
     # --- пути ----------------------------------------------------------------------------
 

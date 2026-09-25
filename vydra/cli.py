@@ -287,7 +287,7 @@ def make_env(out: Path | None = None) -> Env:
     diagnostics.setup_logging(settings)  # подробности и ошибки — в журнал, а не поверх прогресс-баров
     if out is not None:
         settings = dataclasses.replace(settings, fixed_library=out.expanduser().resolve())
-    library = Library(Prefs(settings), Media(settings))
+    library = Library(Prefs(settings), Media(settings), enrich=False)
     try:
         library.ensure_layout()
     except OSError as exc:
@@ -1027,7 +1027,7 @@ def list_items(
     """Что лежит в хранилище. [dim](синонимы: список, ls)[/]"""
     json_mode(as_json)
     settings = Settings.from_env()
-    library = Library(Prefs(settings), Media(settings))
+    library = Library(Prefs(settings), Media(settings), enrich=False)
     items = library.items()
     stats = library.stats()
     if kind:
@@ -1080,7 +1080,7 @@ def open_cmd(
 ) -> None:
     """Показать скачанный файл выделенным в Проводнике / Finder. [dim](синонимы: показать, открыть)[/]"""
     settings = Settings.from_env()
-    library = Library(Prefs(settings), Media(settings))
+    library = Library(Prefs(settings), Media(settings), enrich=False)
     items = library.items()
     if query:
         wanted = query.casefold()
@@ -1116,7 +1116,7 @@ def folder(
     """Где лежат файлы; сменить папку (с --перенести — вместе со скачанным). [dim](синоним: папка)[/]"""
     settings = Settings.from_env()
     diagnostics.setup_logging(settings)
-    library = Library(Prefs(settings), Media(settings))
+    library = Library(Prefs(settings), Media(settings), enrich=False)
     banner("хранилище")
     new: Path | None = None
     try:
@@ -1223,7 +1223,7 @@ def doctor(
 
     settings = Settings.from_env()
     diagnostics.setup_logging(settings)
-    library = Library(Prefs(settings), Media(settings))
+    library = Library(Prefs(settings), Media(settings), enrich=False)
     doc = Doctor(settings, library)
     banner("доктор")
     with console.status(Text("Проверяю систему…", style="dim"), spinner="dots"):
