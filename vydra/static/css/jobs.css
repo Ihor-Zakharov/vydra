@@ -1,97 +1,184 @@
-/* выдра — загрузки: очередь, карточки задач, карточка вопроса. Остров живёт во вкладке «Очередь» (shell.css). */
+/* выдра — загрузки: экран «Очередь», карточки задач (кадр плёнки), карточка вопроса (DIRECTION §7.3).
+   Остров живёт во вкладке «Очередь» — его вид в shell.css, поведение — секция «Dynamic Island» в app.js. */
 
-/* ---------- очередь: кадры плёнки ---------- */
+/* ---------- экран «Очередь»: список от --datum, не шире 1040 — справа остаётся расфокусированная дыра ---------- */
 
-.jobs { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.job { position: relative; display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 18px; padding: 14px; border: 1px solid var(--hair); transition: border-color .4s, box-shadow .5s; border-radius: var(--r-xl); background: #0b0b0e; border-color: var(--line-1); }
+.jobs { position: relative; list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; max-width: 1040px; }
+
+/* ---------- карточка ---------- */
+
+.job {
+  position: relative; display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 12px;
+  border: 1px solid var(--line-1); border-radius: var(--r-xl); background: var(--s1);
+  scroll-margin-top: calc(var(--topbar-h) + 16px);
+  transition: border-color var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out);
+}
 .job.active { border-color: var(--line-3); box-shadow: 0 0 0 1px rgba(255, 255, 255, .06), 0 30px 80px -40px rgba(255, 255, 255, .18); }
-.job.st-waiting { border-color: color-mix(in oklab, var(--el-b) 55%, var(--hair)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--el-b) 25%, transparent), 0 14px 50px -26px var(--el-b); }
-.job.st-error { border-color: color-mix(in oklab, var(--err) 40%, var(--hair)); }
-.job.st-cancelled { opacity: 1; }
-.job-frame { position: relative; align-self: start; aspect-ratio: 16 / 10; padding: 11px 0; background: #030304; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); border-radius: var(--r-m); }
-.job-frame::before, .job-frame::after { content: ""; position: absolute; left: 4px; right: 4px; height: 7px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='13' height='7'%3E%3Crect x='3' y='1' width='7' height='5' rx='1.4' fill='%23fff' fill-opacity='.42'/%3E%3C/svg%3E") repeat-x; }
-.job-frame::before { top: 2px; } .job-frame::after { bottom: 2px; }
-.job.active .job-frame { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--el-a) 50%, transparent), var(--el-glow-soft); }
-.job-thumb { position: relative; width: 100%; height: 100%; border-radius: 4px; overflow: hidden; display: grid; place-items: center; background: linear-gradient(135deg, #1a1a22, #0b0b10); }
-.job-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: fade-in .5s var(--ease-out); transition: filter .8s; }
-.job.st-done .job-thumb img { filter: grayscale(1) contrast(.9) brightness(.85); }
-.job.st-done .job-frame { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .18); }
-.job-thumb-icon { width: 30px; height: 30px; color: rgba(255, 255, 255, .6); }
+.job.st-waiting { border-color: color-mix(in srgb, var(--warn) 40%, transparent); box-shadow: none; }
+.job.st-error { border-color: color-mix(in srgb, var(--err) 42%, transparent); }
+
+/* кадр 180×101 — отрезок плёнки: полосы перфорации по 8 px, окно 180×85; кольца цвета платформы нет (монохром §1.2) */
+.job-frame {
+  position: relative; align-self: start; width: 180px; height: 101px; padding: 8px 0; border-radius: var(--r-m);
+  background: #000; box-shadow: inset 0 0 0 1px var(--line-1);
+  transition: opacity var(--t-base) var(--ease-out), filter var(--t-base) var(--ease-out);
+}
+/* перфорация: отверстие 6×4 r1,2 в плитке 12×8 — 13 целых отверстий, поровну до краёв, 10 px от боковых краёв; статична */
+.job-frame::before, .job-frame::after {
+  content: ""; position: absolute; left: 10px; right: 10px; height: 8px; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Crect x='3' y='2' width='6' height='4' rx='1.2' fill='%23fff' fill-opacity='.28'/%3E%3C/svg%3E") 0 0 / 12px 8px space no-repeat;
+}
+.job-frame::before { top: 0; }
+.job-frame::after { bottom: 0; }
+.job-thumb { position: relative; width: 100%; height: 100%; border-radius: 2px; overflow: hidden; display: grid; place-items: center; background: #000; }
+.job-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: fade-in var(--t-slow) var(--ease-out); }
+.job-thumb-icon { width: 20px; height: 20px; color: var(--ink-3); }
+
+/* бейдж платформы (общий с превью и плиткой хранилища) */
 .job-badge, .pv-badge, .tile-pf { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: rgba(0, 0, 0, .55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .15); }
-.job-badge { position: absolute; left: 8px; top: 16px; }
 .job-badge svg, .pv-badge svg, .tile-pf svg { width: 14px; height: 14px; }
 .pf-youtube { color: #ff3b3b; } .pf-instagram { color: #f36f9a; } .pf-tiktok { color: #fff; }
 .pf-tiktok svg { filter: drop-shadow(1px .7px 0 #fe2c55) drop-shadow(-1px -.7px 0 #25f4ee); }
-.job-check { position: absolute; right: -8px; bottom: -8px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: #000; background: #fff; box-shadow: 0 0 0 4px var(--bg), var(--white-glow); opacity: 0; transform: scale(.3); transition: opacity .25s, transform .5s var(--ease-out); }
-:root[data-theme="light"] .job-check { background: var(--ink); color: #fff; }
-.job-check svg { width: 16px; height: 16px; stroke-width: 3.2; }
-.job.st-done .job-check { opacity: 1; transform: none; }
-.job-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.job-top { display: flex; align-items: flex-start; gap: 10px; }
-.job-title { flex: 1; min-width: 0; margin: 2px 0 0; font-weight: 600; font-size: 16px; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
-.job-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
-.job-cancel, .job-retry { margin: -4px -4px 0 0; }
-.job:not(.active) .job-cancel { display: none; }
-.job-bar { position: relative; margin-top: 2px; height: 6px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .10) 0 6px, transparent 6px 8px); }
-.job-fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--p, 0)); transition: transform .6s var(--ease-out); background: var(--el-a); -webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px); box-shadow: none; }
-.job-glow { position: absolute; inset: 0; background: var(--el); filter: blur(7px); opacity: .5; transform-origin: left; transform: scaleX(var(--p, 0)); transition: transform .6s var(--ease-out), opacity .6s; pointer-events: none; }
-:root[data-theme="light"] .job-glow { display: none; }
-.job.indet .job-fill { transform: none; background: linear-gradient(90deg, transparent 0, var(--el-a) 50%, transparent 100%) 0 0 / 40% 100% no-repeat; animation: sweep 1.25s var(--ease-out) infinite; }
-.job.indet .job-glow, .job.st-done .job-glow, .job.st-waiting .job-glow { opacity: 0; }
-.job.st-waiting .job-fill { animation: none; background: var(--el-b); opacity: .5; transform: scaleX(var(--p, 0)); }
-@keyframes sweep { from { background-position: -60% 0; } to { background-position: 160% 0; } }
-.job.st-done .job-fill { background: var(--ink); }
-.job.st-error .job-fill { background: var(--err); opacity: .6; }
-.job-status { display: flex; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--ink-2); }
-.job-stage { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job-stage .countdown { font-family: var(--font-mono); color: var(--ink); }
-.job-nums { font: 500 12.5px/1.6 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink); }
-.job-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
-.job-notes li { display: flex; gap: 8px; align-items: flex-start; font: 500 12.5px/1.45 var(--font-mono); color: var(--ink-3); }
-.job-notes li::before { content: ""; width: 6px; height: 1px; margin-top: 9px; background: var(--hair-2); flex: none; }
-/* карточка решения: «не выходит — вот другой вариант — продолжить?» */
-.job-ask { display: grid; gap: 10px; padding: 14px 16px; border-radius: 14px; border: 1px solid color-mix(in oklab, var(--el-b) 45%, var(--hair)); background: color-mix(in oklab, var(--el-b) 7%, var(--panel)); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--el-b) 12%, transparent); outline: none; }
-.ask-head { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: 15px; }
-.ask-head svg { width: 18px; height: 18px; color: var(--el-b); filter: drop-shadow(0 0 6px var(--el-b)); }
-.ask-msg { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.5; text-wrap: pretty; }
-.ask-options { display: flex; flex-wrap: wrap; gap: 8px; }
-.ask-options .btn { height: 38px; }
-.ask-hint { font: 500 12px/1.4 var(--font-mono); color: var(--ink-3); }
-.job-note { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; font-size: 14px; padding: 10px 12px; border-radius: 12px; }
-.job-note > svg { width: 17px; height: 17px; flex: none; }
-.job-note > span { flex: 1 1 240px; min-width: 0; }
-.job-note.err { color: var(--err); background: color-mix(in oklab, var(--err) 12%, transparent); }
-.job-note.warn { color: var(--warn); background: color-mix(in oklab, var(--warn) 12%, transparent); }
-.job-note.info { color: var(--ink-2); background: var(--surface); }
-.job-note .btn { height: 32px; padding: 0 11px; font-size: 13px; color: var(--ink); }
-.job-files { display: grid; gap: 8px; }
-.job-files:empty { display: none; }
-.job-file { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 8px 8px 12px; border-radius: 12px; border: 1px solid var(--hair); background: var(--surface); }
-.job-file-kind { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px/1 var(--font-mono); color: var(--ink); }
-.job-file-kind svg { width: 15px; height: 15px; color: var(--el-a); }
-.where { display: inline-flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 200px; font: 500 12px/1.4 var(--font-mono); color: var(--ink-3); }
-.where .p-dir { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.where .p-name { flex: none; color: var(--ink-2); white-space: nowrap; }
-.where:empty { display: none; }
-.job-file-actions { display: inline-flex; gap: 6px; margin-left: auto; }
-.job-file-actions .btn { height: 32px; padding: 0 11px; font-size: 13px; }
-.job-file-actions .btn svg { width: 15px; height: 15px; }
-@keyframes fade-in { from { opacity: 0; } }
+.job-badge { position: absolute; left: 8px; top: 14px; width: 24px; height: 24px; }
+.job-badge svg { width: 13px; height: 13px; }
 
-/* ---------- «Затмение»: плиты, дорожка сегментами, цвет задачи — только в заливке (DIRECTION §7.3) ---------- */
+/* ✓ готово — кружок --ok 18 % на правом нижнем углу окна кадра (зеркально бейджу платформы) */
+.job-check {
+  position: absolute; right: 8px; bottom: 14px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center;
+  color: var(--ok); background: color-mix(in srgb, var(--ok) 18%, #000); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 30%, transparent);
+  opacity: 0; transition: opacity var(--t-base) var(--ease-out);
+}
+.job-check svg { width: 14px; height: 14px; stroke-width: 2.4; }
+.job.st-done .job-check { opacity: 1; }
+
+/* отменено — гаснет кадр, а не текст */
+.job.st-cancelled .job-frame { opacity: .45; filter: grayscale(1); }
+
+/* ---------- текст и действия ---------- */
+
+.job-main { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.job-top { display: flex; align-items: flex-start; gap: 12px; min-height: 32px; }
+.job-title {
+  flex: 1; min-width: 0; margin: 6px 0 0; font: 600 15px/1.3 var(--font-text); letter-spacing: -.01em; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.job.st-cancelled .job-title { color: var(--ink-2); }
+.job-cancel, .job-retry { flex: none; margin: 0; }
+.job:not(.active) .job-cancel { display: none; }
+.job-retry { height: 32px; padding: 0 12px; font-size: 13px; }
+.job .glass { background: rgba(8, 8, 10, .82); border-color: var(--line-2); box-shadow: none; }
+
+.job-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.job-meta .meta-chip { height: 26px; padding: 0 8px; border-radius: var(--r-xs); font: 500 11.5px/1 var(--font-mono); letter-spacing: .02em; color: var(--ink-2); }
+.job-meta .meta-chip svg { width: 13px; height: 13px; flex: none; }
+
+/* ---------- дорожка: сегменты 6/2, цвет задачи — только в заливке ---------- */
 
 .job[data-p="youtube"] { --el-a: #ff3b3b; }
 .job[data-p="tiktok"] { --el-a: #25f4ee; }
 .job[data-p="instagram"] { --el-a: #f36f9a; }
 .job[data-p="other"] { --el-a: #3ee0a1; }
-.job.st-queued .job-fill, .job.st-queued .job-glow { opacity: 0; }
-.job.st-queued .job-bar { animation: queue-breath 2.4s ease-in-out infinite; }
-@keyframes queue-breath { 50% { opacity: .55; } }
-.job .glass { background: rgba(8, 8, 10, .82); border-color: var(--line-2); box-shadow: none; }
-.job.st-cancelled .job-frame { opacity: .45; filter: grayscale(1); }
-.job.st-cancelled .job-title { color: var(--ink-2); }
+.job { --job-fill: var(--el-a); }
+.job:is(.st-converting, .st-saving, .st-done) { --job-fill: rgba(255, 255, 255, .85); }
 
-/* ---------- адаптив ---------- */
+.job-bar { position: relative; height: 6px; margin-top: 4px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .10) 0 6px, transparent 6px 8px); }
+/* заливка режется clip-path, а не scaleX — сегменты маски стоят на месте и не сжимаются */
+.job-fill {
+  position: absolute; inset: 0; background: var(--job-fill);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px);
+  clip-path: inset(0 calc((1 - var(--p, 0)) * 100%) 0 0); transition: clip-path .6s var(--ease-out);
+}
+/* мягкое излучение под заливкой — только у скачивания с процентом */
+.job-glow {
+  position: absolute; inset: 0; background: var(--el-a); filter: blur(6px); opacity: 0; pointer-events: none;
+  transform-origin: left; transform: scaleX(var(--p, 0)); transition: transform .6s var(--ease-out), opacity var(--t-base) var(--ease-out);
+}
+.job.st-downloading:not(.indet) .job-glow { opacity: .3; }
+
+/* без процента: сегмент 28 % ширины бежит слева направо 1,6 с linear */
+.job.indet .job-fill {
+  clip-path: none; background: linear-gradient(var(--job-fill), var(--job-fill)) 0 0 / 28% 100% no-repeat;
+  animation: job-indet 1.6s linear infinite;
+}
+@keyframes job-indet { from { background-position: -39% 0; } to { background-position: 139% 0; } }
+
+/* в очереди — заливки нет, дорожка дышит; ждёт ответа, ошибка, отмена — дорожка пустая и спокойная */
+.job:is(.st-queued, .st-waiting, .st-error, .st-cancelled) :is(.job-fill, .job-glow) { display: none; }
+.job.st-queued .job-bar { animation: job-breath 2.4s ease-in-out infinite; }
+@keyframes job-breath { 50% { opacity: .55; } }
+@keyframes fade-in { from { opacity: 0; } } /* общий: им пользуется .dragveil (library.css) */
+
+/* ---------- стадия и цифры ---------- */
+
+.job-status { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13px; line-height: 1.4; color: var(--ink-2); }
+.job-stage { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-stage.retry { font: 500 12px/1.4 var(--font-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.job.st-done .job-stage { color: var(--ink); }
+.job.st-error .job-stage { color: var(--err); }
+.job.st-cancelled .job-stage { color: var(--ink-3); }
+.job-nums { flex: none; font: 500 12.5px/1.4 var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ink-2); }
+.job-nums b { font-weight: 500; color: var(--ink); }
+
+.job-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.job-notes li { display: flex; gap: 8px; align-items: flex-start; font: 500 12px/1.45 var(--font-mono); color: var(--ink-3); }
+.job-notes li::before { content: ""; width: 6px; height: 1px; margin-top: 8px; background: var(--line-3); flex: none; }
+
+/* ---------- вопрос: «не выходит — вот другой вариант — продолжить?» ---------- */
+
+.job-ask {
+  display: grid; gap: 8px; padding: 14px 16px; border-radius: var(--r-l); outline: none;
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); background: rgba(240, 182, 77, .06);
+}
+.ask-head { display: flex; align-items: center; gap: 10px; font-size: 14px; line-height: 1.4; font-weight: 600; color: var(--ink); }
+.ask-head svg { width: 18px; height: 18px; flex: none; color: var(--warn); }
+.ask-msg { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); text-wrap: pretty; }
+.ask-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.ask-options .btn { height: 36px; padding: 0 14px; font-size: 13.5px; }
+.ask-hint { font: 500 11.5px/1.4 var(--font-mono); color: var(--ink-3); }
+
+/* ---------- ошибка, предупреждение, заметка ---------- */
+
+.job-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--r-m); font-size: 13.5px; line-height: 1.45; border: 1px solid transparent; }
+.job-note > svg { width: 16px; height: 16px; flex: none; }
+.job-note > span { flex: 1 1 auto; min-width: 0; }
+.job-note.err { color: var(--err); background: rgba(255, 95, 115, .08); border-color: color-mix(in srgb, var(--err) 30%, transparent); }
+.job-note.warn { color: var(--warn); background: rgba(240, 182, 77, .06); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.job-note.info { color: var(--ink-2); background: var(--surface); border-color: var(--line-1); }
+.job-note .btn { flex: none; height: 32px; padding: 0 12px; font-size: 13px; color: var(--ink); }
+
+/* ---------- готовый файл: плита 44, путь с «…» в середине (сжимает app.js), имя файла целиком ---------- */
+
+.job-files { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.job-files:empty { display: none; }
+.job-file {
+  display: flex; align-items: center; gap: 12px; min-width: 0; height: 44px; padding: 0 8px 0 12px;
+  border-radius: var(--r-m); background: var(--s2); box-shadow: inset 0 0 0 1px var(--line-1);
+}
+.job-file-kind { flex: none; display: inline-flex; align-items: center; gap: 8px; font: 500 12.5px/1 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.job-file-kind svg { width: 16px; height: 16px; color: var(--el-a); }
+.job-file .where { flex: 1 1 0; min-width: 0; display: flex; overflow: hidden; white-space: nowrap; font: 500 12px/1.4 var(--font-mono); color: var(--ink-2); }
+.job-file .where .p-dir { flex: none; }
+.job-file .where .p-name { flex: none; color: var(--ink); }
+.job-file-actions { flex: none; display: inline-flex; gap: 6px; margin-left: auto; }
+.job-file-actions .btn { height: 32px; padding: 0 12px; font-size: 13px; gap: 6px; }
+.job-file-actions .btn svg { width: 16px; height: 16px; }
+
+/* ---------- пустая очередь: блок от --datum, 64 под заголовком ---------- */
+
+.queue-empty { display: grid; justify-items: start; width: 440px; max-width: 100%; margin-top: 40px; }
+.qe-mark { position: relative; width: 48px; height: 48px; margin-bottom: 16px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-3); }
+.qe-mark::after { content: ""; position: absolute; left: 21px; top: 21px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); }
+.qe-title { margin: 0; font: 600 17px/1.3 var(--font-text); letter-spacing: -.01em; color: var(--ink); }
+.qe-text { margin: 4px 0 0; font-size: 14px; line-height: 1.5; color: var(--ink-2); }
+/* текстовая кнопка: текст на линии --datum, подложка наведения выходит за линию на свои 12 px (как «Убрать завершённые») */
+.queue-empty .text-btn { margin: 12px 0 0 -12px; }
+
+/* ---------- светлая тема (скрыта, правила не удалять) ---------- */
+
+:root[data-theme="light"] .job-check { background: var(--ink); color: #fff; }
+:root[data-theme="light"] .job-glow { display: none; }
+
+/* ---------- адаптив (телефон — потом; правила прежние) ---------- */
 
 @media (max-width: 960px) {
   .job { grid-template-columns: 132px minmax(0, 1fr); }
@@ -105,8 +192,10 @@
   .job-file-actions { margin-left: 0; }
 }
 
-/* ---------- меньше движения ---------- */
+/* ---------- меньше движения: дыхание стоит, неопределённый сегмент стоит на 35 % ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  .job.st-queued .job-bar { animation: none; }
+  .job.st-queued .job-bar, .job.indet .job-fill { animation: none; }
+  .job.indet .job-fill { opacity: .35; }
 }
+.motion-off .job.indet .job-fill { opacity: .35; }

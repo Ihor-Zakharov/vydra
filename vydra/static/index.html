@@ -151,7 +151,7 @@
       <dl class="readout" id="readout" aria-label="Состояние хранилища">
         <div><dt>файлов</dt><dd id="ro-count">—</dd></div>
         <div><dt>объём</dt><dd id="ro-size">—</dd></div>
-        <div><dt>активно</dt><dd id="ro-active">0</dd></div>
+        <div><dt>активно</dt><dd id="ro-active">—</dd></div>
         <div><dt>скорость</dt><dd id="ro-speed">—</dd></div>
       </dl>
 
@@ -177,7 +177,7 @@
               <div class="portal-ring" aria-hidden="true"></div>
               <div class="portal-body glass">
                 <span class="portal-glyph" id="portal-glyph" aria-hidden="true"><svg><use href="#i-link"/></svg></span>
-                <textarea id="url" rows="1" spellcheck="false" autocapitalize="off" placeholder="Ссылка на видео — или несколько, каждая с новой строки" aria-label="Ссылка на видео"></textarea>
+                <textarea id="url" rows="1" spellcheck="false" autocapitalize="off" placeholder="Ссылка на видео — одна или несколько" title="Одна или несколько ссылок — каждая с новой строки" aria-label="Ссылка на видео"></textarea>
                 <button class="ghost-btn" id="paste" type="button" title="Вставить из буфера обмена (Ctrl+V)"><svg><use href="#i-clipboard"/></svg><span>Вставить</span></button>
                 <button class="go-btn" id="go" type="submit" aria-label="Скачать" title="Скачать (Enter)"><svg><use href="#i-arrow-down"/></svg></button>
               </div>
@@ -190,7 +190,7 @@
               <input type="file" id="file-input" multiple accept="video/*,audio/*,.mkv,.webm,.flv,.avi,.mov,.m4a,.opus,.ogg,.wav,.flac">
               <span class="dz-orb" aria-hidden="true"><svg><use href="#i-upload"/></svg></span>
               <span class="dz-title">Перетащите видео или аудио сюда</span>
-              <span class="dz-sub">или <u>выберите файлы</u> — сконвертирую в выбранный формат и положу в хранилище</span>
+              <span class="dz-sub">или <u>выберите файлы</u> — сконвертирую и положу в хранилище</span>
             </label>
           </div>
 
@@ -274,6 +274,12 @@
         <button class="text-btn" id="clear-jobs" type="button"><svg><use href="#i-sweep"/></svg>Убрать завершённые</button>
       </div>
       <ol class="jobs" id="jobs"></ol>
+      <div class="queue-empty" id="queue-empty" hidden>
+        <span class="qe-mark" aria-hidden="true"></span>
+        <p class="qe-title">Очередь пуста</p>
+        <p class="qe-text">Вставьте ссылку на главном — загрузки появятся здесь</p>
+        <button class="text-btn" id="queue-to-link" type="button"><svg><use href="#i-link"/></svg>К ссылке</button>
+      </div>
     </section>
   </main>
 
@@ -348,7 +354,7 @@
 
   <dialog class="player" id="player" aria-labelledby="player-title">
     <div class="player-box" tabindex="-1" autofocus>
-      <button class="glass icon-btn player-close" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      <button class="icon-btn player-close" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       <div class="player-stage" id="player-stage"></div>
       <div class="player-info">
         <div class="player-head">
@@ -357,18 +363,17 @@
           <p class="where" id="player-where"></p>
         </div>
         <div class="player-actions">
-          <button class="glass chip-btn" data-act="open" type="button" title="Открыть файл в вашем плеере (VLC, «Кино и ТВ»…)"><svg><use href="#i-external"/></svg>Открыть</button>
-          <button class="glass chip-btn" data-act="reveal" type="button" title="Показать файл в Проводнике"><svg><use href="#i-folder"/></svg>Показать в папке</button>
-          <a class="glass chip-btn" data-act="download" download><svg><use href="#i-download"/></svg>Скачать копию</a>
-          <a class="glass chip-btn" data-act="source" target="_blank" rel="noopener noreferrer"><svg><use href="#i-link"/></svg>Источник</a>
-          <span class="danger-zone">
-            <button class="glass chip-btn danger" data-act="delete" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
-            <span class="confirm" hidden>
-              <span>В Корзину?</span>
-              <button class="chip-btn danger solid" data-act="delete-yes" type="button">Да, удалить</button>
-              <button class="glass chip-btn" data-act="delete-no" type="button">Нет</button>
-            </span>
-          </span>
+          <button class="chip-btn" data-act="open" type="button" title="Открыть файл в вашем плеере (VLC, «Кино и ТВ»…)"><svg><use href="#i-play"/></svg>Открыть</button>
+          <button class="chip-btn" data-act="reveal" type="button" title="Показать файл в Проводнике"><svg><use href="#i-folder"/></svg>Показать в папке</button>
+          <a class="chip-btn" data-act="download" download><svg><use href="#i-download"/></svg>Скачать копию</a>
+          <a class="chip-btn" data-act="source" target="_blank" rel="noopener noreferrer"><svg><use href="#i-external"/></svg>Открыть источник</a>
+          <button class="chip-btn" data-act="copy-source" type="button" aria-label="Скопировать ссылку" title="Скопировать ссылку"><svg><use href="#i-link"/></svg>Скопировать ссылку</button>
+          <button class="chip-btn danger" data-act="delete" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
+          <div class="confirm" role="group" aria-label="Удалить файл" hidden>
+            <span class="confirm-q">В Корзину?</span>
+            <button class="chip-btn danger solid" data-act="delete-yes" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
+            <button class="chip-btn" data-act="delete-no" type="button">Отмена</button>
+          </div>
         </div>
       </div>
     </div>
@@ -382,18 +387,34 @@
           <p class="drawer-kicker"><svg><use href="#i-sliders"/></svg>Настройки</p>
           <h3 id="settings-title">Где хранить и как качать</h3>
         </div>
-        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       </header>
       <div class="drawer-scroll">
-        <section class="card-block">
-          <h4><svg><use href="#i-drive"/></svg>Папка для загрузок <span class="tag" id="lib-tag"></span></h4>
-          <p class="path-now" id="lib-path">…</p>
-          <p class="fixed-note" id="lib-fixed" hidden>Папка задана переменной окружения VD_LIBRARY_DIR и из интерфейса не меняется.</p>
-          <div class="btn-row">
-            <button class="btn primary" id="pick-folder" type="button"><svg><use href="#i-folder-open"/></svg><span>Выбрать…</span></button>
-            <button class="glass btn" id="open-folder-2" type="button"><svg><use href="#i-external"/></svg>Открыть папку</button>
-            <button class="glass btn" id="reset-folder" type="button"><svg><use href="#i-rotate"/></svg>По умолчанию</button>
+        <section class="card-block storage" id="storage-block">
+          <h4><svg><use href="#i-drive"/></svg>Хранилище <span class="tag" id="lib-tag"></span></h4>
+          <div class="lib-now">
+            <p class="path-now" id="lib-path"><span class="pn-dir"></span><span class="pn-name">…</span></p>
+            <p class="lib-stats" id="lib-stats"></p>
           </div>
+          <p class="fixed-note" id="lib-fixed" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Папка задана переменной VD_LIBRARY_DIR</p>
+          <div class="btn-row lib-actions">
+            <button class="btn primary" id="pick-folder" type="button"><svg><use href="#i-folder-open"/></svg><span>Выбрать папку…</span></button>
+            <button class="btn" id="open-folder-2" type="button"><svg><use href="#i-external"/></svg>Открыть</button>
+            <button class="text-btn" id="reset-folder" type="button" title="Вернуть «Загрузки/VideoDownloader»"><svg><use href="#i-rotate"/></svg>Сбросить</button>
+          </div>
+          <div class="lib-guide" id="lib-guide">
+            <p class="lg-title">Что будет с уже скачанным</p>
+            <dl>
+              <dt>Перенести</dt><dd>файлы, обложки, отрезки и ссылки на источник переедут в новую папку; на другой диск — копированием, загрузки подождут</dd>
+              <dt>Оставить</dt><dd>файлы останутся в прежней папке, выдра её запомнит — перенести можно позже</dd>
+            </dl>
+          </div>
+          <div class="lib-move" id="lib-move" hidden>
+            <div class="lm-track" aria-hidden="true"><i id="lm-fill"></i></div>
+            <p class="lm-text" id="lm-text" role="status"></p>
+            <p class="lm-sub">загрузки подождут</p>
+          </div>
+          <p class="lib-move-err" id="lib-move-err" role="alert" hidden></p>
           <form class="path-form" id="path-form">
             <input class="glass" id="path-input" type="text" spellcheck="false" autocomplete="off" placeholder="…или впишите путь: D:\Видео" aria-label="Новый путь к папке для загрузок">
             <button class="glass btn" type="submit">Применить</button>
@@ -435,7 +456,7 @@
           <p class="drawer-kicker"><svg><use href="#i-pulse"/></svg>Диагностика</p>
           <h3 id="health-title">Состояние системы</h3>
         </div>
-        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       </header>
       <div class="health-summary" id="health-summary"></div>
       <div class="btn-row health-actions">
@@ -452,24 +473,30 @@
     <div class="modal-box" tabindex="-1" autofocus>
       <header class="drawer-head">
         <div><p class="drawer-kicker"><svg><use href="#i-folder"/></svg><span id="folder-kicker">Папка</span></p><h3 id="folder-title">Куда переместить?</h3></div>
-        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       </header>
-      <div class="move-tree" id="folder-tree"></div>
+      <div class="move-tree" id="folder-tree" role="tree" aria-labelledby="folder-title"></div>
+      <p class="move-ask" id="move-ask" hidden></p>
       <div class="btn-row modal-actions">
         <button class="btn primary" id="folder-confirm" type="button" disabled>Выбрать</button>
-        <button class="glass btn" data-close type="button">Отмена</button>
+        <button class="btn" id="folder-cancel" data-close type="button">Отмена</button>
+        <button class="btn primary" id="move-yes" type="button" hidden>Перенести</button>
+        <button class="btn" id="move-no" type="button" hidden>Оставить</button>
       </div>
     </div>
   </dialog>
 
   <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title">
     <div class="modal-box small" tabindex="-1" autofocus>
-      <h3 id="confirm-title">Удалить?</h3>
-      <p class="muted-text" id="confirm-text"></p>
+      <header class="drawer-head">
+        <div><p class="drawer-kicker"><svg><use href="#i-question"/></svg><span id="confirm-kicker">Вопрос</span></p><h3 id="confirm-title">Удалить?</h3></div>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+      </header>
+      <p class="modal-text" id="confirm-text"></p>
       <div class="btn-row modal-actions">
         <button class="btn primary" id="confirm-yes" type="button">Удалить</button>
-        <button class="glass btn" id="confirm-no" type="button" hidden>Оставить</button>
-        <button class="glass btn" data-close type="button">Отмена</button>
+        <button class="btn" id="confirm-no" type="button" hidden>Оставить</button>
+        <button class="btn" data-close type="button">Отмена</button>
       </div>
     </div>
   </dialog>
@@ -478,13 +505,13 @@
     <div class="modal-box" tabindex="-1" autofocus>
       <header class="drawer-head">
         <div><p class="drawer-kicker"><svg><use href="#i-keyboard"/></svg>Клавиши</p><h3 id="cheats-title">Горячие клавиши</h3></div>
-        <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+        <button class="icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       </header>
       <dl class="cheat-list">
         <dt><kbd>Ctrl</kbd><kbd>V</kbd></dt><dd>вставить ссылку где угодно на странице</dd>
         <dt><kbd>Enter</kbd></dt><dd>скачать · открыть файл или папку · принять предложение</dd>
         <dt><kbd>Esc</kbd></dt><dd>закрыть · снять выделение · отказаться от предложения</dd>
-        <dt><kbd>/</kbd></dt><dd>поиск по хранилищу</dd>
+        <dt><kbd>/</kbd></dt><dd>поиск в библиотеке</dd>
         <dt><kbd>?</kbd></dt><dd>эта подсказка</dd>
         <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>ходить по файлам · переключать пилюли · двигать ручки отрезка</dd>
         <dt><kbd>Backspace</kbd></dt><dd>папка выше</dd>

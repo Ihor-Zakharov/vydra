@@ -440,13 +440,14 @@ function renderClipRow() {
   sEl.parentElement.classList.toggle('invalid', Number.isNaN(s));
   eEl.parentElement.classList.toggle('invalid', Number.isNaN(e));
   const out = $('#clip-len');
-  out.classList.remove('bad');
+  out.classList.remove('bad', 'word');
   const sel = $('#clip-mini-sel');
   sel.style.setProperty('--a', '0%'); sel.style.setProperty('--b', '100%');
   if (Number.isNaN(s) || Number.isNaN(e)) { out.textContent = 'формат: 1:30 или 90'; out.classList.add('bad'); return; }
   if (s != null && e != null && e <= s) { out.textContent = 'конец раньше начала'; out.classList.add('bad'); return; }
-  if (s == null && e == null) { out.textContent = 'весь ролик'; return; }
+  if (s == null && e == null) { out.textContent = 'весь ролик'; out.classList.add('word'); return; }
   out.textContent = e != null ? `= ${fmtTime(e - (s || 0))}` : `с ${fmtTime(s)} до конца`;
+  out.classList.toggle('word', e == null);
   const d = Math.max(e || 0, (s || 0) * 1.6, 1);
   sel.style.setProperty('--a', `${((s || 0) / d) * 100}%`); sel.style.setProperty('--b', `${((e ?? d) / d) * 100}%`);
 }
@@ -508,7 +509,6 @@ function setPlatform(p) {
   g.innerHTML = svgUse(p === 'none' ? '#i-link' : glyph(p));
   if (!REDUCED) { const m = motionOf(g); m.from({ s: 0.6, r: -12 }); m.to({ s: 1, r: 0 }, { response: 0.42, damping: 0.7 }); }
   $$('.pf').forEach((el) => el.classList.toggle('lit', el.dataset.p === p));
-  portal.classList.toggle('lit', p !== 'none');
   applyAccent();
 }
 function autoGrow() { urlBox.style.height = 'auto'; urlBox.style.height = `${Math.min(urlBox.scrollHeight, 180)}px`; }
@@ -516,7 +516,9 @@ let pvTimer = 0;
 function onUrlInput() {
   autoGrow();
   const urls = extractUrls(urlBox.value);
-  setPlatform(urls.length ? detectPlatform(urls[0]) : 'none');
+  // несколько ссылок — излучение нейтральное: кайма белая, глиф без платформы (§4.4, §7.2 multi-links)
+  setPlatform(urls.length === 1 ? detectPlatform(urls[0]) : 'none');
+  portal.classList.toggle('lit', urls.length > 0);
   applyAccent();
   clearTimeout(pvTimer);
   if (!urls.length) { setPreview(null); return; }
@@ -597,7 +599,11 @@ async function submitLinks(extra = {}) {
       return submitLinks(extra);
     }
     toast(err.message, 'err', { timeout: 6000 });
-  } finally { go.disabled = false; }
+  } finally {
+    go.disabled = false;
+    // disabled уводит фокус с «Скачать» в body — вернуть в поле, чтобы вставлять следующую ссылку (§7.2.1)
+    if (document.activeElement === document.body || document.activeElement === go) urlBox.focus({ preventScroll: true });
+  }
 }
 
 /* ============================== превью ссылки ============================== */
@@ -633,9 +639,9 @@ function setPreview(p) {
     return;
   }
   let card;
-  if (p.kind === 'multi') { applyHeights(null); card = h(`<div class="preview compact">${svgUse('#i-layers')}<span><b>${p.n} ${plural(p.n, 'ссылка', 'ссылки', 'ссылок')}</b> — превью покажу для одной, а скачаю все сразу</span></div>`); }
-  else if (p.kind === 'loading') card = h('<div class="preview loading" aria-busy="true"><div class="pv-media skel"></div><div class="pv-body"><div class="skel skel-line" style="width:82%;height:18px"></div><div class="skel skel-line" style="width:48%"></div><div class="skel" style="height:46px;margin-top:auto;border-radius:12px"></div></div></div>');
-  else if (p.kind === 'error') { applyHeights(null); card = h(`<div class="preview compact error">${svgUse('#i-warn')}<span><b>Превью не загрузилось.</b> ${esc(p.message)} Скачать всё равно можно — жмите стрелку.</span></div>`); }
+  if (p.kind === 'multi') { applyHeights(null); card = h(`<div class="preview compact">${svgUse('#i-list')}<span><b>${p.n} ${plural(p.n, 'ссылка', 'ссылки', 'ссылок')}</b> — скачаю все</span></div>`); }
+  else if (p.kind === 'loading') card = h('<div class="preview loading" aria-busy="true" aria-label="Загружаю превью"><div class="pv-media skel"></div><div class="pv-body"><div class="skel-title"><span class="skel skel-line"></span><span class="skel skel-line"></span></div><div class="pv-meta"><span class="skel skel-chip"></span><span class="skel skel-chip"></span><span class="skel skel-chip"></span></div><div class="skel skel-range"></div><div class="skel-legend"><span class="skel"></span><span class="skel"></span></div></div></div>');
+  else if (p.kind === 'error') { applyHeights(null); card = h(`<div class="preview compact error">${svgUse('#i-warn')}<span>Не вижу превью — скачать всё равно можно</span></div>`); card.title = p.message || ''; }
   else card = previewCard(p.data);
   slot.replaceChildren(card);
   if (!REDUCED) {
@@ -694,6 +700,7 @@ function initRange(card, d) {
     inA.parentElement.classList.remove('invalid'); inB.parentElement.classList.remove('invalid');
     const full = a <= 0.5 && b >= d - 0.5;
     out.textContent = full ? 'весь ролик' : `= ${fmtTime(b - a)}`;
+    out.classList.toggle('word', full);
     reset.hidden = full;
   };
   const seek = (t) => { if (!videoOk) return; cancelAnimationFrame(seek.raf); seek.raf = requestAnimationFrame(() => { try { if (video.fastSeek) video.fastSeek(t); else video.currentTime = t; } catch { /* */ } range.style.setProperty('--ph', `${(t / d) * 100}%`); range.classList.add('has-playhead'); }); };
@@ -824,7 +831,7 @@ window.addEventListener('drop', (e) => {
 /* ============================== очередь ============================== */
 
 const jobEls = new Map();
-let pollTimer = 0, lastOrder = '', seenDone = null, pollBusy = false;
+let pollTimer = 0, lastOrder = '', seenDone = null, pollBusy = false, jobsRendered = false;
 async function pollJobs() {
   clearTimeout(pollTimer);
   if (pollBusy) { pollTimer = setTimeout(pollJobs, 300); return; }
@@ -870,14 +877,22 @@ function renderJobs(jobs) {
   };
   if (order !== lastOrder || removed.length) flip(list, mutate, removed); else mutate();
   lastOrder = order;
+  fitPaths();
   const active = jobs.filter((j) => ACTIVE.has(j.status));
   const waiting = jobs.filter((j) => j.status === 'waiting');
   const known = active.filter((j) => j.progress != null && j.status !== 'waiting');
   titlePrefix = waiting.length ? '(?) ' : active.length ? `(${known.length ? `${Math.round(known.reduce((s, j) => s + j.progress, 0) / known.length)}%` : '…'}) ` : '';
   updateTitle();
   const done = jobs.filter((j) => j.status === 'done').length;
-  $('#queue-readout').textContent = [active.length ? `активно ${active.length}` : '', waiting.length ? `ждут ответа ${waiting.length}` : '', done ? `готово ${done}` : ''].filter(Boolean).join(' · ');
+  $('#queue-readout').textContent = [active.length || !jobs.length ? `активно ${active.length}` : '', waiting.length ? `ждут ответа ${waiting.length}` : '', done ? `готово ${done}` : ''].filter(Boolean).join(' · ');
   $('#clear-jobs').hidden = !jobs.some((j) => !ACTIVE.has(j.status));
+  // пустая очередь (§7.3 queue-empty): знак, заголовок, текст, «К ссылке»; появилась на глазах — входит enter()
+  const empty = $('#queue-empty');
+  if (empty.hidden !== !!jobs.length) {
+    empty.hidden = !!jobs.length;
+    if (!empty.hidden && curScreen === 'queue' && jobsRendered) enter(empty, { scale: 1 });
+  }
+  jobsRendered = true;
   $('#queue-title .live-dot').hidden = !active.length;
 }
 function createJobEl(j) {
@@ -938,18 +953,24 @@ function updateJobEl(el, j) {
   if (j.retry_at && j.status === 'queued') {
     const tick = () => {
       const left = Math.max(0, Math.ceil(j.retry_at - Date.now() / 1000));
-      const attempt = j.attempt && j.max_attempts ? ` (попытка ${Math.min(j.attempt + 1, j.max_attempts)} из ${j.max_attempts})` : '';
-      stage.innerHTML = `Повтор через <span class="countdown">${left} с</span>${attempt}`;
+      const attempt = j.attempt && j.max_attempts ? ` · попытка ${Math.min(j.attempt + 1, j.max_attempts)} из ${j.max_attempts}` : '';
+      stage.textContent = `повтор через ${left} с${attempt}`;
       if (!left) { clearInterval(countdowns.get(j.id)); pollJobs(); }
     };
+    stage.classList.add('retry');
     tick(); countdowns.set(j.id, setInterval(tick, 1000));
-  } else stage.textContent = j.status === 'waiting' ? (j.question?.title || 'Нужно ваше решение') : (j.count > 1 && active ? `${j.stage} · ${j.index} из ${j.count}` : j.stage);
+  } else {
+    stage.classList.remove('retry');
+    stage.textContent = j.status === 'waiting' ? (j.question?.title || 'Нужно ваше решение') : (j.count > 1 && active ? `${j.stage} · ${j.index} из ${j.count}` : j.stage);
+  }
+  // цифры: процент — ink, остальное — ink-2 (§7.3)
   let nums = '';
-  if (j.status === 'downloading' && j.progress != null) nums = [`${Math.floor(j.progress)}%`, j.speed ? `${fmtBytes(j.speed)}/с` : '', j.eta != null ? `ещё ${fmtTime(j.eta)}` : ''].filter(Boolean).join(' · ');
-  else if (j.status === 'converting' && j.progress != null) nums = `${Math.floor(j.progress)}%`;
+  if (j.status === 'downloading' && j.progress != null) nums = [`<b>${Math.floor(j.progress)}%</b>`, j.speed ? `${fmtBytes(j.speed)}/с` : '', j.eta != null ? `ещё ${fmtTime(j.eta)}` : ''].filter(Boolean).join(' · ');
+  else if (j.status === 'converting' && j.progress != null) nums = `<b>${Math.floor(j.progress)}%</b>`;
   else if (j.status === 'done') nums = fmtBytes((j.files || []).reduce((s, f) => s + (f.size || 0), 0));
   else if (j.attempt > 1 && active) nums = `попытка ${j.attempt}${j.max_attempts ? ` из ${j.max_attempts}` : ''}`;
-  el.querySelector('.job-nums').textContent = nums;
+  const numsEl = el.querySelector('.job-nums');
+  if (numsEl.innerHTML !== nums) numsEl.innerHTML = nums;
   // заметки: «формат 251 недоступен — взял 140» и т. п.
   const notes = el.querySelector('.job-notes');
   const notesSig = (j.notes || []).join('|');
@@ -964,13 +985,59 @@ function updateJobEl(el, j) {
     note.innerHTML = noteText ? `${svgUse(j.error ? '#i-alert' : j.warning ? '#i-warn' : '#i-info')}<span>${esc(noteText)}</span>` : '';
     const act = j.error ? errorAction(j.error) : null;
     if (act) { const b = h('<button class="glass btn" type="button"></button>'); b.textContent = act.label; b.addEventListener('click', act.run); note.append(b); }
+    // панель ошибки появилась на глазах — enter(), без тряски (§4.4)
+    if (noteText && el.isConnected) enter(note, { scale: 1, dy: 8 });
   }
   el.querySelector('.job-retry').hidden = !(j.status === 'error' || j.status === 'cancelled');
   if (j.thumb && !el.querySelector('.job-thumb img')) { const img = new Image(); img.alt = ''; img.decoding = 'async'; img.onload = () => el.querySelector('.job-thumb').append(img); img.src = `/api/jobs/${j.id}/thumbnail`; }
   const files = el.querySelector('.job-files');
   const sig = (j.files || []).map((f) => `${f.id || f.name}:${f.display_path || ''}`).join('|') + `|${state.info?.library?.path || ''}`;
-  if (files.dataset.sig !== sig) { files.dataset.sig = sig; files.replaceChildren(...(j.files || []).map(fileRow)); }
+  if (files.dataset.sig !== sig) {
+    const fresh = el.isConnected && !files.children.length;
+    files.dataset.sig = sig;
+    files.replaceChildren(...(j.files || []).map(fileRow));
+    // готово на глазах — строка файла входит с задержкой 120 ms (§4.4)
+    if (fresh) for (const row of files.children) enter(row, { scale: 1, dy: 8, delay: 120 });
+  }
 }
+/** Путь файла сжимается «…» в середине по ширине строки: имя файла — целиком, от папок — корень и ближайшие к файлу (§3.6). */
+const pathCtx = document.createElement('canvas').getContext('2d');
+function fitWhere(w) {
+  const width = w.clientWidth;
+  if (!width || w.dataset.fitW === `${width}`) return;
+  w.dataset.fitW = `${width}`;
+  const full = w.title;
+  const cut = Math.max(full.lastIndexOf('\\'), full.lastIndexOf('/'));
+  const dir = full.slice(0, cut + 1);
+  let name = full.slice(cut + 1);
+  pathCtx.font = getComputedStyle(w).font;
+  const room = width - 2;
+  const fits = (s) => pathCtx.measureText(s).width <= room;
+  let d = dir;
+  if (!fits(dir + name)) {
+    const sep = dir.includes('\\') ? '\\' : '/';
+    const segs = dir.slice(0, -1).split(sep);
+    d = `…${sep}`;
+    for (let m = segs.length - 2; m >= 0; m--) {
+      const c = `${segs[0]}${sep}…${sep}${m ? `${segs.slice(-m).join(sep)}${sep}` : ''}`;
+      if (fits(c + name)) { d = c; break; }
+    }
+    if (!fits(d + name)) {
+      // даже имя целиком не влезает — «…» внутри имени, расширение остаётся
+      d = '';
+      const dot = name.lastIndexOf('.');
+      const ext = dot > 0 ? name.slice(dot) : '';
+      let stem = dot > 0 ? name.slice(0, dot) : name;
+      while (stem.length > 2 && !fits(`${stem}…${ext}`)) stem = stem.slice(0, -1);
+      name = `${stem}…${ext}`;
+    }
+  }
+  w.querySelector('.p-dir').textContent = d;
+  w.querySelector('.p-name').textContent = name;
+}
+const fitPaths = () => { for (const w of $$('#jobs .job-file .where')) fitWhere(w); };
+new ResizeObserver(fitPaths).observe($('#jobs'));
+document.fonts?.ready.then(() => { for (const w of $$('#jobs .job-file .where')) delete w.dataset.fitW; fitPaths(); });
 /** Карточка решения: что не вышло, какой есть вариант, продолжить? */
 function renderAsk(el, j) {
   const box = el.querySelector('.job-ask');
@@ -986,10 +1053,12 @@ function renderAsk(el, j) {
   const options = q.options || [];
   const primary = options.find((o) => o.primary) || options.find((o) => o.id === q.default) || options[0];
   const secondary = options.find((o) => o !== primary && !o.primary) || null;
-  box.innerHTML = `<div class="ask-head">${svgUse('#i-question')}<b></b></div><p class="ask-msg"></p><div class="ask-options"></div>${primary?.hint ? '<small class="ask-hint"></small>' : ''}`;
+  box.innerHTML = `<div class="ask-head">${svgUse('#i-question')}<b></b></div><p class="ask-msg"></p><div class="ask-options"></div>${primary ? '<small class="ask-hint"></small>' : ''}`;
   box.querySelector('.ask-head b').textContent = q.title || 'Так не выходит — есть другой вариант';
   box.querySelector('.ask-msg').textContent = q.message || '';
-  if (primary?.hint) box.querySelector('.ask-hint').textContent = primary.hint;
+  // подсказка клавиш (§7.3): «Enter — взять 480p · Esc — отменить»; пояснение варианта — в title кнопки
+  const keyLabel = (o) => o.label.charAt(0).toLowerCase() + o.label.slice(1);
+  if (primary) box.querySelector('.ask-hint').textContent = `Enter — ${keyLabel(primary)}${secondary ? ` · Esc — ${keyLabel(secondary)}` : ''}`;
   const opts = box.querySelector('.ask-options');
   for (const o of options) {
     const b = h(`<button class="${o === primary ? 'btn primary' : 'glass btn'}" type="button" data-opt="${esc(o.id)}"></button>`);
@@ -1050,6 +1119,7 @@ async function fileAction(id, act) {
   try { await api(`/api/library/${encodeURIComponent(id)}/${act}`, { method: 'POST' }); }
   catch (err) { t.type('err').update(err.message || (act === 'reveal' ? 'Не получилось показать файл' : 'Не получилось открыть файл')).later(5000); }
 }
+$('#queue-to-link').addEventListener('click', () => goScreen('home').then(() => urlBox.focus()));
 $('#clear-jobs').addEventListener('click', async () => { try { await api('/api/jobs/clear', { method: 'POST' }); pollJobs(); } catch (err) { toast(err.message, 'err'); } });
 
 /* ============================== Dynamic Island ============================== */
@@ -1135,6 +1205,33 @@ function openWaiting() {
 }
 queueTab.addEventListener('click', (e) => { if (island.dataset.state === 'ask') { e.preventDefault(); openWaiting(); } });
 islandCard.addEventListener('click', () => { if (island.dataset.state === 'ask') openWaiting(); else goScreen('queue'); });
+/** Витрина ?island=demo (§7.3): настоящие состояния по кругу 16 с — compact 3 → expanded 4 → compact 2 → ask 3 → done 2,4 → idle 1,6.
+ *  Прогресс 8 %/с, данные раз в 0,5 с. Наведение или фокус на вкладке «Очередь» или её карточке, скрытая вкладка браузера — пауза шага.
+ *  Reduced motion и ?motion=0 — стоит expanded на 62 % (кадр стенда). */
+function runIslandDemo() {
+  const job = { id: 'demo', status: 'downloading', stage: 'Скачивание', speed: 4.2e6, platform: 'youtube', title: 'NASA Moon Base Update (Aug. 4, 2026)', thumb: false };
+  const next = { ...job, id: 'demo2', status: 'queued', stage: 'В очереди', progress: null, speed: 0 };
+  const STEPS = [['compact', 3, 28], ['expanded', 4, 52], ['compact', 2, 84], ['ask', 3], ['done', 2.4], ['idle', 1.6]];
+  const show = (kind, p, second) => {
+    islandPinned = kind === 'expanded';
+    if (kind === 'ask') updateIsland([{ ...next, status: 'waiting', stage: 'Ждёт ответа' }], null);
+    else if (kind === 'done') { if (island.dataset.state !== 'done') setIslandState('done'); clearTimeout(doneTimer); }
+    else if (kind === 'idle') setIslandState('idle');
+    else updateIsland([{ ...job, progress: p, eta: Math.round((100 - p) / 8) }, ...(second ? [next] : [])], null);
+  };
+  if (REDUCED) { show('expanded', 62, true); return; }
+  let step = 0, t = 0, last = performance.now(), sig = '';
+  setInterval(() => {
+    const now = performance.now();
+    if (!islandHover && !islandFocus && !document.hidden) t += (now - last) / 1000;
+    last = now;
+    while (t >= STEPS[step][1]) { t -= STEPS[step][1]; step = (step + 1) % STEPS.length; }
+    const [kind, , from] = STEPS[step];
+    const p = from == null ? null : Math.min(100, from + 8 * Math.floor(t * 2) / 2);
+    const s = `${step}:${p}`;
+    if (s !== sig) { sig = s; show(kind, p, step > 0); }
+  }, 100);
+}
 
 /* ============================== показания — только реальные данные ============================== */
 
@@ -1158,7 +1255,28 @@ function openPlayer(item, originEl) {
   const fill = () => { fillPlayer(item); if (!player.open) player.showModal(); };
   const src = originEl?.querySelector('img, .art');
   if (CAN_VT && src && !player.open) { src.style.viewTransitionName = 'player-media'; const t = document.startViewTransition(() => { src.style.viewTransitionName = ''; fill(); }); t.finished.catch(() => {}); }
-  else { fill(); if (!REDUCED) { const m = motionOf(player.querySelector('.player-box')); m.from({ y: 20, s: 0.96, o: 0, b: 8 }); m.to({ y: 0, s: 1, o: 1, b: 0 }, { response: 0.55, damping: 0.88 }); } }
+  else { fill(); enter(player.querySelector('.player-box')); }
+}
+/** «youtube.com/watch?v=jNQ…VRw» — адрес без протокола, не длиннее 48 знаков, «…» в середине. */
+function shortUrl(url, max = 48) {
+  const s = String(url || '').replace(/^[a-z]+:\/\//i, '').replace(/^www\./i, '');
+  if (s.length <= max) return s;
+  const tail = Math.floor((max - 1) / 3);
+  return `${s.slice(0, max - 1 - tail)}…${s.slice(-tail)}`;
+}
+function sourceHost(url) { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } }
+/** «Скопировать ссылку» (§7.4 library-source): тост с адресом; повтор за 2,4 с обновляет тот же тост. */
+let copyToast = null;
+async function copySourceLink(url) {
+  try { await navigator.clipboard.writeText(url); }
+  catch {
+    toast('Не получилось скопировать ссылку', 'warn', { timeout: 6000, action: { label: 'Открыть источник', run: () => window.open(url, '_blank', 'noopener,noreferrer') } });
+    return;
+  }
+  if (!copyToast?.el.isConnected) { copyToast = toast('Ссылка скопирована', 'ok', { timeout: 2400 }); copyToast.el = $('#toasts').lastElementChild; }
+  else copyToast.update('Ссылка скопирована').later(2400);
+  const tt = copyToast.el.querySelector('.tt');
+  tt.append(h(`<span class="toast-src">${esc(shortUrl(url))}</span>`));
 }
 function fillPlayer(item) {
   const stage = $('#player-stage');
@@ -1166,7 +1284,7 @@ function fillPlayer(item) {
   const media = libUrl(item.path);
   const poster = item.poster ? libUrl(item.poster) : '';
   if (isAudio) {
-    stage.innerHTML = `<div class="audio-view">${poster ? `<div class="bg" style="background-image:url('${esc(poster)}')"></div>` : ''}<div class="audio-cover">${poster ? `<img src="${esc(poster)}" alt="">` : artHtml(item.id)}</div><div class="eq paused" aria-hidden="true">${'<i></i>'.repeat(18)}</div><audio controls autoplay preload="auto" src="${esc(media)}"></audio></div>`;
+    stage.innerHTML = `<div class="audio-view"><div class="audio-cover">${poster ? `<img src="${esc(poster)}" alt="">` : artHtml(item.id)}</div><div class="eq paused" aria-hidden="true">${'<i></i>'.repeat(5)}</div><audio controls autoplay preload="auto" src="${esc(media)}"></audio></div>`;
     const audio = stage.querySelector('audio'), eq = stage.querySelector('.eq');
     audio.addEventListener('play', () => eq.classList.remove('paused'));
     audio.addEventListener('pause', () => eq.classList.add('paused'));
@@ -1182,11 +1300,15 @@ function fillPlayer(item) {
   $('#player-where').innerHTML = whereHtml(item.path, item.display_path);
   const dl = player.querySelector('[data-act="download"]');
   dl.href = media; dl.setAttribute('download', item.path.split('/').pop());
-  const source = player.querySelector('[data-act="source"]');
-  source.hidden = !item.source;
-  if (item.source) source.href = item.source;
+  const source = player.querySelector('[data-act="source"]'), copy = player.querySelector('[data-act="copy-source"]');
+  source.hidden = copy.hidden = !item.source;
+  if (item.source) {
+    source.href = item.source;
+    const host = sourceHost(item.source);
+    source.setAttribute('aria-label', host ? `Открыть источник — ${host}` : 'Открыть источник');
+    source.title = host ? `Открыть источник — ${host}` : 'Открыть источник';
+  } else source.removeAttribute('href');
   player.querySelector('.confirm').hidden = true;
-  player.querySelector('[data-act="delete"]').hidden = false;
 }
 async function closePlayer() {
   if (!player.open) return;
@@ -1196,18 +1318,21 @@ async function closePlayer() {
   const r = target?.getBoundingClientRect();
   const visible = r && r.bottom > 0 && r.top < innerHeight;
   if (CAN_VT && target && visible) { const t = document.startViewTransition(() => { player.close(); target.style.viewTransitionName = 'player-media'; }); await t.finished.catch(() => {}); target.style.viewTransitionName = ''; }
-  else { player.classList.add('closing'); await exit(player.querySelector('.player-box'), { dy: 16, scale: 0.96 }); player.close(); player.classList.remove('closing'); motionOf(player.querySelector('.player-box')).from({ y: 0, s: 1, o: 1, b: 0 }); }
+  else { player.classList.add('closing'); await exit(player.querySelector('.player-box')); player.close(); player.classList.remove('closing'); motionOf(player.querySelector('.player-box')).from({ y: 0, s: 1, o: 1, b: 0 }); }
   stage.replaceChildren();
 }
-player.addEventListener('cancel', (e) => { e.preventDefault(); closePlayer(); });
+const playerConfirm = player.querySelector('.confirm');
+function hideDeleteConfirm() { playerConfirm.hidden = true; player.querySelector('[data-act="delete"]').focus({ preventScroll: true }); }
+player.addEventListener('cancel', (e) => { e.preventDefault(); if (!playerConfirm.hidden) hideDeleteConfirm(); else closePlayer(); });
 player.addEventListener('click', (e) => { if (e.target === player || e.target.closest('[data-close]')) closePlayer(); });
 player.querySelector('.player-actions').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-act]');
   if (!b || !playerItem) return;
   const act = b.dataset.act;
   if (act === 'open' || act === 'reveal') { fileAction(playerItem.id, act); return; }
-  if (act === 'delete') { b.hidden = true; const c = player.querySelector('.confirm'); c.hidden = false; enter(c, { dy: 0, scale: 0.9, blur: 0, response: 0.4, damping: 0.75 }); return; }
-  if (act === 'delete-no') { player.querySelector('.confirm').hidden = true; player.querySelector('[data-act="delete"]').hidden = false; return; }
+  if (act === 'copy-source') { if (playerItem.source) copySourceLink(playerItem.source); return; }
+  if (act === 'delete') { playerConfirm.hidden = false; enter(playerConfirm, { dy: 0, scale: 0.98, blur: 0 }); playerConfirm.querySelector('[data-act="delete-yes"]').focus({ preventScroll: true }); return; }
+  if (act === 'delete-no') { hideDeleteConfirm(); return; }
   if (act === 'delete-yes') {
     try { await api(`/api/library/${encodeURIComponent(playerItem.id)}`, { method: 'DELETE' }); playerOrigin = null; await closePlayer(); toast('Файл перемещён в Корзину', 'ok'); explorer.refresh(); }
     catch (err) { toast(err.message, 'err'); }
@@ -1235,16 +1360,17 @@ function openDrawer(dlg) {
   const m = motionOf(box);
   if (REDUCED) { m.from({ x: 0, y: 0, o: 1 }); return; }
   if (isPhone()) { m.from({ y: box.offsetHeight || innerHeight, x: 0, o: 1 }); m.to({ y: 0 }, { response: 0.6, damping: 0.9 }); }
-  else { m.from({ x: box.offsetWidth + 24, y: 0, o: 0.7 }); m.to({ x: 0, o: 1 }, { response: 0.6, damping: 0.88 }); }
+  else { m.from({ x: 0 }); enter(box); }
 }
 async function closeDrawer(dlg, { velocity } = {}) {
   if (!dlg.open) return;
   const box = dlg.querySelector('.drawer-box');
   const m = motionOf(box);
   dlg.classList.add('closing');
-  if (!REDUCED) { if (isPhone()) await m.to({ y: box.offsetHeight + 40 }, { response: 0.42, damping: 1, velocity: { y: velocity || 0 } }); else await m.to({ x: box.offsetWidth + 24, o: 0.6 }, { response: 0.36, damping: 1 }); }
+  if (!REDUCED) { if (isPhone()) await m.to({ y: box.offsetHeight + 40 }, { response: 0.42, damping: 1, velocity: { y: velocity || 0 } }); else await exit(box); }
   dlg.close(); dlg.classList.remove('closing');
-  m.from({ x: 0, y: 0, o: 1 });
+  m.from({ x: 0, y: 0, s: 1, o: 1, b: 0 });
+  if (dlg === settingsDlg) onSettingsClosed();
 }
 for (const dlg of $$('dialog.drawer')) {
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); closeDrawer(dlg); });
@@ -1259,12 +1385,12 @@ for (const dlg of $$('dialog.drawer')) {
 function openModal(dlg) {
   if (dlg.open) return;
   dlg.showModal();
-  if (!REDUCED) { const m = motionOf(dlg.querySelector('.modal-box')); m.from({ y: isPhone() ? 40 : 14, s: 0.97, o: 0, b: 6 }); m.to({ y: 0, s: 1, o: 1, b: 0 }, { response: 0.45, damping: 0.86 }); }
+  enter(dlg.querySelector('.modal-box'), { dy: isPhone() ? 40 : 14 });
 }
 async function closeModal(dlg) {
   if (!dlg.open) return;
   dlg.classList.add('closing');
-  await exit(dlg.querySelector('.modal-box'), { dy: 10, scale: 0.97 });
+  await exit(dlg.querySelector('.modal-box'));
   dlg.close(); dlg.classList.remove('closing');
   motionOf(dlg.querySelector('.modal-box')).from({ y: 0, s: 1, o: 1, b: 0 });
 }
@@ -1273,9 +1399,10 @@ for (const dlg of $$('dialog.modal')) {
   dlg.addEventListener('click', (e) => { if (e.target === dlg || e.target.closest('[data-close]')) closeModal(dlg); });
 }
 /** Вопрос с одной или двумя кнопками; вернёт 'yes' | 'no' | null. */
-function confirmDialog({ title, text, yes = 'Да', no = null, danger = false }) {
+function confirmDialog({ title, text, yes = 'Да', no = null, danger = false, kicker = null }) {
   const dlg = $('#confirm-dialog');
   const yesBtn = $('#confirm-yes'), noBtn = $('#confirm-no');
+  $('#confirm-kicker').textContent = kicker || (danger ? 'Удаление' : 'Вопрос');
   $('#confirm-title').textContent = title; $('#confirm-text').textContent = text; yesBtn.textContent = yes;
   yesBtn.className = danger ? 'btn danger solid' : 'btn primary';
   noBtn.hidden = !no; if (no) noBtn.textContent = no;
@@ -1293,31 +1420,77 @@ function confirmDialog({ title, text, yes = 'Да', no = null, danger = false })
 function pickFolder({ title, kicker, tree, current = null, allowAuto = false, selected = null, disabled = [] }) {
   const dlg = $('#folder-dialog');
   const box = $('#folder-tree'), btn = $('#folder-confirm');
+  folderStep('pick');
   $('#folder-title').textContent = title; $('#folder-kicker').textContent = kicker || 'Папка';
   let chosen = selected;
   btn.disabled = chosen == null;
-  const mark = () => { box.querySelectorAll('[aria-current]').forEach((x) => x.removeAttribute('aria-current')); box.querySelector(`[data-path="${CSS.escape(chosen ?? '\u0000')}"]`)?.setAttribute('aria-current', 'true'); };
+  const choose = (p) => { chosen = p; mark(); btn.disabled = false; };
+  const mark = () => {
+    box.querySelectorAll('[aria-current]').forEach((x) => { x.removeAttribute('aria-current'); x.setAttribute('aria-selected', 'false'); });
+    const cur = box.querySelector(`[data-path="${CSS.escape(chosen ?? '\u0000')}"]`);
+    cur?.setAttribute('aria-current', 'true'); cur?.setAttribute('aria-selected', 'true');
+    const nodes = $$('.tnode', box);
+    const roving = cur || nodes.find((x) => x.getAttribute('aria-disabled') !== 'true') || nodes[0];
+    nodes.forEach((x) => { x.tabIndex = x === roving ? 0 : -1; });
+  };
   const node = (n, depth) => {
     const off = n.path === current || disabled.some((p) => n.path === p || n.path.startsWith(`${p}/`));
-    const el = h(`<div class="tnode" role="treeitem" data-path="${esc(n.path)}"${n.platform ? ` data-platform="${esc(n.platform)}"` : ''}${off ? ' aria-disabled="true"' : ''}><span class="tw leaf">${svgUse('#i-chev-r')}</span>${svgUse(n.platform ? glyph(n.platform) : depth === 0 ? '#i-drive' : '#i-folder', 'ti')}<span class="tn"></span><span class="tc">${n.count || ''}</span></div>`);
-    el.querySelector('.tn').textContent = n.name || 'Хранилище';
+    const el = h(`<div class="tnode" role="treeitem" aria-level="${depth + 1}" aria-selected="false" data-path="${esc(n.path)}"${n.platform ? ` data-platform="${esc(n.platform)}"` : ''}${off ? ' aria-disabled="true"' : ''}><span class="tw leaf">${svgUse('#i-chev-r')}</span>${svgUse(n.platform ? glyph(n.platform) : depth === 0 ? '#i-drive' : '#i-folder', 'ti')}<span class="tn"></span><span class="tc">${n.count || ''}</span></div>`);
+    el.querySelector('.tn').textContent = n.name || 'Библиотека';
     el.style.paddingLeft = `${8 + depth * 14}px`;
-    if (!off) el.addEventListener('click', () => { chosen = n.path; mark(); btn.disabled = false; });
+    if (!off) el.addEventListener('click', () => choose(n.path));
     const frag = document.createDocumentFragment(); frag.append(el);
     for (const k of n.children || []) frag.append(node(k, depth + 1));
     return frag;
   };
   box.replaceChildren();
-  if (allowAuto) { const auto = h(`<div class="tnode" role="treeitem" data-path=""><span class="tw leaf">${svgUse('#i-chev-r')}</span>${svgUse('#i-layers', 'ti')}<span class="tn">Автоматически — по платформе</span></div>`); auto.addEventListener('click', () => { chosen = ''; mark(); btn.disabled = false; }); box.append(auto); }
+  if (allowAuto) { const auto = h(`<div class="tnode" role="treeitem" aria-level="1" aria-selected="false" data-path=""><span class="tw leaf">${svgUse('#i-chev-r')}</span>${svgUse('#i-layers', 'ti')}<span class="tn">Автоматически — по платформе</span></div>`); auto.addEventListener('click', () => choose('')); box.append(auto); }
   for (const k of tree.children || []) box.append(node(k, 1));
   if (!allowAuto) box.prepend(node({ ...tree, children: [] }, 0));
   mark();
+  // клавиатура: ↑/↓/Home/End — по узлам, Enter/Space — выбрать (Enter на выбранном — подтвердить)
+  const onKey = (e) => {
+    const nodes = $$('.tnode', box), i = nodes.indexOf(e.target);
+    if (i < 0) return;
+    const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: nodes.length - 1 }[e.key];
+    if (to != null) { e.preventDefault(); const n = nodes[Math.max(0, Math.min(nodes.length - 1, to))]; nodes.forEach((x) => { x.tabIndex = x === n ? 0 : -1; }); n.focus(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.getAttribute('aria-disabled') !== 'true') {
+      e.preventDefault();
+      if (e.key === 'Enter' && chosen === e.target.dataset.path) btn.click(); else { choose(e.target.dataset.path); e.target.focus(); }
+    }
+  };
+  box.addEventListener('keydown', onKey);
   return new Promise((resolve) => {
     let result = null;
     const done = () => { result = chosen; closeModal(dlg); };
     btn.addEventListener('click', done);
-    dlg.addEventListener('close', () => { btn.removeEventListener('click', done); resolve(result); }, { once: true });
+    dlg.addEventListener('close', () => { btn.removeEventListener('click', done); box.removeEventListener('keydown', onKey); resolve(result); }, { once: true });
     openModal(dlg);
+  });
+}
+/** Шаг окна папки: 'pick' — дерево и «Выбрать», 'move' — вопрос «Перенести уже скачанное?». */
+function folderStep(step) {
+  const move = step === 'move';
+  $('#folder-tree').hidden = move; $('#move-ask').hidden = !move;
+  $('#folder-confirm').hidden = move; $('#folder-cancel').hidden = move;
+  $('#move-yes').hidden = !move; $('#move-no').hidden = !move;
+}
+/** «Перенести уже скачанное?» — отдельный шаг окна папки после смены хранилища; вернёт 'yes' | 'no' | null. */
+function askMove({ count, size }) {
+  const dlg = $('#folder-dialog');
+  folderStep('move');
+  $('#folder-kicker').textContent = 'Хранилище';
+  $('#folder-title').textContent = 'Перенести уже скачанное?';
+  const what = `${nf0.format(count)} ${plural(count, 'файл', 'файла', 'файлов')}${size ? `, ${fmtBytes(size)}` : ''}`;
+  $('#move-ask').textContent = `${what} ${count === 1 ? 'лежит' : 'лежат'} в прежней папке. Перенести — переедут вместе с обложками, отрезками и ссылками на источник; на другой диск — копированием, загрузки подождут. Оставить — останутся там, перенести можно позже.`;
+  const yes = $('#move-yes'), no = $('#move-no');
+  return new Promise((resolve) => {
+    let result = null;
+    const onYes = () => { result = 'yes'; closeModal(dlg); }, onNo = () => { result = 'no'; closeModal(dlg); };
+    yes.addEventListener('click', onYes); no.addEventListener('click', onNo);
+    dlg.addEventListener('close', () => { yes.removeEventListener('click', onYes); no.removeEventListener('click', onNo); resolve(result); }, { once: true });
+    openModal(dlg);
+    setTimeout(() => yes.focus(), 30);
   });
 }
 
@@ -1575,12 +1748,7 @@ function init() {
   if (q.get('tab') === 'file') switchTab('file', { animate: false });
   if (q.get('url')) { urlBox.value = q.get('url'); onUrlInput(); }
   if (q.get('folder') != null) explorer.navigate(q.get('folder'));
-  if (q.get('island') === 'demo') {
-    islandPinned = true;
-    const demo = { id: 'demo', status: 'downloading', stage: 'Скачивание', progress: 62, speed: 4.2e6, eta: 7, platform: 'youtube', title: 'NASA Moon Base Update (Aug. 4, 2026)', thumb: false };
-    const tick = () => updateIsland([demo, { ...demo, id: 'demo2', status: 'queued', progress: null }], null);
-    tick(); setInterval(tick, 1000);
-  }
+  if (islandDemo) runIslandDemo();
   if (q.get('player') === 'first') {
     const wait = setInterval(() => { const first = explorer.state.items?.[0]; if (first) { clearInterval(wait); openPlayer(first, $(`.tile[data-id="${CSS.escape(first.id)}"] .tile-media`)); } }, 300);
     setTimeout(() => clearInterval(wait), 8000);

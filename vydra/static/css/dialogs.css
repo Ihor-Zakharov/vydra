@@ -1,103 +1,224 @@
-/* выдра — диалоги: плеер, шторки (настройки, диагностика), модальные окна. */
+/* выдра — диалоги: плеер, шторки (настройки, диагностика), модальные окна (DIRECTION §7.5). */
 
-dialog { padding: 0; border: 0; color: var(--ink); background: transparent; max-width: none; max-height: none; }
-dialog::backdrop { background: rgba(3, 3, 6, .6); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: 0; transition: opacity .35s var(--ease-out); }
+/* ---------- общее: подложка §3.4, прокрутка страницы заблокирована ---------- */
+
+dialog { padding: 0; border: 0; color: var(--ink); background: transparent; max-width: none; max-height: none; overflow: visible; }
+dialog::backdrop { background: rgba(0, 0, 0, .62); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); opacity: 0; transition: opacity var(--t-base) var(--ease-out); }
 dialog[open]::backdrop { opacity: 1; }
 @starting-style { dialog[open]::backdrop { opacity: 0; } }
 dialog.closing::backdrop { opacity: 0; }
 :root[data-theme="light"] dialog::backdrop { background: rgba(60, 60, 70, .3); }
-
-.player { width: min(1100px, calc(100vw - 32px)); margin: auto; overflow: visible; }
-.player-box { position: relative; border-radius: 24px; overflow: hidden; background: var(--panel); border: 1px solid var(--hair-2); box-shadow: var(--shadow); }
-.player-close { position: absolute; top: 12px; right: 12px; z-index: 3; color: #fff; }
-.player-stage { position: relative; display: grid; place-items: center; background: #000; max-height: 68vh; view-transition-name: player-media; }
-.player-stage video { display: block; width: 100%; max-height: 68vh; background: #000; }
-.player-stage .audio-view { position: relative; width: 100%; display: grid; justify-items: center; gap: 18px; padding: 42px 20px 26px; overflow: hidden; }
-.audio-view .bg { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(40px) saturate(.6) brightness(.5); }
-.audio-cover { position: relative; width: min(240px, 60vw); aspect-ratio: 1; border-radius: 18px; overflow: hidden; box-shadow: 0 30px 60px -20px rgba(0, 0, 0, .8); }
-.audio-cover img, .audio-cover .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.eq { position: relative; display: flex; align-items: flex-end; gap: 4px; height: 26px; }
-.eq i { width: 4px; border-radius: 3px; background: var(--el); box-shadow: var(--el-glow-soft); height: 30%; animation: eq 1s ease-in-out infinite alternate; }
-.eq i:nth-child(2n) { animation-duration: .7s; } .eq i:nth-child(3n) { animation-duration: 1.3s; } .eq i:nth-child(5n) { animation-duration: .9s; }
-.eq.paused i { animation-play-state: paused; }
-@keyframes eq { to { height: 100%; } }
-.audio-view audio { position: relative; width: min(520px, 100%); }
-.player-info { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 20px; padding: 18px 20px 20px; }
-.player-head { min-width: 0; flex: 1 1 320px; }
-.player-title { margin: 0; font: 700 clamp(17px, 2vw, 21px)/1.3 var(--font-display); letter-spacing: -.02em; }
-.player-meta { margin: 6px 0 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.player-head .where { display: flex; margin: 8px 0 0; }
-.player-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.danger-zone { display: inline-flex; gap: 8px; align-items: center; }
-.confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
-
-.drawer { width: min(500px, calc(100vw - 24px)); height: calc(100dvh - 24px); margin: 12px 12px 12px auto; overflow: visible; }
-.drawer-box { position: relative; height: 100%; display: flex; flex-direction: column; border-radius: 26px; overflow: hidden; background: var(--panel); border: 1px solid var(--hair-2); box-shadow: var(--shadow); will-change: transform; }
-.grab { display: none; }
+html:has(dialog[open]) { overflow: hidden; }
 .drawer-box:focus, .player-box:focus, .modal-box:focus { outline: none; }
-.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 22px 22px 12px; }
-.drawer-kicker { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 6px; font: 500 12px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3); }
-.drawer-kicker svg { width: 14px; height: 14px; color: var(--el-a); }
-.drawer-head h3 { margin: 0; font: 700 22px/1.2 var(--font-display); letter-spacing: -.03em; }
-.drawer-scroll { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 6px 22px 26px; display: grid; gap: 14px; align-content: start; scrollbar-width: thin; }
-.card-block { display: grid; gap: 12px; padding: 18px; border-radius: 18px; border: 1px solid var(--hair); }
+
+/* шапка: кикер (mono 11, 0,24em) + заголовок 22 + «закрыть» 36 */
+.drawer-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.drawer-kicker { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font: 500 11px/1 var(--font-mono); letter-spacing: .24em; text-transform: uppercase; color: var(--ink-3); }
+.drawer-kicker svg { width: 14px; height: 14px; flex: none; color: var(--ink-3); }
+.drawer-head h3 { margin: 0; font: 700 22px/1.2 var(--font-display); letter-spacing: -.02em; color: var(--ink); }
+dialog .icon-btn[data-close] { width: 36px; height: 36px; flex: none; border-radius: var(--r-m); background: var(--s1); border: 1px solid var(--line-2); color: var(--ink-2);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
+dialog .icon-btn[data-close]:hover { background: var(--s3); border-color: var(--line-3); color: var(--ink); }
+dialog .icon-btn[data-close] svg { width: 18px; height: 18px; }
+
+/* плиты-кнопки внутри диалогов: наведение --s3, нажатие --s4 (§7) */
+dialog .chip-btn:not(.solid):hover { background: var(--s3); border-color: var(--line-3); color: var(--ink); }
+dialog .chip-btn.danger:not(.solid):hover { color: var(--err); }
+dialog .chip-btn:not(.solid):active { background-color: var(--s4); }
+
+/* ---------- плеер ---------- */
+
+.player { width: min(1040px, 90vw); margin: auto; }
+.player-box { position: relative; padding: 12px; border-radius: var(--r-xl); background: var(--s-raised); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+dialog.player .player-close { position: absolute; top: 24px; right: 24px; z-index: 3; background: var(--plate); }
+dialog.player .player-close:hover { background: var(--s3); }
+.player-stage { position: relative; display: grid; place-items: center; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh; border-radius: var(--r-l); overflow: hidden; background: #000; view-transition-name: player-media; }
+.player-stage video { display: block; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
+/* плеер-аудио: .art (§7.4.1) или постер на всю сцену; «MP3» и эквалайзер — слева сверху; управление — в зоне отражения */
+.player-stage .audio-view { position: absolute; inset: 0; overflow: hidden; }
+.audio-cover { position: absolute; inset: 0; }
+.audio-cover img, .audio-cover .art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.player-stage .art .art-kind { top: 18px; bottom: auto; left: 16px; font-size: 12px; }
+.eq { position: absolute; left: 56px; top: 16px; z-index: 2; display: flex; align-items: flex-end; gap: 4px; height: 16px; filter: drop-shadow(0 1px 6px rgba(0, 0, 0, .6)); }
+.eq i { width: 4px; border-radius: 1px; background: #fff; animation: eq .4s ease-in-out infinite alternate; }
+/* высоты покоя — они же статичные при reduced-motion: 45 / 80 / 30 / 90 / 60 % */
+.eq i:nth-child(1) { height: 45%; animation-delay: -.1s; }
+.eq i:nth-child(2) { height: 80%; animation-delay: -.3s; }
+.eq i:nth-child(3) { height: 30%; animation-delay: -.05s; }
+.eq i:nth-child(4) { height: 90%; animation-delay: -.35s; }
+.eq i:nth-child(5) { height: 60%; animation-delay: -.2s; }
+.eq.paused i { animation-play-state: paused; }
+@keyframes eq { from { height: 30%; } to { height: 90%; } }
+.audio-view audio { position: absolute; left: 50%; bottom: 16px; translate: -50% 0; z-index: 2; width: min(520px, calc(100% - 32px)); }
+
+/* под сценой: заголовок, чипы, путь; ряд действий — «Удалить» у правого края */
+.player-info { display: grid; gap: 16px; padding: 16px 12px 0; }
+.player-head { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.player-title { margin: 0; font: 600 18px/1.3 var(--font-text); letter-spacing: -.01em; color: var(--ink);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
+.player-meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.player-meta .meta-chip { height: 24px; padding: 0 8px; gap: 6px; border-radius: var(--r-xs); background: var(--s2); border: 1px solid var(--line-1); color: var(--ink-2);
+  font: 500 11.5px/1 var(--font-mono); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.player-meta .meta-chip svg { width: 14px; height: 14px; }
+.player-head .where { display: flex; max-width: 100%; margin: 0; font: 500 12px/1.4 var(--font-mono); color: var(--ink-2); }
+.player-head .where .p-name { color: var(--ink-2); }
+.player-actions { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.player-actions .chip-btn[data-act="delete"] { margin-left: auto; border-color: color-mix(in oklab, var(--err) 30%, transparent); }
+.player-actions .chip-btn[hidden] { display: none; }
+
+/* подтверждение удаления — поверх ряда действий; ряд под ним скрыт и вне фокуса */
+.player-actions .confirm { position: absolute; inset: -6px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 16px; border-radius: var(--r-l);
+  background: linear-gradient(rgba(255, 95, 115, .08), rgba(255, 95, 115, .08)), var(--s-raised); border: 1px solid color-mix(in oklab, var(--err) 30%, transparent); }
+.player-actions .confirm[hidden] { display: none; }
+.player-actions:has(.confirm:not([hidden])) > :not(.confirm) { visibility: hidden; }
+.confirm-q { margin-right: auto; font: 600 14px/1 var(--font-text); color: var(--ink); }
+
+/* тост «Ссылка скопирована»: вторая строка — адрес */
+.toast .toast-src { display: block; margin-top: 2px; font: 500 12px/1.4 var(--font-mono); color: var(--ink-3); }
+
+/* ---------- шторки: настройки, диагностика ---------- */
+
+.drawer { width: 440px; height: calc(100dvh - 16px); margin: 8px 8px 8px auto; }
+@media (max-width: 1400px) { .drawer { width: 400px; } }
+.drawer-box { position: relative; height: 100%; display: flex; flex-direction: column; border-radius: var(--r-xl); overflow: hidden; background: var(--s-raised); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+.grab { display: none; }
+.drawer-box > .drawer-head { padding: 24px 24px 16px; }
+.drawer-scroll { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; align-content: start; padding: 0 24px 24px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+
+/* секции — плиты r14 --s1; заголовок: иконка в поле 26 px, перенос встаёт по тексту заголовка */
+.card-block { display: grid; gap: 12px; padding: 16px; border-radius: var(--r-l); background: var(--s1); border: 1px solid var(--line-1); }
 .card-block.flash { animation: block-flash 1.6s var(--ease-out); }
-@keyframes block-flash { 0% { box-shadow: 0 0 0 2px var(--el-a), var(--el-glow); } 100% { box-shadow: none; } }
-.card-block h4 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; font-size: 15.5px; font-weight: 600; }
-.card-block h4 svg { width: 18px; height: 18px; color: var(--ink-2); }
-.tag { padding: 3px 9px; border-radius: 999px; font: 500 11px/1.4 var(--font-mono); letter-spacing: .04em; border: 1px solid var(--hair-2); color: var(--ink-2); }
+@keyframes block-flash { 0% { box-shadow: 0 0 0 2px var(--el-a), var(--el-glow-soft); } 100% { box-shadow: none; } }
+.card-block h4 { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 0; padding-left: 26px; font: 600 15px/20px var(--font-text); color: var(--ink); }
+.card-block h4 > svg { position: absolute; left: 0; top: 1px; width: 18px; height: 18px; color: var(--ink-2); }
+#cookies-block h4 { display: grid; justify-items: start; }
+
+/* тег: «по умолчанию», «своя папка», «задана снаружи», cookies — без цвета платформы */
+.tag { display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border: 0; border-radius: var(--r-xs); background: var(--s3); color: var(--ink-3);
+  font: 500 10.5px/1 var(--font-mono); letter-spacing: .04em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tag:empty { display: none; }
-.tag.ok { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 50%, transparent); }
-.tag.accent { color: var(--ink); border-color: var(--el-a); }
-.path-now { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface); font: 500 13px/1.45 var(--font-mono); overflow-wrap: anywhere; }
-.fixed-note, .muted-text { margin: 0; color: var(--ink-2); font-size: 14px; }
+.tag.accent { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-3); }
+.tag.ok { color: var(--ink-2); }
+#cookie-tag.ok::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+/* «Хранилище»: путь («…» в середине, имя папки целиком), итоги, кнопки, гайд, ход переноса */
+.lib-now { display: grid; gap: 6px; min-width: 0; }
+.path-now { display: flex; min-width: 0; margin: 0; padding: 10px 12px; border-radius: var(--r-m); background: #000; font: 500 13px/1.4 var(--font-mono); color: var(--ink); white-space: nowrap; }
+.path-now .pn-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.path-now .pn-name { flex: none; }
+.lib-stats { margin: 0; font: 500 11.5px/1.2 var(--font-mono); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.lib-stats:empty { display: none; }
+.lib-actions { flex-wrap: nowrap; align-items: center; }
+.lib-actions .btn { padding: 0 14px 0 12px; }
+.lib-actions .text-btn { height: 40px; padding: 0 8px; margin-left: auto; margin-right: -8px; font-size: 14px; }
+.lib-actions .text-btn[hidden] { display: none; }
+.fixed-note { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 12px; border-radius: var(--r-m); background: var(--s2); font-size: 13.5px; line-height: 1.4; color: var(--ink-2); }
+.fixed-note[hidden] { display: none; }
+.fixed-note svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.lib-guide { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-m); background: var(--s2); }
+.lib-guide[hidden] { display: none; }
+.lg-title { margin: 0; font: 600 13px/1.3 var(--font-text); color: var(--ink); }
+.lib-guide dl { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px; margin: 0; }
+.lib-guide dt { font: 500 11px/19px var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.lib-guide dd { margin: 0; font-size: 13px; line-height: 19px; color: var(--ink-2); }
+.lib-move { display: grid; gap: 8px; padding: 12px 14px; border-radius: var(--r-m); background: var(--s2); }
+.lib-move[hidden] { display: none; }
+.lm-track { height: 6px; background: repeating-linear-gradient(90deg, var(--line-2) 0 6px, transparent 6px 8px); }
+.lm-track i { display: block; width: var(--p, 0%); height: 100%; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .85) 0 6px, transparent 6px 8px); transition: width var(--t-slow) var(--ease-out); }
+.lm-text { margin: 0; font: 500 12px/1.4 var(--font-mono); color: var(--ink-2); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.lm-sub { margin: 0; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.lib-move-err { margin: 0; padding: 10px 12px; border-radius: var(--r-m); background: rgba(255, 95, 115, .08); border: 1px solid color-mix(in oklab, var(--err) 42%, transparent); font-size: 13.5px; line-height: 1.45; color: var(--ink); }
+.lib-move-err[hidden] { display: none; }
+
 .path-form { display: flex; gap: 8px; }
-.path-form input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: 12px; font: 500 13.5px/1 var(--font-mono); outline: 0; }
-.path-form input:focus { border-color: var(--el-a); box-shadow: var(--el-glow-soft); }
+.path-form[hidden] { display: none; }
+.path-form input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border-radius: var(--r-m); font: 500 13px/1 var(--font-mono); color: var(--ink); outline: 0; }
+.path-form input::placeholder { color: var(--ink-3); }
+.path-form input:focus-visible { border-color: var(--el-a); box-shadow: var(--el-glow-soft); }
 .form-error { margin: 0; color: var(--err); font-size: 13.5px; }
-.tree { margin-top: 4px; padding: 14px 14px 10px; border-radius: 14px; border: 1px dashed var(--hair-2); }
-.tree-root { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font: 600 13.5px/1.2 var(--font-mono); }
+.tree { padding: 12px 14px 8px; border-radius: var(--r-m); border: 1px dashed var(--line-2); }
+.tree-root { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; font: 600 12px/1.2 var(--font-mono); color: var(--ink); }
 .tree-root svg { width: 16px; height: 16px; color: var(--ink-2); }
 .tree ul { list-style: none; margin: 0; padding: 0 0 0 8px; }
-.tree li { position: relative; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 6px 0 6px 20px; font-size: 13.5px; }
-.tree li::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--hair-2); }
+.tree li { position: relative; display: grid; grid-template-columns: auto 1fr; column-gap: 8px; align-items: center; padding: 6px 0 6px 20px; font-size: 12px; }
+.tree li::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; border-left: 1px solid var(--line-2); }
 .tree li:last-child::before { bottom: 50%; }
-.tree li::after { content: ""; position: absolute; left: 0; top: 50%; width: 14px; border-top: 1px solid var(--hair-2); }
+.tree li::after { content: ""; position: absolute; left: 0; top: 50%; width: 14px; border-top: 1px solid var(--line-2); }
 .tree li svg { width: 16px; height: 16px; color: var(--ink-2); }
-.tree li b { font-weight: 600; font-family: var(--font-mono); font-size: 13px; }
-.tree-sub { grid-column: 2; color: var(--ink-2); font-size: 12.5px; }
+.tree li b { font: 600 12px/1.4 var(--font-mono); color: var(--ink); }
+.tree-sub { grid-column: 2; font-size: 12px; line-height: 1.4; color: var(--ink-3); }
+.tree-sub b { color: var(--ink-2); }
 .tree-dim { opacity: .65; }
-.about-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 14px; }
-.about-list dt { color: var(--ink-2); }
-.about-list dd { margin: 0; font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.muted-text { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-2); }
+.muted-text code { font-size: 12px; }
+.about-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 13.5px; }
+.about-list dt { color: var(--ink-3); }
+.about-list dd { margin: 0; font: 500 12px/1.6 var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
 
-.health-summary { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 22px; }
-.sum-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 999px; font-size: 13.5px; font-weight: 500; border: 1px solid var(--hair); }
-.sum-chip i { width: 7px; height: 7px; border-radius: 50%; }
-.health-actions { padding: 14px 22px 8px; }
-.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.check { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: start; padding: 14px; border-radius: 16px; border: 1px solid var(--hair); }
-.check-icon { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; grid-row: span 2; }
-.check-icon svg { width: 16px; height: 16px; stroke-width: 2.6; }
-.check.ok .check-icon { color: var(--ok); background: color-mix(in oklab, var(--ok) 15%, transparent); }
-.check.warn .check-icon { color: var(--warn); background: color-mix(in oklab, var(--warn) 16%, transparent); }
-.check.fail .check-icon { color: var(--err); background: color-mix(in oklab, var(--err) 16%, transparent); }
-.check-title { margin: 4px 0 0; font-weight: 600; font-size: 14.5px; }
-.check-detail { margin: 0; grid-column: 2; color: var(--ink-2); font-size: 13.5px; overflow-wrap: anywhere; }
-.check-hint { margin: 4px 0 0; grid-column: 2 / -1; font-size: 13px; color: var(--ink-2); padding: 8px 10px; border-radius: 10px; background: var(--surface); }
-.check .btn { grid-column: 3; grid-row: 1 / span 2; height: 34px; padding: 0 12px; font-size: 13.5px; }
-.check.skeleton { height: 74px; }
+/* ---------- диагностика: сводка и кнопки — по одной строке; строка проверки — шапка 32 ---------- */
 
-.modal { margin: auto; width: min(520px, calc(100vw - 32px)); overflow: visible; }
-.modal-box { border-radius: 22px; background: var(--panel); border: 1px solid var(--hair-2); box-shadow: var(--shadow); display: grid; }
-.modal-box.small { padding: 22px 22px 18px; gap: 8px; }
-.modal-box.small h3 { margin: 0; font: 700 20px/1.2 var(--font-display); letter-spacing: -.02em; }
-.modal-box.small .modal-actions { padding: 10px 0 0; }
-.modal-actions { padding: 6px 22px 22px; }
-.move-tree { max-height: 46vh; overflow-y: auto; padding: 4px 16px 10px; display: grid; gap: 2px; scrollbar-width: thin; }
-.cheat-list { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; margin: 0; padding: 6px 22px 22px; font-size: 14.5px; align-items: center; }
-.cheat-list dt { display: flex; gap: 4px; align-items: center; color: var(--ink-2); font-size: 13px; }
-.cheat-list dd { margin: 0; color: var(--ink-2); }
+.health-summary { display: flex; flex-wrap: nowrap; gap: 6px; padding: 0 24px; }
+.sum-chip { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: var(--r-xs); background: var(--s1); border: 1px solid var(--line-1);
+  font: 500 11.5px/1 var(--font-mono); color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sum-chip i { width: 6px; height: 6px; flex: none; border-radius: 50%; }
+.health-actions { display: flex; flex-wrap: nowrap; gap: 8px; padding: 16px 24px; }
+.health-actions .btn { height: 40px; padding: 0 14px 0 12px; font-size: 14px; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.check { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-rows: 32px; column-gap: 12px; align-items: center; padding: 12px; border-radius: var(--r-l); background: var(--s1); border: 1px solid var(--line-1); }
+.check-icon { grid-row: 1; grid-column: 1; display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; }
+.check-icon svg { width: 14px; height: 14px; stroke-width: 2.4; }
+.check.ok .check-icon { color: var(--ok); background: color-mix(in oklab, var(--ok) 18%, transparent); }
+.check.warn .check-icon { color: var(--warn); background: color-mix(in oklab, var(--warn) 18%, transparent); }
+.check.fail .check-icon { color: var(--err); background: color-mix(in oklab, var(--err) 18%, transparent); }
+.check-title { grid-row: 1; grid-column: 2; min-width: 0; margin: 0; font: 600 14px/18px var(--font-text); color: var(--ink); }
+.check .btn { grid-row: 1; grid-column: 3; height: 32px; padding: 0 10px 0 8px; gap: 6px; font-size: 13px; }
+.check .btn svg { width: 16px; height: 16px; }
+.check-detail { grid-row: 2; grid-column: 2 / -1; margin: -6px 0 0; font: 400 13px/20px var(--font-text); color: var(--ink-2); overflow-wrap: anywhere; }
+.check-detail:empty { display: none; }
+.check-hint { grid-row: 3; grid-column: 2 / -1; margin: 8px 0 0; padding: 6px 10px; border-radius: var(--r-s); background: var(--s2); font: 400 12.5px/18px var(--font-text); color: var(--ink-2); }
+/* скелетон — та же геометрия, что строка без подсказки: 72, кружок 24 и две полосы по осям заголовка и подробности */
+.check.skeleton { height: 72px; border-radius: var(--r-l); border: 1px solid var(--line-1);
+  background:
+    radial-gradient(circle at 24px 28px, var(--surface-2) 11.5px, transparent 12px),
+    linear-gradient(var(--surface-2) 0 0) 48px 23px / calc((100% - 60px) * .6) 10px no-repeat,
+    linear-gradient(var(--surface-2) 0 0) 48px 43px / calc((100% - 60px) * .4) 10px no-repeat,
+    var(--s1); }
+.check.skeleton::after { animation-duration: 1.6s; }
+/* «Чиню…»: кольцо 16 (2 px, оборот 0,9 с) вместо иконки; кнопка не гаснет */
+#health .btn.busy:disabled { opacity: 1; cursor: progress; }
+#health .btn.busy svg { display: none; }
+#health .btn.busy::before { content: ""; flex: none; width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; animation: dlg-spin .9s linear infinite; }
+@keyframes dlg-spin { to { rotate: 360deg; } }
+
+/* ---------- модальные окна: подтверждение, выбор папки, клавиши ---------- */
+
+.modal { margin: auto; width: min(520px, calc(100vw - 32px)); }
+#confirm-dialog { width: min(440px, calc(100vw - 32px)); }
+#cheats { width: min(560px, calc(100vw - 32px)); }
+.modal-box { display: grid; padding: 24px; border-radius: var(--r-xl); background: var(--s-raised); border: 1px solid var(--line-2); box-shadow: var(--shadow); }
+.modal-box > .drawer-head { padding: 0 0 16px; }
+.modal-text, .move-ask { margin: 0; font-size: 14.5px; line-height: 1.5; color: var(--ink-2); }
+.move-ask[hidden] { display: none; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 24px 0 0; }
+.modal-actions .btn[hidden] { display: none; }
+
+/* выбор папки: дерево как в хранилище; текущая — --s4 + ✓ */
+.move-tree { display: grid; gap: 2px; max-height: 46vh; margin: 0 -8px; padding: 0 8px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.move-tree[hidden] { display: none; }
+#folder-tree .tnode { height: 34px; padding-top: 0; padding-bottom: 0; padding-right: 10px; border-radius: var(--r-s); font-size: 13.5px; }
+#folder-tree .tnode:hover:not([aria-disabled="true"]) { background: var(--s3); color: var(--ink); }
+#folder-tree .tnode[aria-current="true"] { background: var(--s4); color: var(--ink); }
+#folder-tree .tnode[aria-current="true"]::after { content: ""; flex: none; width: 16px; height: 16px; background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / 16px no-repeat; }
+
+/* клавиши: две колонки, строки 32, разделители --line-1 */
+.cheat-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); margin: 0; font-size: 14px; }
+.cheat-list dt, .cheat-list dd { display: flex; align-items: center; min-height: 32px; padding: 4px 0; border-top: 1px solid var(--line-1); }
+.cheat-list > :nth-child(-n + 2) { border-top: 0; }
+.cheat-list dt { gap: 4px; padding-right: 24px; font-size: 12px; color: var(--ink-3); }
+.cheat-list dd { margin: 0; line-height: 1.4; color: var(--ink-2); }
+.cheat-list kbd { display: inline-grid; place-items: center; min-width: 24px; height: 24px; padding: 0 6px; border-radius: var(--r-xs); font: 500 12px/1 var(--font-mono); color: var(--ink); }
 
 /* ---------- адаптив ---------- */
 
@@ -115,8 +236,12 @@ dialog.closing::backdrop { opacity: 0; }
   .modal-box { border-radius: 22px 22px 0 0; }
 }
 
-/* ---------- меньше движения ---------- */
+/* ---------- меньше движения: эквалайзер и скелетоны статичны, «Чиню…» — три точки ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-  .eq i { animation: none !important; }
+  .eq i, .check.skeleton::after { animation: none !important; }
+  .check.skeleton::after { opacity: 0; }
+  #health .btn.busy::before { animation: none; border: 0; border-radius: 0; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 50% / 5.33px 100% repeat-x; }
 }
+.motion-off .check.skeleton::after { opacity: 0; }
+.motion-off #health .btn.busy::before { border: 0; border-radius: 0; background: radial-gradient(circle, currentColor 1.5px, transparent 2px) 0 50% / 5.33px 100% repeat-x; }
