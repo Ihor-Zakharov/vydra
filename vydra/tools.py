@@ -200,14 +200,14 @@ def create_shortcut() -> str:
         return _windows_shortcut(target, _windows_icon(icon_png))
 
     if system.OS == "mac":
-        target.write_text(f'#!/bin/bash\nexec "{sys.executable}" -m vydra ui\n', encoding="utf-8")
+        target.write_text(f'#!/bin/bash\nexec "{sys.executable}" -I -m vydra ui\n', encoding="utf-8")
         target.chmod(target.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
         return f"Ярлык создан: {target}"
 
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(
         "[Desktop Entry]\nType=Application\nName=Выдра\nComment=Скачать видео без водяных знаков\n"
-        f'Exec="{sys.executable}" -m vydra ui\nIcon={icon_png}\nTerminal=false\nCategories=AudioVideo;Network;\n',
+        f'Exec="{sys.executable}" -I -m vydra ui\nIcon={icon_png}\nTerminal=false\nCategories=AudioVideo;Network;\n',
         encoding="utf-8",
     )
     target.chmod(0o755)
@@ -229,8 +229,8 @@ def shortcut_command() -> tuple[str, str]:
     if system.OS == "wsl":
         distro = os.environ.get("WSL_DISTRO_NAME", "")
         prefix = f"-d {distro} " if distro else ""
-        return r"C:\Windows\System32\wsl.exe", f"{prefix}--cd ~ -e {quoted_python} -m vydra ui"
-    return python, "-m vydra ui"
+        return r"C:\Windows\System32\wsl.exe", f"{prefix}--cd ~ -e {quoted_python} -I -m vydra ui"
+    return python, "-I -m vydra ui"
 
 
 def _windows_shortcut(target: Path, icon: str | None) -> str:
@@ -295,12 +295,17 @@ def _windows_icon(png: Path) -> str | None:
         return None
     ico = folder / "vydra" / "vydra.ico"
     ico.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(
-        [ffmpeg, "-y", "-loglevel", "error", "-i", str(png), "-vf", "scale=256:256", str(ico)],
-        capture_output=True,
-        check=False,
-        **system.child_flags(),
-    )
+    try:
+        subprocess.run(
+            [ffmpeg, "-y", "-loglevel", "error", "-i", str(png), "-vf", "scale=256:256", str(ico)],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=60,
+            **system.child_flags(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None  # ярлык и без своей иконки работает
     return system.to_windows(ico) if ico.is_file() else None
 
 
@@ -349,10 +354,16 @@ def _first_line(cmd: list[str]) -> str | None:
     return out.splitlines()[0] if out else None
 
 
-def _check(cmd: list[str], cwd: Path | None = None) -> None:
-    result = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", **system.child_flags()
-    )
+def _check(cmd: list[str], cwd: Path | None = None, timeout: float = 600) -> None:
+    try:
+        result = subprocess.run(
+            cmd, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            **system.child_flags(),
+        )  # fmt: skip
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Обновление не закончилось за {timeout / 60:.0f} мин — проверьте интернет и повторите") from exc
+    except OSError as exc:
+        raise RuntimeError(f"Обновление не запустилось: {exc.strerror or exc}") from exc
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip().splitlines()[-2:]
         raise RuntimeError("Обновление не удалось: " + " / ".join(tail))

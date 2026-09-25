@@ -1,7 +1,7 @@
 #!/bin/sh
 # Установка выдры одной командой (macOS, Linux, WSL):
 #   curl -LsSf https://raw.githubusercontent.com/Ihor-Zakharov/vydra/main/install.sh | sh
-# Повторный запуск — обновление. Из локальной копии: VYDRA_REPO=/путь/к/vydra sh install.sh
+# Повторный запуск — обновление (то же делает `vydra update`). Из локальной копии: VYDRA_REPO=/путь/к/vydra sh install.sh
 set -eu
 REPO="${VYDRA_REPO:-https://github.com/Ihor-Zakharov/vydra/archive/refs/heads/main.zip}"
 
@@ -42,6 +42,8 @@ for name in vydra выдра; do
     "$name" --version >/dev/null 2>&1 || die "Команда $name не запускается"
 done
 say 32 "✓" "$(vydra --version)"
+# запомнить, откуда и из какого коммита стоит выдра: `vydra update` сравнит с последним и обновит из того же места
+vydra update --record "$REPO" >/dev/null 2>&1 || true
 
 # 3. FFmpeg, JS-движок для YouTube, папки хранилища, ярлык, Tab и умные ссылки
 echo
@@ -49,12 +51,17 @@ say 33 "~" "Ставлю FFmpeg и остальное, проверяю сист
 printf '    \033[2mэто может занять пару минут — терминал не завис\033[0m\n'
 vydra doctor --fix || true
 vydra completion >/dev/null 2>&1 || true
-if grep -qi microsoft /proc/version 2>/dev/null && command -v powershell.exe >/dev/null 2>&1; then
+# VYDRA_NO_WINDOWS=1 — не трогать Windows-сторону (проверка установщика с временным HOME)
+if [ "${VYDRA_NO_WINDOWS:-0}" != 1 ] && grep -qi microsoft /proc/version 2>/dev/null \
+    && command -v powershell.exe >/dev/null 2>&1; then
     vydra bridge || true  # WSL: команды vydra и выдра в PowerShell и cmd Windows
 fi
 if [ "$(uname -s)" = "Darwin" ]; then
     printf '  \033[2mmacOS может один раз спросить разрешение для ffmpeg — разрешите в «Настройках → Конфиденциальность».\033[0m\n'
 fi
+
+# 4. веб-интерфейс уже работает — перезапускаем его новой версией (в том же окне, если умеет)
+vydra restart --quiet || say 33 "!" "Перезапустите веб-интерфейс сами: vydra stop, затем vydra ui"
 
 printf '\n  \033[1;32mГотово!\033[0m Скопируйте ссылку в браузере и запустите:\n'
 printf '    \033[36mвыдра скачать -ф мп3\033[0m   \033[2m(ссылка возьмётся из буфера обмена; или укажите её в кавычках)\033[0m\n'

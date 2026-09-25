@@ -38,7 +38,7 @@ from .downloader import (
 )
 from .fsutil import atomic_write, friendly_os_error
 from .library import Library, LibraryUnavailable
-from .media import Cancelled, Clip, IntegrityError, MediaError
+from .media import Cancelled, Clip, IntegrityError, MediaError, NoAudio
 from .naming import safe_stem, title_for
 from .timecode import clip_label
 
@@ -75,7 +75,7 @@ def canonical_url(url: str | None) -> str | None:
             video = m.group(2)
         if video:
             return f"youtube:{video}"
-    if host.endswith("tiktok.com") and (m := re.search(r"/video/(\d+)", path)):
+    if host.endswith("tiktok.com") and (m := re.search(r"/(?:video|photo)/(\d+)", path)):
         return f"tiktok:{m.group(1)}"
     if host.endswith("instagram.com") and (m := re.match(r"^/(?:[\w.]+/)?(?:p|reel|reels|tv)/([\w-]+)", path)):
         return f"instagram:{m.group(1)}"
@@ -312,6 +312,7 @@ class JobManager:
         self._stopping = threading.Event()
         self._dirty = threading.Event()
         self._hosts: dict[str, int] = {}  # сколько загрузок идёт с каждого сайта
+        self._pieces: set[str] = set()  # задачи, чья папка хранит кусок ролика (а не ролик целиком)
         self.info_cache = settings.work_dir / "info"  # полная информация из превью для быстрого старта
         workers = max_parallel or settings.max_parallel
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="job")
@@ -463,7 +464,9 @@ class JobManager:
             time.sleep(0.05)
         with self._lock:
             for job in self._jobs.values():
-                if job.active:
+                if job.active and self.store is None:
+                    self._finish(job, "cancelled")  # консоль: продолжать некому — прибираем сразу
+                elif job.active:
                     job.status, job.stage, job.progress = "queued", "Прервано — продолжу при следующем запуске", None
                     job.speed = job.eta = None
         self._save()
@@ -590,8 +593,9 @@ class JobManager:
             else:
                 message, transient = _explain(exc)
                 log.warning("job %s failed attempt=%d transient=%s: %s", job.id, job.attempt, transient, message)
-                if isinstance(exc, IntegrityError):
-                    _wipe(work)  # битый файл — следующая попытка качает с нуля
+                if isinstance(exc, IntegrityError) or job.id in self._pieces:
+                    # битый файл — с нуля; кусок ролика — тоже: yt-dlp принял бы его за уже скачанный ролик целиком
+                    _wipe(work)
                 if transient and job.attempt < job.max_attempts and not self._stopping.is_set():
                     self._retry_later(job, message, rate_limited=getattr(exc, "rate_limited", False))
                 else:
@@ -600,10 +604,13 @@ class JobManager:
             job.speed = job.eta = None
             with self._lock:
                 self._running.discard(job.id)
+                self._pieces.discard(job.id)
             self.changed()
 
     def _interrupted_or_cancelled(self, job: Job) -> None:
-        if job.interrupted:
+        # продолжить после перезапуска может только сервер (очередь на диске); у консоли прерванная
+        # задача — это отмена: её папку с недокачанным убираем сразу, а не через час
+        if job.interrupted and self.store is not None:
             job.status, job.stage, job.progress = "queued", "Прервано — продолжу при следующем запуске", None
         else:
             self._finish(job, "cancelled")
@@ -627,8 +634,9 @@ class JobManager:
         job.finished = time.time()
         log.info("job %s %s files=%d error=%s", job.id, status, len(job.files), error)
         _wipe(self.jobs_root / job.id)
-        # исходник своего файла храним до успеха: без него не получится «Повторить»
-        if status == "done" and job.input_path is not None:
+        # исходник своего файла храним до успеха: без него не получится «Повторить» (у консоли повтора нет)
+        if (job.input_path is not None and job.input_path.parent.parent == self.uploads_dir
+                and (status == "done" or self.store is None)):
             shutil.rmtree(job.input_path.parent, ignore_errors=True)
         self.changed()
 
@@ -655,10 +663,13 @@ class JobManager:
                 info_cache=self.info_cache,
                 confirm_playlist=job.confirm_playlist,
                 clip=job.clip,
+                allow_section=job.attempt == 1,  # повтор после сбоя — надёжный путь: ролик целиком
             )
         finally:
             with self._lock:
                 self._hosts[host] = max(0, self._hosts.get(host, 1) - 1)
+        if any(item.section for item in items):
+            self._pieces.add(job.id)
         if any(item.watermarked for item in items):
             job.warning = "Версии без водяного знака не нашлось — сохранена версия с ним"
         for n, item in enumerate(items, 1):
@@ -672,7 +683,7 @@ class JobManager:
             probe = self.media.probe(item.path)
         except MediaError as exc:
             raise IntegrityError("Скачанный файл повреждён") from exc
-        expected = item.info.get("duration")
+        expected = item.section[1] - item.section[0] if item.section else item.info.get("duration")
         if expected and probe.duration and probe.duration < expected * 0.9 - 2:
             raise IntegrityError(f"Скачалось {probe.duration:.0f} с из {expected:.0f} с — файл неполный")
 
@@ -696,7 +707,12 @@ class JobManager:
         if clip:
             stem = f"{stem} ({clip_label(clip, '–').replace(':', '.')})"
         source = info.get("webpage_url") or job.source
-        self._convert(job, item.path, stem, meta, cover, work, clip=clip, source=source, part=n)
+        cut = clip
+        if clip and item.section:  # скачан только кусок: время отрезка — в координатах файла
+            shift = item.section[0] - item.offset
+            end = item.section[1] if clip[1] is None else min(clip[1], item.section[1])
+            cut = (max(0.0, clip[0] - shift), end - shift)
+        self._convert(job, item.path, stem, meta, cover, work, clip=cut, source=source, part=n, saved_clip=clip)
 
     def _run_file(self, job: Job, work: Path) -> None:
         if job.input_path is None or not job.input_path.is_file():
@@ -723,6 +739,7 @@ class JobManager:
         clip: Clip | None,
         source: str | None,
         part: int,
+        saved_clip: Clip | None = None,  # отрезок в координатах ролика — для хранилища (clip — в координатах файла)
     ) -> None:
         for ext in TARGETS[job.mode]:
             if job.cancel.is_set():
@@ -742,7 +759,15 @@ class JobManager:
             if ext == "mp4":
                 self.media.to_mp4(src, tmp, meta, on_progress, job.cancel, clip=clip)
             else:
-                self.media.to_mp3(src, tmp, job.bitrate, meta, cover, on_progress, job.cancel, clip=clip)
+                try:
+                    self.media.to_mp3(src, tmp, job.bitrate, meta, cover, on_progress, job.cancel, clip=clip)
+                except NoAudio:
+                    if job.mode != "both" or not any(f.get("part", 1) == part for f in job.files):
+                        raise
+                    # просили «оба», а звука в ролике нет: видео уже сохранено — это не ошибка задачи
+                    job.warning = "В ролике нет звука — сохранено только видео, MP3 сделать не из чего"
+                    self.changed()
+                    continue
             if job.cancel.is_set():
                 raise Cancelled
 
@@ -762,7 +787,7 @@ class JobManager:
                 uploader=meta.get("artist") or None,
                 cover=cover,
                 folder=folder,
-                clip=clip or job.clip,
+                clip=saved_clip or clip or job.clip,
             )
             job.files.append(
                 {

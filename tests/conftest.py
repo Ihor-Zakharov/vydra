@@ -1,12 +1,18 @@
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
-import pytest
+# Существующие тесты проверяют русские тексты консоли; английский (по умолчанию) — в test_i18n.py.
+# До импорта vydra: язык выбирается при импорте, а подпроцессы наследуют переменную.
+os.environ["VYDRA_LANG"] = "ru"
 
-from vydra.config import Prefs, Settings
-from vydra.library import Library
-from vydra.media import Media
+import pytest  # noqa: E402
+
+from vydra.config import Prefs, Settings  # noqa: E402
+from vydra.library import Library  # noqa: E402
+from vydra.media import Media  # noqa: E402
+
 
 def _find_ffmpeg() -> str | None:
     """ffmpeg из PATH, ~/.local/bin или папки, куда его ставит `vydra doctor --fix` (так в CI)."""

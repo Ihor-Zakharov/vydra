@@ -84,6 +84,42 @@ def test_sse_on_real_server_and_shutdown_with_open_tab(settings, monkeypatch):
     assert not thread.is_alive() and time.monotonic() - started < 10
 
 
+def test_shutdown_signal_closes_open_tabs_at_once(settings):
+    """`vydra stop` / перезапуск ставят main.SHUTDOWN: SSE закрывается сразу, а не через timeout_graceful_shutdown."""
+    import socket
+
+    import httpx
+    import uvicorn
+
+    from vydra import main
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        port = sock.getsockname()[1]
+    server = uvicorn.Server(uvicorn.Config(create_app(settings, watch=False), host="127.0.0.1", port=port,
+                                           log_level="warning", timeout_graceful_shutdown=5))  # fmt: skip
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    assert wait_for(lambda: server.started, timeout=10)
+    def open_tab() -> None:
+        try:
+            httpx.get(f"http://127.0.0.1:{port}/api/events", headers={"host": "localhost"}, timeout=30)
+        except httpx.HTTPError:
+            pass  # сервер закрыл поток — этого и ждём
+
+    tab = threading.Thread(target=open_tab, daemon=True)
+    tab.start()
+    time.sleep(0.5)
+    started = time.monotonic()
+    try:
+        main.SHUTDOWN.set()
+        server.should_exit = True
+        thread.join(15)
+    finally:
+        main.SHUTDOWN.clear()
+    assert not thread.is_alive() and time.monotonic() - started < 3
+
+
 def test_retry_endpoint(client):
     job = client.post("/api/jobs", json={"urls": ["https://youtu.be/abcdefghijk"]}).json()[0]
     assert wait_for(lambda: client.get("/api/jobs").json()[0]["status"] == "error")

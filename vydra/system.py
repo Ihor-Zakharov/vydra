@@ -12,6 +12,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -84,6 +85,7 @@ def run(cmd: list[str], timeout: float = 20) -> str | None:
     try:
         result = subprocess.run(
             cmd,
+            stdin=subprocess.DEVNULL,  # интероп Windows (powershell.exe) иначе съедает ввод из терминала
             capture_output=True,
             timeout=timeout,
             check=False,
@@ -123,7 +125,18 @@ def to_windows(path: Path) -> str | None:
         return str(path)
     if OS != "wsl":
         return None
-    return run(["wslpath", "-w", str(path)], timeout=5)
+    key = str(path)
+    if key not in _win_paths:  # список хранилища спрашивает путь каждого файла — wslpath один раз на путь
+        converted = run(["wslpath", "-w", key], timeout=5)
+        if converted is None:
+            return None
+        if len(_win_paths) > 4096:
+            _win_paths.clear()
+        _win_paths[key] = converted
+    return _win_paths[key]
+
+
+_win_paths: dict[str, str] = {}
 
 
 def from_windows(text: str) -> Path | None:
@@ -139,16 +152,45 @@ def display_path(path: Path) -> str:
     return to_windows(path) or str(path)
 
 
+_downloads: Path | None = None
+DOWNLOADS_TTL = 86400
+
+
 def downloads_dir() -> Path:
-    if OS == "wsl":
-        script = "(New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path"
-        converted = from_windows(powershell(script) or "")
-        if converted and converted.is_dir():
-            return converted
+    """«Загрузки» пользователя. В WSL — папка Windows: её спрашиваем у PowerShell (~0,3 с, на холодной
+    Windows — секунды) один раз в сутки, а ответ кэшируем — иначе каждая команда выдры ждала бы его."""
+    global _downloads
+    if _downloads is None:
+        _downloads = _wsl_downloads() if OS == "wsl" else None
+        if _downloads is None:
+            try:
+                _downloads = Path(user_downloads_dir())
+            except Exception:  # noqa: BLE001 — платформенные сюрпризы
+                _downloads = Path.home() / "Downloads"
+    return _downloads
+
+
+def _wsl_downloads() -> Path | None:
+    from platformdirs import user_cache_dir
+
+    cache = Path(os.environ.get("VD_WORK_DIR") or user_cache_dir("vydra", appauthor=False)) / "windows-downloads.txt"
     try:
-        return Path(user_downloads_dir())
-    except Exception:  # noqa: BLE001 — платформенные сюрпризы
-        return Path.home() / "Downloads"
+        if time.time() - cache.stat().st_mtime < DOWNLOADS_TTL:
+            cached = Path(cache.read_text(encoding="utf-8").strip())
+            if cached.is_absolute() and cached.is_dir():
+                return cached
+    except OSError:
+        pass
+    script = "(New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path"
+    converted = from_windows(powershell(script, timeout=15) or "")
+    if not (converted and converted.is_dir()):
+        return None
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(str(converted), encoding="utf-8")
+    except OSError:
+        pass
+    return converted
 
 
 def desktop_dir() -> Path | None:
@@ -169,7 +211,9 @@ def parse_user_path(text: str) -> Path:
     if looks_windows and OS == "wsl":
         converted = from_windows(raw)
         if converted is None:
-            raise ValueError("Не удалось преобразовать путь Windows")
+            if raw[1:2] == ":":
+                raise ValueError(f"Диск {raw[0].upper()}: не виден из WSL — подключите его или выберите другую папку")
+            raise ValueError(f"Не удалось открыть сетевой путь {raw} из WSL — скопируйте файлы на диск C: или D:")
         return converted
     path = Path(raw).expanduser()
     if not path.is_absolute():
@@ -225,6 +269,8 @@ def _must_exist(path: Path) -> None:
 def open_url(url: str) -> None:
     if OS == "wsl":
         _spawn(["explorer.exe", url])  # браузер по умолчанию на стороне Windows
+    elif OS == "mac":
+        _spawn(["open", url])
     else:
         webbrowser.open(url)
 

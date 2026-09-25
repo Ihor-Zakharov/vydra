@@ -40,3 +40,36 @@ def test_save_unique_never_overwrites(tmp_path):
     assert names == ["clip.mp4", "clip (2).mp4", "clip (3).mp4"]
     assert (folder / "clip (3).mp4").read_bytes() == b"xxx"
     assert not list(folder.glob("*.part"))
+
+
+def test_hard_exit_removes_copies_in_flight(tmp_path, monkeypatch):
+    """Второй Ctrl+C во время копирования в хранилище: пустая заготовка и .part не остаются в папке."""
+    import threading
+
+    from vydra import naming
+
+    src = tmp_path / "src.mp4"
+    src.write_bytes(b"x" * 1024)
+    started, release = threading.Event(), threading.Event()
+
+    def slow_copy(a, b):
+        open(b, "wb").write(b"x" * 10)
+        started.set()
+        release.wait(5)
+
+    monkeypatch.setattr(naming.shutil, "copyfile", slow_copy)
+    folder = tmp_path / "Видео"
+    def save():
+        try:
+            naming.save_unique(src, folder, "Ролик", "mp4")
+        except OSError:
+            pass  # .part убран из-под копирования — так и задумано
+
+    worker = threading.Thread(target=save, daemon=True)
+    worker.start()
+    assert started.wait(5)
+    naming.abandon_in_flight()
+    assert sorted(p.name for p in folder.iterdir()) == []
+    release.set()
+    worker.join(5)
+    assert not naming.IN_FLIGHT

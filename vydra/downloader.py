@@ -54,8 +54,13 @@ INFO_KEYS = (
 STALL_DOWNLOAD = float(os.environ.get("VD_STALL_TIMEOUT", "120"))  # байты не идут дольше — зависло
 STALL_EXTRACT = float(os.environ.get("VD_EXTRACT_TIMEOUT", "300"))  # сайт молчит при извлечении
 SOCKET_TIMEOUT = 30
-WORKER_CMD = [sys.executable, "-m", "vydra.downloader"]  # тесты подменяют на поддельный воркер
+WORKER_CMD = [sys.executable, "-I", "-m", "vydra.downloader"]  # -I: не брать чужой vydra из текущей папки; тесты подменяют
 SPACE_MARGIN = 64 * 1024 * 1024
+# Короткий отрезок длинного ролика качаем куском (ffmpeg по диапазону): 30 с из часового ролика — секунды вместо
+# минуты. Длинные куски так не берём: YouTube режет скорость одного соединения ffmpeg (15 мин куска — 7,5 мин),
+# а весь ролик yt-dlp качает частями быстро. Не вышло — качаем целиком и режем сами. VD_SECTION_MAX=0 — выключить.
+SECTION_MAX = float(os.environ.get("VD_SECTION_MAX", "60"))
+SECTION_MIN_VIDEO = 180  # ролики короче качаем целиком: выигрыша нет
 
 
 class DownloadFailed(Exception):
@@ -93,6 +98,8 @@ class Downloaded:
     path: Path
     info: dict
     thumbnail: Path | None
+    section: tuple[float, float] | None = None  # скачан только этот кусок ролика (секунды от начала)
+    offset: float = 0.0  # где в файле начинается кусок: ffmpeg без перекодирования берёт и «разгон» до него
 
     @property
     def watermarked(self) -> bool:
@@ -130,6 +137,12 @@ _PERMANENT = [
      "Видео недоступно: удалено или закрыто в вашем регионе."),
     (("http error 404", "404: not found", "http error 410"), "Страница не найдена — проверьте ссылку."),
     (("drm",), "Видео защищено DRM — скачать его нельзя."),
+    (("ip address is blocked", "not available in your region", "geo restrict", "geo-restrict"),
+     "Сайт не показывает этот ролик с вашего IP-адреса (ограничение по региону) — нужен VPN или cookies."),
+    (("live stream recording is not available", "recording is not available"),
+     "Запись этой трансляции недоступна — эфир закончился, а запись не сохранили или скрыли."),
+    (("live event will begin", "premieres in", "this live event", "is_upcoming", "will begin in"),
+     "Трансляция или премьера ещё не началась — попробуйте, когда она начнётся и закончится."),
     (("requested format is not available", "no video formats found"),
      "Нужного формата у ролика нет — попробуйте другое качество или MP3."),
     (("ffmpeg not found", "ffprobe and ffmpeg not found", "ffmpeg is not installed"),
@@ -187,6 +200,7 @@ def download(
     info_cache: Path | None = None,
     confirm_playlist: bool = False,
     clip: tuple[float, float | None] | None = None,
+    allow_section: bool = True,
 ) -> list[Downloaded]:
     work_dir.mkdir(parents=True, exist_ok=True)
     request = {
@@ -200,7 +214,8 @@ def download(
         "library_dir": str(library_dir) if library_dir else None,
         "info_file": str(cached_info(info_cache, url, cookies)) if info_cache and cached_info(info_cache, url, cookies) else None,
         "playlist_limit": None if confirm_playlist else PLAYLIST_LIMIT,
-        "clip": list(clip) if clip else None,  # только для проверки «отрезок за пределами ролика»
+        "clip": list(clip) if clip else None,  # «отрезок за пределами ролика» и загрузка куском
+        "allow_section": allow_section,
     }
     reporter.stage("Получаю информацию о видео")
     watch = _Watch()
@@ -256,7 +271,9 @@ def download(
                     reporter.clip(msg.get("clip"))
                 elif kind == "done":
                     result = [
-                        Downloaded(Path(i["path"]), i["info"], Path(i["thumbnail"]) if i.get("thumbnail") else None)
+                        Downloaded(Path(i["path"]), i["info"], Path(i["thumbnail"]) if i.get("thumbnail") else None,
+                                   tuple(i["section"]) if i.get("section") else None,
+                                   float(i.get("offset") or 0.0))  # fmt: skip
                         for i in msg["items"]
                     ]
                 elif kind == "error":
@@ -493,6 +510,15 @@ class _Permanent(Exception):
     """Ошибка, которую повторять бессмысленно (например, плейлист без подтверждения)."""
 
 
+_TIKTOK_PHOTO = re.compile(r"^(https?://(?:www\.)?tiktok\.com/@[\w.-]*/)photo(/\d+)", re.IGNORECASE)
+
+
+def extractor_url(url: str) -> str:
+    """Ссылка в том виде, который понимает yt-dlp. Фото-пост TikTok (/photo/…) он не узнаёт, а тот же пост
+    по /video/… отдаёт — со звуком слайдшоу (картинки yt-dlp не качает)."""
+    return _TIKTOK_PHOTO.sub(r"\1video\2", url)
+
+
 def _common_opts(req: dict, logger) -> dict:
     opts: dict = {
         "quiet": True,
@@ -534,7 +560,7 @@ def _preview(req: dict) -> dict:
             opts["cookiefile"] = str(Path(tmp) / "cookies.txt")
             shutil.copyfile(req["cookies"], opts["cookiefile"])
         with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(req["url"], download=False)
+            info = ydl.extract_info(extractor_url(req["url"]), download=False)
             if req.get("save_info") and info.get("_type") != "playlist":
                 try:
                     Path(req["save_info"]).write_text(json.dumps(ydl.sanitize_info(info)), encoding="utf-8")
@@ -572,6 +598,7 @@ def _preview(req: dict) -> dict:
         "playlist": False,
         "count": None,
         "preview_url": progressive[-1]["url"] if progressive else None,
+        "is_live": bool(info.get("is_live")),  # прямой эфир скачать нельзя, пока он идёт
     }
 
 
@@ -665,7 +692,7 @@ def _download_with(
 ) -> list[dict]:
     limit = req.get("playlist_limit")
     if info is None:
-        raw = ydl.extract_info(req["url"], download=False, process=False)
+        raw = ydl.extract_info(extractor_url(req["url"]), download=False, process=False)
         if _is_playlist(raw):
             # список роликов ленивый: чтобы понять «больше лимита», берём не больше limit+1 штук
             if limit:
@@ -684,9 +711,16 @@ def _download_with(
         info = _review(ydl, info, req, send)
         _check_space(info, work_dir, req.get("library_dir"), req["mode"])
     send(type="phase", phase="download")
-    if fallback and not _is_playlist(info):
+    section = None if _is_playlist(info) or not req.get("allow_section", True) else section_for(req.get("clip"), info)
+    piece = _download_section(ydl, info, req, send, section, work_dir) if section else None
+    offsets: dict[str, float] = {}
+    if piece is not None:
+        info, offsets = piece
+    elif fallback and not _is_playlist(info):
+        section = None
         info = _download_resilient(ydl, info, req, send)
     else:
+        section = None
         info = ydl.process_ie_result(info, download=True)
 
     entries = [e for e in info.get("entries") or [] if e] if info.get("_type") == "playlist" else [info]
@@ -696,10 +730,89 @@ def _download_with(
             path = Path(requested.get("filepath") or "")
             if path.is_file():
                 thumb = _thumbnail_of(entry, work_dir)
-                items.append({"path": str(path), "info": _slim(entry), "thumbnail": str(thumb) if thumb else None})
+                items.append({"path": str(path), "info": _slim(entry), "thumbnail": str(thumb) if thumb else None,
+                              "section": list(section) if section else None, "offset": offsets.get(str(path), 0.0)})
     if not items:
         raise RuntimeError(errors[-1] if errors else "По ссылке не нашлось видео")
     return items
+
+
+# --- отрезок куском ----------------------------------------------------------------------
+
+
+def section_for(clip, info: dict) -> tuple[float, float] | None:
+    """Кусок, который выгодно скачать отдельно, или None — качать ролик целиком."""
+    duration = info.get("duration")
+    if not clip or clip[1] is None or not duration or info.get("is_live") or SECTION_MAX <= 0:
+        return None
+    start, end = float(clip[0]), min(float(clip[1]), float(duration))
+    length = end - start
+    if length <= 0 or length > SECTION_MAX or duration < max(SECTION_MIN_VIDEO, length * 4):
+        return None
+    return start, end
+
+
+def _download_section(
+    ydl, info: dict, req: dict, send, section: tuple[float, float], work_dir: Path
+) -> tuple[dict, dict[str, float]] | None:
+    """Скачать только кусок [start, end]: (info, {файл: где в нём начинается кусок}). None — не вышло (всё
+    недокачанное убрано), вызывающий качает целиком.
+
+    ffmpeg без перекодирования начинает каждую дорожку раньше куска (видео — с ключевого кадра, звук YouTube —
+    с начала своего фрагмента), но заканчивает ровно на конце: кусок — последние (end − start) секунд файла.
+    Проверено сверкой звука и кадров с роликом, скачанным целиком (docs/cli/MATRIX.md)."""
+    from yt_dlp.utils import download_range_func
+
+    start, end = section
+    before = set(work_dir.iterdir())
+    send(type="stage", text="Скачиваю отрезок")
+    ydl.params["download_ranges"] = download_range_func(None, [(start, end)])
+    ydl.params["force_keyframes_at_cuts"] = False  # точный рез сделает media.py при конвертации
+    reason = "кусок получился неполным"
+    try:
+        fresh = {k: v for k, v in info.items() if k != "requested_downloads"}
+        result = ydl.process_ie_result(fresh, download=True)
+        files = [Path(r.get("filepath") or "") for r in result.get("requested_downloads") or []]
+        offsets = {}
+        for f in files:
+            lead = _duration_of(f, req) - (end - start) if f.is_file() else -1.0
+            if not -0.5 <= lead <= 60:  # короче куска или непонятно длиннее — не рискуем
+                offsets = {}
+                break
+            offsets[str(f)] = max(0.0, lead)
+        if files and offsets:
+            return result, offsets
+    except (NoSpace, _Permanent):
+        raise
+    except Exception as exc:  # noqa: BLE001 — любой сбой куска лечится загрузкой целиком
+        reason = str(exc)[:300]
+    finally:
+        ydl.params.pop("download_ranges", None)
+    print(f"section {start}-{end} failed ({reason}); downloading the whole video", file=sys.stderr)
+    for path in set(work_dir.iterdir()) - before:  # иначе yt-dlp принял бы кусок за уже скачанный ролик
+        if path.is_file() and path.suffix.lower() not in IMAGE_EXTS and path.name != "cookies.txt":
+            path.unlink(missing_ok=True)
+    send(type="note", text="Отрезок отдельно не скачался — качаю ролик целиком и вырежу сам")
+    send(type="phase", phase="download")
+    return None
+
+
+def _duration_of(path: Path, req: dict) -> float:
+    """Длительность файла по ffprobe (рядом с ffmpeg); не узнать — -1."""
+    ffmpeg = req.get("ffmpeg") or shutil.which("ffmpeg")
+    ffprobe = str(Path(ffmpeg).with_name(Path(ffmpeg).name.replace("ffmpeg", "ffprobe"))) if ffmpeg else None
+    if not ffprobe or not Path(ffprobe).is_file():
+        ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return -1.0  # без ffprobe не проверить, где кусок в файле, — качаем целиком
+    try:
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, check=False,
+        )  # fmt: skip
+        return float(out.stdout.strip() or -1)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return -1.0
 
 
 # --- «не выходит — вот другой вариант» ---------------------------------------------------
@@ -708,6 +821,7 @@ def _download_with(
 FORMAT_PROBLEMS = (
     "http error 403", "403: forbidden", "http error 404", "http error 410", "http error 416",
     "requested format is not available", "did not get any data blocks",
+    "drm protected",  # у Vimeo бывает часть форматов под DRM, часть — без
 )  # fmt: skip
 CANCEL = {"id": "cancel", "label": "Отмена"}
 
@@ -790,6 +904,9 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
     """До загрузки: если нужного варианта нет — сказать об этом и предложить замену."""
     from .timecode import format_time
 
+    if info.get("is_live") or info.get("live_status") == "is_live":
+        # yt-dlp писал бы эфир, пока тот не кончится (у круглосуточных — никогда): задача висела бы вечно
+        raise _Permanent("Это прямой эфир — его можно будет скачать, когда трансляция закончится")
     formats = info.get("formats") or []
     chosen = _chosen(info)
     mode, quality = req["mode"], req["quality"]
@@ -818,6 +935,11 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
                     if _has_video(f) and f.get("height")), default=0)  # fmt: skip
         if best < int(quality):
             send(type="note", text=f"{quality}p у ролика нет — качаю в лучшем доступном: {chosen['side']}p")
+    elif req["mode"] != "mp3" and quality != "max" and chosen["video"] and chosen["side"] > int(quality) * 1.1:
+        smallest = min((min(f["height"], f.get("width") or f["height"]) for f in formats
+                        if _has_video(f) and f.get("height")), default=0)  # fmt: skip
+        if smallest > int(quality):
+            send(type="note", text=f"{quality}p у ролика нет, меньше {smallest}p не бывает — сохраняю {chosen['side']}p")
 
     clip, duration = req.get("clip"), info.get("duration")
     if clip and duration:
@@ -827,12 +949,15 @@ def _review(ydl, info: dict, req: dict, send) -> dict:
                  f"Ролик длится {format_time(duration)}, а отрезок начинается с {format_time(start)}.",
                  [{"id": "whole", "label": "Скачать ролик целиком", "primary": True}, CANCEL])  # fmt: skip
             send(type="clip", clip=None)
+            req["clip"] = None
         elif end is not None and end > duration + 1:
             send(type="note", text=f"Ролик короче отрезка — сохраню до конца ({format_time(duration)})")
     return info
 
 
 def _why(exc: Exception) -> str:
+    if "drm" in str(exc).lower():
+        return "защита DRM"
     code = re.search(r"http error (\d{3})", str(exc).lower())
     return f"ошибка {code.group(1)}" if code else "сайт не отдал файл"
 
@@ -853,6 +978,8 @@ def _download_resilient(ydl, info: dict, req: dict, send) -> dict:
             try:
                 alt_info = _reselect(ydl, info, _exclude(spec, tried))
             except Exception as none_left:  # noqa: BLE001
+                if "drm" in str(exc).lower():
+                    raise _Permanent("Видео защищено DRM — скачать его нельзя.") from none_left
                 raise _Permanent(f"Сайт не отдаёт этот ролик ({_why(exc)}), других вариантов нет. "
                                  "Попробуйте позже или обновите yt-dlp: выдра обновить") from none_left  # fmt: skip
             alt = _chosen(alt_info)

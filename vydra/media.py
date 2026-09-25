@@ -26,6 +26,10 @@ class IntegrityError(MediaError):
     """Файл получился битым или неполным — имеет смысл повторить попытку."""
 
 
+class NoAudio(MediaError):
+    """В исходнике нет звуковой дорожки: MP3 сделать не из чего."""
+
+
 class Cancelled(Exception):
     pass
 
@@ -43,6 +47,7 @@ class Probe:
     duration: float | None
     video: dict | None  # первая «настоящая» видеодорожка, не обложка
     audio: dict | None
+    tags: dict | None = None  # теги контейнера (title, comment — туда пишется ссылка на оригинал), ключи в нижнем регистре
 
 
 class Media:
@@ -65,6 +70,7 @@ class Media:
         try:
             result = subprocess.run(
                 [self.ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -85,7 +91,8 @@ class Media:
         )
         audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
         duration = _float(data.get("format", {}).get("duration")) or _float((video or audio or {}).get("duration"))
-        return Probe(duration=duration, video=video, audio=audio)
+        tags = {str(k).lower(): v for k, v in (data.get("format", {}).get("tags") or {}).items()}
+        return Probe(duration=duration, video=video, audio=audio, tags=tags)
 
     def to_mp4(
         self,
@@ -134,7 +141,7 @@ class Media:
     ) -> None:
         p = self.probe(src)
         if p.audio is None:
-            raise MediaError("В файле нет звука — MP3 сделать не из чего")
+            raise NoAudio("В файле нет звука — MP3 сделать не из чего")
         cut, length = _clip_args(clip, p.duration)
         args = [*cut, "-i", str(src)]
         if cover is not None:
@@ -174,16 +181,20 @@ class Media:
 
     def make_cover(self, image: Path, dst: Path) -> Path | None:
         """Превью ролика (webp/png/jpg) → JPEG для обложки MP3. Не вышло — просто без обложки."""
-        result = subprocess.run(
-            [
-                self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
-                "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(dst),
-            ],  # fmt: skip
-            capture_output=True,
-            check=False,
-            timeout=60,
-            **system.child_flags(),
-        )
+        try:
+            result = subprocess.run(
+                [
+                    self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
+                    "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(dst),
+                ],  # fmt: skip
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                check=False,
+                timeout=60,
+                **system.child_flags(),
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
         return dst if result.returncode == 0 and dst.is_file() and dst.stat().st_size > 0 else None
 
     def make_poster(self, src: Path, dst: Path, probe: Probe) -> bool:
@@ -196,6 +207,7 @@ class Media:
         result = subprocess.run(
             [self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", *args,
              "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "4", str(dst)],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             check=False,
             timeout=60,
@@ -217,6 +229,7 @@ class Media:
         with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as stderr:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=stderr,
                 text=True,

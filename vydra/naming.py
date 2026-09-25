@@ -85,6 +85,22 @@ class CopyError(OSError):
     """Копия получилась не того размера — диск сбоит или место кончилось на ходу."""
 
 
+# Копирования в хранилище, которые идут прямо сейчас: (.part, заготовка имени). Консоль при выходе «не дожидаясь»
+# (второй Ctrl+C) убирает их сама, иначе в папке 10 минут висели бы пустой файл и .part.
+IN_FLIGHT: set[tuple[Path, Path]] = set()
+
+
+def abandon_in_flight() -> None:
+    for part, target in list(IN_FLIGHT):
+        try:
+            part.unlink(missing_ok=True)
+            if target.stat().st_size == 0:
+                target.unlink()
+        except OSError:
+            pass  # не вышло — через 10 минут уберёт sweep_partials
+    IN_FLIGHT.clear()
+
+
 def save_unique(src: Path, directory: Path, stem: str, ext: str) -> Path:
     """Копирует src в directory/<stem>.<ext>, при совпадении добавляет « (2)», « (3)»…
 
@@ -114,6 +130,7 @@ def save_unique(src: Path, directory: Path, stem: str, ext: str) -> Path:
                 n += 1
     # копируем во временное имя и переименовываем: сканер хранилища не увидит недокопированный файл
     part = target.with_name(target.name + ".part")
+    IN_FLIGHT.add((part, target))
     try:
         shutil.copyfile(src, part)
         if part.stat().st_size != size:
@@ -123,5 +140,7 @@ def save_unique(src: Path, directory: Path, stem: str, ext: str) -> Path:
         part.unlink(missing_ok=True)
         target.unlink(missing_ok=True)
         raise
+    finally:
+        IN_FLIGHT.discard((part, target))
     src.unlink(missing_ok=True)
     return target
