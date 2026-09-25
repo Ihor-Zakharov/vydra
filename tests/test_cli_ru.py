@@ -394,3 +394,33 @@ def test_missing_folder_is_created(cli_env, make_clip, monkeypatch):
 def test_bad_folder_name_is_explained(cli_env):
     result = runner.invoke(cli.app, ["d", URL, "--папка", "Мои:видео"])
     assert result.exit_code == 1 and "Нельзя использовать символы" in result.output
+
+
+@needs_ffmpeg
+def test_interactive_mode_skips_what_is_already_downloaded(cli_env, make_clip, monkeypatch):
+    calls = []
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), calls))
+    monkeypatch.setattr(clipboard, "read", lambda: None)
+    monkeypatch.setattr("vydra.downloader.preview", lambda *a, **k: {"title": "Ролик", "url": URL})
+    session = f"{URL}\n2\n192\n\n{URL}\n2\n192\n\n\n"  # дважды одно и то же, пустая строка — выход
+    result = runner.invoke(cli.app, [], input=session)
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1 and "уже в хранилище" in result.output
+
+
+def test_external_programs_never_read_the_terminal(monkeypatch):
+    """Интероп Windows, запущенный с терминалом на stdin, съедал набранные строки (интерактивный режим)."""
+    seen = []
+
+    def fake_run(cmd, **kw):
+        seen.append(kw.get("stdin"))
+        raise OSError("нет")
+
+    monkeypatch.setattr(system.subprocess, "run", fake_run)
+    system.run(["clip-reader", "--get"])
+    from vydra import media
+
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+    with pytest.raises(OSError):
+        media.Media(type("S", (), {"ffprobe": "ffprobe", "ffmpeg": "ffmpeg"})()).probe(Path("x.mp4"))
+    assert seen == [system.subprocess.DEVNULL] * 2

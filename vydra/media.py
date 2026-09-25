@@ -65,6 +65,7 @@ class Media:
         try:
             result = subprocess.run(
                 [self.ffprobe, "-v", "error", "-print_format", "json", "-show_streams", "-show_format", str(path)],
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -180,6 +181,7 @@ class Media:
                     self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", "-i", str(image),
                     "-frames:v", "1", "-vf", "scale='min(1280,iw)':-2", "-q:v", "3", str(dst),
                 ],  # fmt: skip
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 check=False,
                 timeout=60,
@@ -199,6 +201,7 @@ class Media:
         result = subprocess.run(
             [self.ffmpeg, "-hide_banner", "-nostdin", "-y", "-loglevel", "error", *args,
              "-frames:v", "1", "-vf", "scale='min(640,iw)':-2", "-q:v", "4", str(dst)],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             check=False,
             timeout=60,
@@ -220,6 +223,7 @@ class Media:
         with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as stderr:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=stderr,
                 text=True,

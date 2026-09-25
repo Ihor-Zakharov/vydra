@@ -298,6 +298,7 @@ def _windows_icon(png: Path) -> str | None:
     try:
         subprocess.run(
             [ffmpeg, "-y", "-loglevel", "error", "-i", str(png), "-vf", "scale=256:256", str(ico)],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             check=False,
             timeout=60,
@@ -356,7 +357,7 @@ def _first_line(cmd: list[str]) -> str | None:
 def _check(cmd: list[str], cwd: Path | None = None, timeout: float = 600) -> None:
     try:
         result = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+            cmd, cwd=cwd, stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
             **system.child_flags(),
         )  # fmt: skip
     except subprocess.TimeoutExpired as exc:

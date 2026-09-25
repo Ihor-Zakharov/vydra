@@ -629,22 +629,8 @@ def download(
     auto = _auto_accept(yes)
     folder_rel = _folder(env, folder, auto)
     console.print()
-    jobs, skipped = [], []
-    for url in links:
-        job = Job(kind="url", source=url, mode=mode, quality=qual, bitrate=int(bitrate.value), clip=cut,
-                  folder=folder_rel, confirm_playlist=yes_playlist, auto_accept=auto)  # fmt: skip
-        existing = None if force else env.manager.find_existing(url, mode, cut)
-        if existing:
-            for f in existing:
-                kind = "видео" if f["type"] == "mp4" else "аудио"
-                console.print(
-                    Text("  = ", style="bold blue") + Text(kind, style="bold")
-                    + Text("  уже в хранилище — повторно не качаю (--заново — скачать ещё раз)", style="dim")
-                )  # fmt: skip
-                console.print(Text("    ") + linked(env.library.root / f["path"], "#e6d9a8"), soft_wrap=True)
-                skipped.append(file_record(env.library.root, f, url=url, existing=True))
-            continue
-        jobs.append(env.manager.submit(job))
+    jobs, skipped = submit_links(env, links, mode=mode, quality=qual, bitrate=int(bitrate.value), clip=cut,
+                                 folder=folder_rel, confirm_playlist=yes_playlist, auto=auto, force=force)  # fmt: skip
     if not jobs:
         env.manager.shutdown()
         console.print(Text("\nНечего делать: всё уже скачано.", style="bold green"))
@@ -660,6 +646,28 @@ def download(
     if show and files:
         _show(env.library.root / files[0]["path"])
     raise typer.Exit(code)
+
+
+def submit_links(env: Env, links: list[str], *, mode: str, quality: str, bitrate: int, clip, folder: str | None = None,
+                 confirm_playlist: bool = False, auto: bool = False, force: bool = False) -> tuple[list[Job], list[dict]]:
+    """Задачи на загрузку; то, что уже лежит в хранилище (та же ссылка, формат и отрезок), не качаем повторно."""
+    jobs, skipped = [], []
+    for url in links:
+        existing = None if force else env.manager.find_existing(url, mode, clip)
+        if existing:
+            for f in existing:
+                kind = "видео" if f["type"] == "mp4" else "аудио"
+                console.print(
+                    Text("  = ", style="bold blue") + Text(kind, style="bold")
+                    + Text("  уже в хранилище — повторно не качаю (--заново — скачать ещё раз)", style="dim")
+                )  # fmt: skip
+                console.print(Text("    ") + linked(env.library.root / f["path"], "#e6d9a8"), soft_wrap=True)
+                skipped.append(file_record(env.library.root, f, url=url, existing=True))
+            continue
+        job = Job(kind="url", source=url, mode=mode, quality=quality, bitrate=bitrate, clip=clip, folder=folder,
+                  confirm_playlist=confirm_playlist, auto_accept=auto)  # fmt: skip
+        jobs.append(env.manager.submit(job))
+    return jobs, skipped
 
 
 def _unique_links(links: list[str]) -> list[str]:
@@ -1473,11 +1481,11 @@ def interactive() -> None:
         last.update(fmt=choice, quality=quality, bitrate=bitrate)
         console.print()
         env = make_env()
-        jobs = []
-        for u in urls:
-            job = Job(kind="url", source=u, mode=mode, quality=quality, bitrate=int(bitrate), clip=cut)
-            jobs.append(env.manager.submit(job))
-        run_jobs(env, jobs)
+        jobs, _ = submit_links(env, _unique_links(urls), mode=mode, quality=quality, bitrate=int(bitrate), clip=cut)
+        if jobs:
+            run_jobs(env, jobs)
+        else:
+            env.manager.shutdown()
         console.print(Rule(style="#2a2f3a"))
 
 

@@ -263,3 +263,5 @@ def test_live_stream_is_refused_not_recorded_forever(monkeypatch):
 def test_upcoming_stream_is_permanent_error():
     text, transient = downloader.classify("ERROR: [youtube] abc: This live event will begin in 3 hours.")
     assert "ещё не началась" in text and not transient
+    text, transient = downloader.classify("ERROR: [youtube] jfKfPfyJRdk: This live stream recording is not available.")
+    assert "Запись этой трансляции недоступна" in text and not transient  # раньше: три попытки впустую

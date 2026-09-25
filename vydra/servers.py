@@ -178,7 +178,8 @@ def holder_pid(path: Path) -> int | None:
                     continue
         return None
     try:  # macOS: /proc нет — спрашиваем lsof (с таймаутом)
-        out = subprocess.run(["lsof", "-t", "--", target], capture_output=True, text=True, timeout=5, check=False)
+        out = subprocess.run(["lsof", "-t", "--", target], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                             timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
         return None
     pids = [int(p) for p in out.stdout.split() if p.isdigit() and int(p) != os.getpid()]

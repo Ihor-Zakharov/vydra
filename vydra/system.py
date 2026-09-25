@@ -85,6 +85,7 @@ def run(cmd: list[str], timeout: float = 20) -> str | None:
     try:
         result = subprocess.run(
             cmd,
+            stdin=subprocess.DEVNULL,  # интероп Windows (powershell.exe) иначе съедает ввод из терминала
             capture_output=True,
             timeout=timeout,
             check=False,

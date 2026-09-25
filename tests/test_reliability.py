@@ -197,6 +197,9 @@ def test_canonical_url():
         ("ERROR: [download] Got error: ('Connection aborted.', ConnectionResetError(104))", True),
         ("HTTP Error 503: Service Unavailable", True),
         ("Не хватает места на диске: нужно 2 ГБ", False),
+        # найдено матрицей загрузок: раньше считались временными и повторялись трижды впустую
+        ("ERROR: [TikTok] 7139980461132074283: Your IP address is blocked from accessing this post", False),
+        ("ERROR: [youtube] jfKfPfyJRdk: This live stream recording is not available.", False),
         ("какая-то новая ошибка", True),
     ],
 )
