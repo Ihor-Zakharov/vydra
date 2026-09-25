@@ -1,0 +1,25 @@
+/* ===== Вариант 3 · «Горизонт» =====
+   Дыра огромна и почти вся под кадром: видна только верхняя дуга горизонта событий — раскалённая линия
+   во всю ширину. Над ней — космос и заголовок; под ней — чёрная тень, в которой лежит поле. */
+
+.hero {
+  --bh-x: .5; --bh-y: 2.72; --bh-r: 2.2;
+  --bh-core: .016; --bh-mid: .05; --bh-haze: .18; --bh-halo: 1.0;
+  --bh-ca: .55; --bh-beam: 90; --bh-beam-amt: .5; --bh-lens: .32;
+  --bh-fog: 1.1; --bh-far: .55; --bh-far-x: .5; --bh-far-y: .78; --bh-far-s: 2.4; --bh-stars: .6;
+  --bh-inner: .08; --bh-fib: .9;
+  --bh-streak-top: .545; --bh-streak-h: .07; --bh-streak: .7; --bh-streak-x: .5;
+  --stage-fade: 6svh;
+  display: grid; align-items: start; justify-items: center;
+}
+.hero-copy { max-width: 900px; margin: 0 auto; text-align: center;
+  padding: calc(var(--topbar-h) + max(16px, 4svh)) 24px 72px; }
+.hero .kicker { justify-content: center; margin-bottom: 14px; }
+.hero h1 { justify-items: center; gap: 0; }
+.hero h1 .thin { font-size: clamp(34px, 6.2svh, 70px); }
+.hero h1 .slab { font-size: clamp(52px, 10.2svh, 118px); }
+.lede { max-width: 640px; margin: 14px auto 0; }
+.console { max-width: 720px; margin: max(56px, 9.5svh) auto 0; text-align: left; }
+.tabs { display: flex; width: max-content; margin: 0 auto 12px; }
+.dest-row { justify-content: center; }
+.controls-toggle { margin-left: 0; }

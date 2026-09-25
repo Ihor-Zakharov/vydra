@@ -12,19 +12,19 @@
 - [x] G1 Стенд: `tools/ui_rig.py` одной командой снимает все состояния из `docs/sprint/STATES.md` в окнах `s,m,l`
       меньше чем за 3 минуты и пишет `report.json` (ошибки консоли, горизонтальный вылет, обрезанный текст,
       наложения, axe) и листы-контакты; кадры детерминированы (фикстуры API, поддельный EventSource).
-      ↳ 54e26dd: два полных прогона s,m,l подряд — 15/126 кадров с остаточным шумом ≤0,006 % (было до 33 кадров и 0,43 %), под нагрузкой --jobs 4 — 17 кадров ≤0,001 % (тосты было до 1,7 %); время 102–117 с; остаток — backdrop-filter .glass при программной отрисовке headless Edge, глазом не виден (.sprint/shots/det-run2, det-load в worktree agent-a9be346a093750d0e; 42/42 состояния, report.json — .sprint/qa/s0.md)
+      ↳ 54e26dd: два полных прогона s,m,l подряд — 15/126 кадров с остаточным шумом ≤0,006 % (было до 33 кадров и 0,43 %), под нагрузкой --jobs 4 — 17 кадров ≤0,001 % (тосты было до 1,7 %); время 102–117 с; остаток — backdrop-filter .glass при программной отрисовке headless Edge, глазом не виден (.sprint/shots/det-run2, det-load в worktree agent-a9be346a093750d0e; 42/42 состояния, report.json — docs/archive/sprint/qa/s0.md)
 - [x] G2 Контракт: `docs/sprint/FEATURES.md` — все функции UI; `tools/e2e.py` и базовый e2e-прогон записан
       в `.sprint/baseline/e2e.md`.
-      ↳ docs/sprint/FEATURES.md (183 функции, +23 состояния в STATES.md); tools/e2e.py; .sprint/baseline/e2e.md — 7/7 OK, повтор QA --compare 7/7 OK (.sprint/qa/s0.md)
+      ↳ docs/sprint/FEATURES.md (183 функции, +23 состояния в STATES.md); tools/e2e.py; .sprint/baseline/e2e.md — 7/7 OK, повтор QA --compare 7/7 OK (docs/archive/sprint/qa/s0.md)
 - [x] G3 Механика: CSS разнесён по регионам (`vydra/static/css/*.css`) без изменения кадров (попиксельно
       с baseline); тема всегда тёмная, переключатель скрыт; остатков кинотеатра и мёртвых id нет.
-      ↳ vydra/static/css/{core,shell,hero,jobs,library,dialogs}.css, styles.css удалён; каскад сверен парсером правил (разница — 2 мёртвых правила); diff split↔baseline только в топбаре (скрыт переключатель темы); тема всегда dark; мёртвые id и «кинотеатр» убраны; pytest 228 passed (.sprint/qa/s0.md)
+      ↳ vydra/static/css/{core,shell,hero,jobs,library,dialogs}.css, styles.css удалён; каскад сверен парсером правил (разница — 2 мёртвых правила); diff split↔baseline только в топбаре (скрыт переключатель темы); тема всегда dark; мёртвые id и «кинотеатр» убраны; pytest 228 passed (docs/archive/sprint/qa/s0.md)
 
 ## S1 — направление
 - [x] G4 `docs/design/DIRECTION.md` от `vydra-designer`: мир KOCMOC / UNLEASHED, принципы, токены, сетка,
       типографика, движение, раскладка каждого региона и состояния; выбранный вариант первого экрана
       с кадрами сравнения вариантов.
-      ↳ docs/design/DIRECTION.md (581 строка: принципы, токены, движение, сцена, первый экран s/m/l/xl, регионы и состояния, чек-лист); выбран гибрид v4 «Затмение на месте» (дыра как в baseline + остальное из v2 eclipse — решение пользователя); сравнение вариантов .sprint/shots/s1c-compare/variants-{s,l}.png; полнота — .sprint/qa/s1-gaps.md (5 пробелов закрыты); эталон сцены — одобренный пользователем кадр .sprint/art/approved/hybrid-approved-idle-l.png
+      ↳ docs/design/DIRECTION.md (581 строка: принципы, токены, движение, сцена, первый экран s/m/l/xl, регионы и состояния, чек-лист); выбран гибрид v4 «Затмение на месте» (дыра как в baseline + остальное из v2 eclipse — решение пользователя); сравнение вариантов .sprint/shots/s1c-compare/variants-{s,l}.png; полнота — docs/archive/sprint/qa/s1-gaps.md (5 пробелов закрыты); эталон сцены — одобренный пользователем кадр docs/archive/sprint/art/approved/hybrid-approved-idle-l.png
 
 ## S2 — фундамент
 - [x] G5 Токены, типографика, оболочка (верхняя панель, подвал, заголовки разделов, тосты, «сервер недоступен»)

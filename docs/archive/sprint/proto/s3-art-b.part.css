@@ -1,0 +1,3 @@
+/* вариант b: торцы-плиты (rx .75), в больших контекстах волна 56 % */
+.art svg.wave rect { rx: .75px; }
+@container (min-width: 600px) { .art svg.wave { width: 56%; } }

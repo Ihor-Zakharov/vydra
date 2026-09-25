@@ -1,0 +1,2 @@
+/* вариант c: тонкие столбики (3 из 10 по шагу, по центру слота), торцы-плиты */
+.art svg.wave rect { width: 3px; rx: .5px; transform: translateX(1.5px); }

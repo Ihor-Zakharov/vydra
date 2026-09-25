@@ -1,0 +1,425 @@
+diff --git a/vydra/static/cosmos.js b/vydra/static/cosmos.js
+index 42d786d..a18789a 100644
+--- a/vydra/static/cosmos.js
++++ b/vydra/static/cosmos.js
+@@ -61,6 +61,15 @@ uniform vec2  uFarAnchor;  // куда на холсте попадает точ
+ uniform float uHasFar;     // 0..1 — план проявляется за 0,5 с после загрузки (без скачка)
+ uniform float uExpo;       // появление сцены 0..1 (всё, кроме фотонного кольца)
+ uniform float uExpoRing;   // появление фотонного кольца (раньше остального)
++// Часы с накоплением на CPU (в double): скорость зависит от загрузок, поэтому фаза = ∫ скорость dt, а не uTime × скорость —
++// иначе смена uEnergy после долгой работы поворачивает вихрь и пряди на сотни радиан за секунду.
++uniform float uSwirl;      // время вихря тумана, с (по модулю периода поворота — точность float32 не теряется)
++uniform float uDrift;      // время дрейфа дымки, с
++// Пряди ореола и частицы на орбитах вращаются дифференциально (ω ∝ b^−1,5): сдвиг между радиусами растёт с временем без
++// предела, и через десятки минут пряди и радужные кольца рассыпаются в зерно. Поэтому у них — «возраст» слоя, ограниченный
++// (как у flow map): слой живёт SHEAR_L + SHEAR_D с, последние SHEAR_D с перетекает в новый слой того же вида.
++uniform vec4  uShear;      // время текущего слоя (пряди, частицы) и уходящего (пряди, частицы)
++uniform float uShearW;     // вес уходящего слоя 0..1 (0 — слой один)
+ 
+ #define PI 3.14159265
+ #define TAU 6.2831853
+@@ -144,6 +153,14 @@ float plate(vec2 P){
+   return texture2D(uFarTex, clamp(uv, 0.001, 0.999)).r * inb;
+ }
+ 
++// пряди ореола: угловой шум со швом на ±π (th — угол + поворот + спираль)
++float filaments(float th, float rr){
++  float fA = fbm(vec2(th * 3.2, rr), 4);
++  float fB = fbm(vec2((th - TAU * sign(th)) * 3.2, rr), 4);
++  float seam = smoothstep(PI - 0.35, PI, abs(th));
++  return mix(fA, fB, seam * 0.5);
++}
++
+ // профиль ореола снаружи тени; e — расстояние от края тени в долях R.
+ // ядро — раскалённый пояс и быстрый спад (всегда белые); рассеяние — длинный спад в тумане (берёт оттенок источника)
+ float haloCore(float e, float band){
+@@ -270,12 +287,12 @@ void main(){
+ 
+   // ---------- туман: спиральный вихрь вокруг дыры, два слоя ----------
+   float rq = length(qs) / kRH;                                     // линзированный радиус, доли R
+-  float twist = 0.85 * log(max(rq, 0.6)) - t * 0.02 * (1.0 + uEnergy);
++  float twist = 0.85 * log(max(rq, 0.6)) - uSwirl * 0.02;
+   vec2 fq = rot(twist) * qs;
+   float n1 = fbm(fq * 2.3 + par * 1.6 + uSeed * 3.0, 4);
+   float k1 = fbm(fq * 0.75 + 4.2, 3);
+   float dens1 = smoothstep(0.36, 0.92, n1) * smoothstep(0.20, 0.72, k1);
+-  vec2 f2 = rot(-0.35) * (qs * 5.2 + par * 4.7) - vec2(0.010, 0.004) * t * (1.0 + 1.5 * uEnergy) + 11.0;
++  vec2 f2 = rot(-0.35) * (qs * 5.2 + par * 4.7) - vec2(0.010, 0.004) * uDrift + 11.0;
+   float dens2 = smoothstep(0.50, 1.02, fbm(f2, 3));
+   float dens = (dens1 * 0.85 + dens2 * 0.32) * mix(0.5, 1.0, exp(-abs(p.y) * 0.45));
+ 
+@@ -291,7 +308,7 @@ void main(){
+       float bk = 1.08 + (b - 1.08) * fk;
+       vec2 qk = dir * bk * kRH;
+       float rk = bk;
+-      vec2 fk2 = rot(0.85 * log(max(rk, 0.6)) - t * 0.02 * (1.0 + uEnergy)) * qk;
++      vec2 fk2 = rot(0.85 * log(max(rk, 0.6)) - uSwirl * 0.02) * qk;
+       acc += smoothstep(0.36, 0.92, fbm(fk2 * 2.3 + par * 1.6 + uSeed * 3.0, 2));
+     }
+     T = exp(-acc / 6.0 * min(e, 1.6) * 2.4 * uRays);
+@@ -322,13 +339,15 @@ void main(){
+   // пояс неровный по углу: внешний край «дышит» прядями, а не ровный бублик
+   float nb = fbm(dir * 1.8 + vec2(t * 0.006, uSeed * 3.0), 3);
+   float band = uBand * (0.72 + 0.62 * nb);
+-  float w = (0.045 + 0.05 * uEnergy) / pow(max(b, 1.0), 1.5);      // у кольца: 2,6°/с, при загрузке 5,5°/с
+-  float th = atan(p.y, -p.x) + t * w + 1.5 * log(max(b, 1.0));      // спираль: пряди закручиваются наружу
++  float w = 0.045 / pow(max(b, 1.0), 1.5);                          // у кольца: 2,6°/с, при загрузке 5,5°/с (в uShear)
++  float ang0 = atan(p.y, -p.x);
+   float rr = b * 12.0 + uSeed * 5.0;
+-  float fA = fbm(vec2(th * 3.2, rr), 4);
+-  float fB = fbm(vec2((th - TAU * sign(th)) * 3.2, rr), 4);
+-  float seam = smoothstep(PI - 0.35, PI, abs(th));
+-  float fil = mix(fA, fB, seam * 0.5);
++  float fil = filaments(ang0 + uShear.x * w + 1.5 * log(max(b, 1.0)), rr);   // спираль: пряди закручиваются наружу
++  if (uShearW > 0.0 && e < 2.0) {                                   // смена слоя: сумма с сохранением контраста (дальше 2 R пряди не видны)
++    float fo = filaments(ang0 + uShear.z * w + 1.5 * log(max(b, 1.0)), rr);
++    float wo = uShearW, wn = 1.0 - uShearW;
++    fil = 0.469 + ((fil - 0.469) * wn + (fo - 0.469) * wo) * inversesqrt(wn * wn + wo * wo);
++  }
+   fil = pow(clamp(fil * 1.2, 0.0, 1.0), 1.4) * 1.6;
+   float tex = mix(1.0, 0.50 + 0.8 * fil, uFib * exp(-e / 0.40));   // нити — только в поясе и ближнем спаде
+   float wisp = fil * exp(-max(e - band, 0.0) / 0.22) * smoothstep(band * 0.6, band * 1.1, e) * 0.35 * uFib;   // пряди за поясом
+@@ -354,9 +373,13 @@ void main(){
+   vec3 kayma = spec * bandCA * caMask * uCA * 0.8 * be * (1.0 + 0.35 * uSwell);
+ 
+   // частицы на орбитах
+-  float om = (0.035 + 0.04 * uEnergy) / pow(max(b, 1.0), 1.5);
+-  float pr = stars(rot(t * om) * p * kRH + 5.0, 0.018, 0.22, 0.6, upp, 0.9, 5.0);
+-  pr *= smoothstep(0.0, 0.02, e) * (1.0 - smoothstep(0.15, 0.6, e));
++  float pr = 0.0;
++  if (e > 0.0 && e < 0.6) {                                        // за пределами маски частиц нет — и не считаем
++    float om = 0.035 / pow(max(b, 1.0), 1.5);
++    pr = stars(rot(uShear.y * om) * p * kRH + 5.0, 0.018, 0.22, 0.6, upp, 0.9, 5.0);
++    if (uShearW > 0.0) pr = mix(pr, stars(rot(uShear.w * om) * p * kRH + 5.0, 0.018, 0.22, 0.6, upp, 0.9, 5.0), uShearW);
++    pr *= smoothstep(0.0, 0.02, e) * (1.0 - smoothstep(0.15, 0.6, e));
++  }
+ 
+   // ---------- плоскость-горизонт: пятно света под дырой, отражение кольца ----------
+   float yl = p.y - yPl;                                           // + над линией, − под ней (доли R)
+@@ -462,7 +485,18 @@ const PAIR = [
+ const OPEN = 1.8;          // появление сцены, с: кольцо — за первые 40 %, всё остальное — плавно к концу (§4.2)
+ const POSTER_T = 14.0;     // «время постера»: нити уже закручены, кадр без движения выглядит собранным (§4.5)
+ const PACE = 1.15;         // темп сцены: волны, нити, кольцо — на 15 % живее эталона (просьба пользователя); кадр постера не меняется
+-const SLOW_FRAME = 0.020;  // кадр дольше 20 ms три раза подряд — без ближнего плана и пыли (§5.4)
++// Возраст прядей и частиц (uShear): слой живёт SHEAR_L + SHEAR_D с сцены, последние SHEAR_D с перетекает в новый. За 120 с сдвиг
++// между радиусами ещё не заметен (зерно ореола +4 % к свежему кадру; через 20 мин было бы +38 %).
++const SHEAR_L = 90, SHEAR_D = 30;
++const SWIRL_P = 100 * Math.PI;   // период поворота вихря: uSwirl × 0,02 рад
++// uTime и дрейф дымки после паузы (вкладка скрыта, экран данных, прокрутка) приводятся к первому часу — кадр в это время не виден;
++// без пауз — раз в 2^19 с сцены (≈ 5 суток на экране), пока шаг float32 не стал заметен в движении.
++const REBASE = 3600, HARD_WRAP = 524288;
++// Облегчённый вид (§5.4): без ближнего плана, пыли и рассыпи — обратимо. Средний интервал rAF за окно WIN дольше SLOW —
++// слои плавно гаснут (FADE); если без них не стало быстрее хотя бы на 15 % (энергосбережение, чужая нагрузка) — возвращаются;
++// если стало — через PROBE с проверяем, не пора ли вернуть. Разовые интервалы > LONG (долгая задача, сон) не считаются.
++const QUAL = { SLOW: 0.020, LONG: 0.1, WIN: 2.0, SETTLE: 1.2, FADE: 0.8, HELP: 0.85, PROBE: [20, 40, 80, 160, 320], BLOCK: [600, 3600] };
++const smooth = (x) => x * x * (3 - 2 * x);
+ 
+ // положение и размер дыры «как в baseline» (решение пользователя, §5.1), CSS px холста
+ export function baseLayout(vw, vh) {
+@@ -483,15 +517,17 @@ export function createCosmos(canvas, opts = {}) {
+     swell: 0, _attack: 0, _peak: 1, lastPulse: -10,
+     /** Оттенок тумана и каймы по цвету источника; null — нейтральный белый. */
+     setAccent(hex, amt = 1) {
+-      if (hex) api.tintT = hexToRgb(hex);
+-      api.tintAmtT = hex ? 0.55 * amt : 0;
++      const rgb = hex ? hexToRgb(hex) : null;
++      if (rgb && !rgb.every(Number.isFinite)) return;               // не цвет — не трогаем (NaN в оттенке погасил бы ореол)
++      if (rgb) api.tintT = rgb;
++      api.tintAmtT = hex ? 0.55 * (Number.isFinite(amt) ? amt : 1) : 0;
+       api.wake();
+     },
+     setInvert(v) { api.invert = v ? 1 : 0; api.wake(); },
+     /** Указатель −1..1 → только параллакс планов (линзы у курсора нет); при reduced не двигает ничего. */
+-    setPointer(x, y) { if (reduced) return; api._pt = [x, y]; api.wake(); },
+-    setScroll(v) { if (v === api._scroll) return; api._scroll = v; api.wake(); },
+-    setEnergy(v) { const e = Math.max(0, Math.min(1, v)); if (e === api.energyT) return; api.energyT = e; api.wake(); },
++    setPointer(x, y) { if (reduced || !Number.isFinite(x) || !Number.isFinite(y)) return; api._pt = [x, y]; api.wake(); },
++    setScroll(v) { if (v === api._scroll || !Number.isFinite(v)) return; api._scroll = v; api.wake(); },
++    setEnergy(v) { if (!Number.isFinite(v)) return; const e = Math.max(0, Math.min(1, v)); if (e === api.energyT) return; api.energyT = e; api.wake(); },
+     /** Мягкий вдох кольца: 'go' — старт загрузки, 'done' — готово (слабее). Не чаще 3 раз в секунду;
+         повтор во время вдоха продлевает его, а не начинает заново — яркость не скачет. */
+     pulse(kind = 'go') {
+@@ -504,16 +540,42 @@ export function createCosmos(canvas, opts = {}) {
+       api.wake();
+     },
+     pause() { api._paused = true; },
+-    resume() { if (!api._paused) return; api._paused = false; api._last = 0; api.wake(); },
+-    wake() { if (!api._raf && api.ok && !api._paused) api._raf = requestAnimationFrame(api._frame); },
++    resume() {
++      if (!api._paused) return;
++      api._paused = false; api._last = 0;
++      // сцену не видели: часы без периода — к первому часу (скачок не виден), замер скорости — заново
++      if (api._t > POSTER_T + REBASE) { api._t = POSTER_T + (api._t - POSTER_T) % REBASE; api._drift = POSTER_T + (api._drift - POSTER_T) % REBASE; }
++      api._settle();
++      api.wake();
++    },
++    wake() { if (!api._raf && api.ok && !api._lost && !api._paused) api._raf = requestAnimationFrame(api._frame); },
+     // один кадр и на паузе: холст сменил размер (буфер очищен), пришла текстура, сменились токены
+-    _redraw() { if (!api._raf && api.ok) api._raf = requestAnimationFrame(api._frame); },
++    _redraw() { if (!api._raf && api.ok && !api._lost) api._raf = requestAnimationFrame(api._frame); },
++    _settle() { const qs = api._qs; qs.sum = qs.n = 0; qs.settle = Math.max(qs.settle, QUAL.SETTLE); },
++    /** Ход часов сцены на ds секунд сцены при активности загрузок e (в double; фазы — интегралы скорости). */
++    _advance(ds, e = api.energy) {
++      api._t += ds;
++      api._swirl += ds * (1 + e);                                     // вихрь: при загрузке вдвое быстрее
++      api._drift += ds * (1 + 1.5 * e);
++      if (api._swirl > POSTER_T + 16 * SWIRL_P) api._swirl -= 16 * SWIRL_P;   // поворот — ровно на 32π: шва нет
++      if (api._t > HARD_WRAP) { api._t = POSTER_T + (api._t - POSTER_T) % REBASE; api._drift = POSTER_T + (api._drift - POSTER_T) % REBASE; }
++      const sh = api._sh;
++      for (const s of [sh.cur, sh.prev]) {
++        if (!s) continue;
++        s.a += ds; s.h += ds * (1 + e * 0.05 / 0.045); s.o += ds * (1 + e * 0.04 / 0.035);   // пряди 2,6 → 5,5°/с, частицы так же
++      }
++      if (sh.prev && sh.prev.a >= SHEAR_L + SHEAR_D) sh.prev = null;
++      while (sh.cur.a >= SHEAR_L) { const r = sh.cur.a - SHEAR_L; sh.prev = r < SHEAR_D ? sh.cur : null; sh.cur = { a: r, h: r, o: r }; }
++    },
+     resize() {},
+     readTokens() { return false; },
+     destroy() { cancelAnimationFrame(api._raf); api._raf = 0; api.ok = false; },
+-    _pt: [0, 0], _ptS: [0, 0], _scroll: 0, _paused: false, _raf: 0, _last: 0,
+-    _t: POSTER_T, _age: 0, _expo: reduced ? 1 : 0, _expoRing: reduced ? 1 : 0, _far: 0,
+-    _odd: false, _slow: 0, _lite: false,
++    _pt: [0, 0], _ptS: [0, 0], _scroll: 0, _paused: false, _raf: 0, _last: 0, _lost: false,
++    _t: POSTER_T, _swirl: POSTER_T, _drift: POSTER_T, _sh: { cur: { a: 0, h: 0, o: 0 }, prev: null },
++    _age: 0, _expo: reduced ? 1 : 0, _expoRing: reduced ? 1 : 0, _far: 0, _odd: false,
++    // качество: _q — сила ближнего плана, пыли и рассыпи 0..1 (плавно), _qs — замер
++    _q: 1, _qx: 1,
++    _qs: { lite: false, judge: null, sum: 0, n: 0, settle: QUAL.SETTLE, clock: 0, fullMean: 0, probeAt: 0, probeK: 0, blockAt: 0, blockK: 0, useless: 0 },
+   };
+   if (!gl) return api;
+   const compile = (type, src) => {
+@@ -522,53 +584,93 @@ export function createCosmos(canvas, opts = {}) {
+     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { const log = gl.getShaderInfoLog(s); gl.deleteShader(s); throw new Error(log); }
+     return s;
+   };
+-  let prog;
+-  try {
+-    prog = gl.createProgram();
+-    gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+-    gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+-    gl.linkProgram(prog);
+-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+-  } catch { return api; }   // без WebGL-шейдера — CSS-запасной вид (.cosmos-wrap.fallback)
+-  gl.useProgram(prog);
+-  const buf = gl.createBuffer();
+-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+-  const loc = gl.getAttribLocation(prog, 'p');
+-  gl.enableVertexAttribArray(loc);
+-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+-  const U = {};
+-  for (const n of ['uRes', 'uH', 'uTime', 'uPar', 'uParAmt', 'uScroll', 'uC', 'uR', 'uHalo', 'uBand', 'uCA', 'uBeam', 'uBeamAmt', 'uLensE',
++  const UNIFORMS = ['uRes', 'uH', 'uTime', 'uPar', 'uParAmt', 'uScroll', 'uC', 'uR', 'uHalo', 'uBand', 'uCA', 'uBeam', 'uBeamAmt', 'uLensE',
+     'uTint', 'uTintAmt', 'uSwell', 'uEnergy', 'uFog', 'uRays', 'uPlane', 'uPlaneY', 'uFar', 'uStars', 'uFlare',
+     'uInner', 'uFib', 'uPersp', 'uWaves', 'uMist', 'uNear', 'uDust', 'uSpecks', 'uPairA', 'uPairS', 'uInvert', 'uSeed', 'uFarTex', 'uFarMap', 'uFarAnchor', 'uHasFar',
+-    'uExpo', 'uExpoRing']) U[n] = gl.getUniformLocation(prog, n);
++    'uExpo', 'uExpoRing', 'uSwirl', 'uDrift', 'uShear', 'uShearW'];
++  let U = {};
++  let tex = null, plateImg = null;
++  let w = 0, hgt = 0, cssW = 1, cssH = 1;
++  // «чистый план» в текстуру (после загрузки и после восстановления контекста)
++  const uploadPlate = () => {
++    gl.activeTexture(gl.TEXTURE0);
++    gl.bindTexture(gl.TEXTURE_2D, tex);
++    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, plateImg);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
++    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
++  };
++  // программа, геометрия, uniform-ы и текстура — всё, что живёт в контексте WebGL
++  const build = () => {
++    let prog;
++    try {
++      prog = gl.createProgram();
++      gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
++      gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
++      gl.linkProgram(prog);
++      if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
++    } catch { return false; }   // без WebGL-шейдера — CSS-запасной вид (.cosmos-wrap.fallback)
++    gl.useProgram(prog);
++    const buf = gl.createBuffer();
++    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
++    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
++    const loc = gl.getAttribLocation(prog, 'p');
++    gl.enableVertexAttribArray(loc);
++    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
++    U = {};
++    for (const n of UNIFORMS) U[n] = gl.getUniformLocation(prog, n);
++    tex = gl.createTexture();
++    gl.activeTexture(gl.TEXTURE0);
++    gl.bindTexture(gl.TEXTURE_2D, tex);
++    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 1, 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, new Uint8Array([0]));
++    if (plateImg) uploadPlate();
++    if (w) gl.viewport(0, 0, w, hgt);
++    return true;
++  };
++  if (!build()) return api;
+   const seed = opts.seed ?? 0.37;
+   api.ok = true;
+ 
+   // текстура дальнего плана: грузится асинхронно (index.html её предзагружает), до загрузки сцена рисуется без неё,
+   // план проявляется за 0,5 с — без скачка
+   let hasFar = 0;
+-  const tex = gl.createTexture();
+-  gl.activeTexture(gl.TEXTURE0);
+-  gl.bindTexture(gl.TEXTURE_2D, tex);
+-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 1, 1, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, new Uint8Array([0]));
+   {
+     const img = new Image();
+     img.decoding = 'async';
+     img.onload = () => {
+       if (!api.ok) return;
+-      gl.activeTexture(gl.TEXTURE0);
+-      gl.bindTexture(gl.TEXTURE_2D, tex);
+-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, img);
+-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
++      plateImg = img;
++      if (!api._lost) uploadPlate();
+       hasFar = 1; api._redraw();
+     };
+     img.src = PLATE.url;
+   }
+ 
++  // потеря контекста (сброс драйвера, сон системы, падение GPU-процесса): ждём восстановления и собираем всё заново —
++  // программу, буфер, uniform-ы, текстуру плана. Не вернулся за 3 с — тихий CSS-запасной вид, пока не вернётся.
++  const wrap = canvas.closest('.cosmos-wrap');
++  let lostTimer = 0;
++  const onLost = (e) => {
++    e.preventDefault();
++    api._lost = true;
++    cancelAnimationFrame(api._raf); api._raf = 0;
++    clearTimeout(lostTimer);
++    lostTimer = setTimeout(() => { if (api._lost) wrap?.classList.add('fallback'); }, 3000);
++  };
++  const onRestored = () => {
++    clearTimeout(lostTimer);
++    api._lost = false;
++    if (!build()) { api.ok = false; wrap?.classList.add('fallback'); return; }
++    wrap?.classList.remove('fallback');
++    api._last = 0;
++    api._settle();
++    api.resize();
++    api.wake();
++  };
++  canvas.addEventListener('webglcontextlost', onLost);
++  canvas.addEventListener('webglcontextrestored', onRestored);
++
+   // токены композиции и вида из CSS (.cosmos-wrap)
+   let tok = { ...DEF };
+   let tokKey = '';
+@@ -596,7 +698,6 @@ export function createCosmos(canvas, opts = {}) {
+   };
+ 
+   // холст: 0,5 от CSS px (devicePixelRatio ограничен 1), не больше 1,1 Мпикс (§5.4); размер — только по resize()
+-  let w = 0, hgt = 0, cssW = 1, cssH = 1;
+   const RES_SCALE = opts.resScale || 0.5;
+   function measure() {
+     const r = canvas.getBoundingClientRect();
+@@ -611,9 +712,14 @@ export function createCosmos(canvas, opts = {}) {
+   }
+   // смена размера очищает буфер: кадр рисуется сразу, в том же кадре браузера — иначе, если кадр сцены в этом кадре
+   // уже прошёл (появилась полоса прокрутки под превью), на экран уходит пустой, чёрный холст
+-  api.resize = () => { const cleared = measure(); api.readTokens(); if (cleared) draw(); api._redraw(); };
++  api.resize = () => { const cleared = measure(); api.readTokens(); if (cleared) { api._settle(); draw(); } api._redraw(); };
++  api.destroy = () => {
++    cancelAnimationFrame(api._raf); api._raf = 0; api.ok = false; clearTimeout(lostTimer);
++    canvas.removeEventListener('webglcontextlost', onLost); canvas.removeEventListener('webglcontextrestored', onRestored);
++  };
+ 
+   const draw = () => {
++    if (api._lost) return;
+     const sx = w / cssW, sy = hgt / cssH;
+     // композиция в CSS px холста (холст = окно, 100svh)
+     const comp = tok.anchor === 'baseline' ? baseLayout(cssW, cssH) : { cx: tok.x * cssW, cy: tok.y * cssH, R: tok.r * cssH };
+@@ -651,9 +757,9 @@ export function createCosmos(canvas, opts = {}) {
+     gl.uniform1f(U.uPersp, tok.persp);
+     gl.uniform1f(U.uWaves, tok.waves);
+     gl.uniform1f(U.uMist, tok.mist);
+-    gl.uniform1f(U.uNear, api._lite ? 0 : tok.near);
+-    gl.uniform1f(U.uDust, api._lite ? 0 : tok.dust);
+-    gl.uniform4f(U.uSpecks, api._lite ? 0 : tok.specks, tok.specksN, tok.specksHue, tok.specksPar);
++    gl.uniform1f(U.uNear, tok.near * api._q);
++    gl.uniform1f(U.uDust, tok.dust * api._q);
++    gl.uniform4f(U.uSpecks, tok.specks * api._q, tok.specksN, tok.specksHue, tok.specksPar);
+     gl.uniform4fv(U.uPairA, PAIR.flatMap((s) => [s.x, s.y, s.depth * tok.pairPar, s.amp * tok.pair]));
+     gl.uniform1fv(U.uPairS, PAIR.map((s) => s.size));
+     gl.uniform1f(U.uInvert, api.invert);
+@@ -664,27 +770,53 @@ export function createCosmos(canvas, opts = {}) {
+     gl.uniform1f(U.uHasFar, api._far);
+     gl.uniform1f(U.uExpo, api._expo);
+     gl.uniform1f(U.uExpoRing, api._expoRing);
++    gl.uniform1f(U.uSwirl, api._swirl);
++    gl.uniform1f(U.uDrift, api._drift);
++    const sh = api._sh, prev = sh.prev || sh.cur;
++    gl.uniform4f(U.uShear, POSTER_T + sh.cur.h, POSTER_T + sh.cur.o, POSTER_T + prev.h, POSTER_T + prev.o);
++    gl.uniform1f(U.uShearW, sh.prev ? 1 - smooth(Math.min(1, Math.max(0, (sh.prev.a - SHEAR_L) / SHEAR_D))) : 0);
+     gl.drawArrays(gl.TRIANGLES, 0, 3);
+   };
+   const ease = (cur, target, dt, tau) => cur + (target - cur) * Math.min(1, dt / tau);
+-  const smooth = (x) => x * x * (3 - 2 * x);
+   const near = (a, b, eps) => Math.abs(a - b) < eps;
++  // облегчённый вид — обратимо (см. QUAL): среднее за окно, проверка «помогло ли», возврат по таймеру
++  const quality = (raw) => {
++    const qs = api._qs, live = Math.min(raw, QUAL.LONG);
++    qs.clock += live;
++    const aim = qs.lite ? 0 : 1;
++    if (api._qx !== aim) api._qx = aim > api._qx ? Math.min(1, api._qx + live / QUAL.FADE) : Math.max(0, api._qx - live / QUAL.FADE);
++    api._q = smooth(api._qx);
++    const setLite = (on, judge) => { qs.lite = on; qs.judge = judge; qs.sum = qs.n = 0; qs.settle = QUAL.FADE + 0.4; };
++    if (qs.lite && !qs.judge && qs.clock >= qs.probeAt) { setLite(false, 'probe'); return; }
++    if (qs.settle > 0) { qs.settle -= live; return; }
++    if (raw >= QUAL.LONG) return;
++    qs.sum += raw; qs.n++;
++    if (qs.sum < QUAL.WIN) return;
++    const mean = qs.sum / qs.n;
++    qs.sum = qs.n = 0;
++    if (qs.judge === 'lite') {                                        // первое окно без слоёв: стало ли быстрее?
++      if (mean < qs.fullMean * QUAL.HELP) { qs.judge = null; qs.probeAt = qs.clock + QUAL.PROBE[Math.min(qs.probeK, QUAL.PROBE.length - 1)]; }
++      else { qs.useless = qs.fullMean; qs.blockAt = qs.clock + QUAL.BLOCK[Math.min(qs.blockK++, QUAL.BLOCK.length - 1)]; setLite(false, null); }
++      return;
++    }
++    if (qs.judge === 'probe') { qs.judge = null; if (mean > QUAL.SLOW) qs.probeK++; else qs.probeK = 0; }
++    if (!qs.lite && mean > QUAL.SLOW && (qs.clock >= qs.blockAt || mean > qs.useless * 1.25)) { qs.fullMean = mean; setLite(true, 'lite'); }
++  };
+   api._frame = (now) => {
+     api._raf = 0;
++    if (api._lost) return;
+     const raw = api._last ? (now - api._last) / 1000 : 0.016;
+     const dt = Math.min(0.05, raw);
+     api._last = now;
+     if (!reduced) {
+-      api._t += dt * PACE * (1 + 0.3 * api.energy);                  // при загрузке время сцены ×1,3
+-      // слабая машина: три долгих кадра подряд — сцена остаётся эталонной, без ближнего плана и пыли
+-      api._slow = raw > SLOW_FRAME && raw < 0.1 ? api._slow + 1 : 0;           // разовый долгий кадр (>100 ms) — не видеокарта
+-      if (api._slow >= 3) api._lite = true;
++      api._advance(dt * PACE * (1 + 0.3 * api.energy));              // при загрузке время сцены ×1,3
++      if (!api._paused) quality(raw);
+     }
+     // появление: кольцо за первые 40 % (0,72 с), всё остальное — плавная S-кривая к 1,8 с; план — за 0,5 с после загрузки
+     // на паузе (экраны данных) кадр рисуется только по событию — сразу в установившемся виде
+     const still = reduced || api._paused;
+-    api._age = still ? Math.max(api._age + dt, OPEN) : api._age + dt;
+-    const x = Math.min(1, api._age / OPEN);
++    api._age = still ? OPEN : Math.min(OPEN, api._age + dt);
++    const x = api._age / OPEN;
+     api._expo = still ? 1 : smooth(x);
+     api._expoRing = still ? 1 : smooth(Math.min(1, x / 0.4));
+     api._far = still ? hasFar : Math.min(hasFar, api._far + dt / 0.5);
+@@ -696,10 +828,11 @@ export function createCosmos(canvas, opts = {}) {
+     // вдох кольца: пока идёт атака — к пику τ 0,2 с, потом выдох τ 0,7 с (виден ≈ 1,5 с, пик ореола +9 %)
+     if (api._attack > 0) { api._attack -= dt; api.swell = ease(api.swell, api._peak, dt, 0.2); }
+     else api.swell = api.swell < 0.002 ? 0 : ease(api.swell, 0, dt, 0.7);
+-    // 60 fps — пока идёт появление, вдох, параллакс не осел, оттенок или энергия меняются; в покое — 30 fps
++    // 60 fps — пока идёт появление, вдох, параллакс не осел, оттенок, энергия или слои качества меняются; в покое — 30 fps
+     const busy = api._expo < 1 || api._far < hasFar || api.swell > 0 || api._attack > 0
+       || !near(api._ptS[0], api._pt[0], 0.001) || !near(api._ptS[1], api._pt[1], 0.001)
+-      || !near(api.tintAmt, api.tintAmtT, 0.002) || !near(api.energy, api.energyT, 0.002);
++      || !near(api.tintAmt, api.tintAmtT, 0.002) || !near(api.energy, api.energyT, 0.002)
++      || api._qx !== (api._qs.lite ? 0 : 1);
+     api._odd = !api._odd;
+     if (busy || api._odd || reduced || api._paused) draw();
+     if (reduced) { api._last = 0; return; }                          // перерисовка — только по событию

@@ -31,10 +31,10 @@ UI-трек — S0→S5 именованными воркфлоу, CLI-трек 
 | Агент | Модель, effort | Зона | Когда |
 |---|---|---|---|
 | дирижёр (главная сессия) | Opus 5.5, high | цели, коммиты, слияние | всё время |
-| `vydra-designer` | **Opus 5.5, max** | `docs/design/**`, черновики `.sprint/proto/` | S1 направление, ревью S2–S3, подпись S4 |
+| `vydra-designer` | **Opus 5.5, max** | `docs/design/**`, черновики `docs/archive/sprint/proto/` | S1 направление, ревью S2–S3, подпись S4 |
 | `vydra-ui` | Opus 5.5, high | `vydra/static/**` своего региона | S2 фундамент, S3 регионы, правки |
 | `vydra-mech` | Sonnet 5, high | `tools/**`, `vydra/static/**`, `docs/sprint/**` | S0 стенд и механика, S4 доводка |
-| `vydra-qa` | Sonnet 5, medium | только отчёты `.sprint/qa/` | проверки S0, S1, S4 |
+| `vydra-qa` | Sonnet 5, medium | только отчёты `docs/archive/sprint/qa/` | проверки S0, S1, S4 |
 | `vydra-cli` | Opus 5.5, high | `vydra/*.py`, `tests/**`, `install.sh`, `docs/cli/**` | CLI-трек, параллельно |
 | `agy` (Gemini) | — | только ответы, без правок | ресёрч по ходу |
 

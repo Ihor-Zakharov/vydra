@@ -1,0 +1,392 @@
+/* ===== S1 · вариант 4 «Затмение на месте» — выбран (гибрид по решению пользователя) =====
+   Дыра — на месте и в размере baseline (cosmos-proto.js: baseLayout, --bh-anchor: baseline).
+   Всё остальное — «Затмение» (v2): текст и форма — левая колонка на тёмном, затемнение слева, монолитные плиты,
+   раскалённо-белое «Скачать», ореол и кайма. Доводка по замечаниям: ничего резкого, дыра не чёрная, туман, «RTX».
+   S1c (доводка): туман и лучи видимы (fog 2,6 / rays 1,4, рисунок в долях R, поворот 3 рад — без «ушей»), горизонт 1,15 R («утоплена»),
+   плоскость — пятно, а не море; пояс с прядями (core 1,05 / fib 1,4); непрозрачная панель при прокрутке; строки героя растворяются у панели;
+   разделы на линии --datum; закрытое «Ещё» не в фокусе; спокойный отрезок (белые ручки, тонкая рамка).
+   Файл самостоятельный (не собирается из _base.css), разбит по регионам REGIONS.md — S2/S3 переносят секции к себе.
+   Значения и правила — docs/design/DIRECTION.md (при расхождении прав документ). Эталонные кадры — .sprint/shots/s1c-hybrid-all/. */
+
+/* ============================== фундамент: токены (core.css) ============================== */
+
+:root {
+  /* фон и поверхности */
+  --bg: #000000;
+  --scrim: #000000;
+  --panel: #0b0b0e;
+  --s1: #0b0b0e; --s2: #111114; --s3: #18181c; --s4: #222228;
+  --surface: rgba(255, 255, 255, .035); --surface-2: rgba(255, 255, 255, .06);
+  --plate: rgba(8, 8, 10, .78);            /* плита над сценой: вкладки, пилюли, «Сохранять в», «Ещё» */
+  --s-raised: #0e0e11;                     /* всплывающее: тосты, меню, диалоги */
+  /* линии */
+  --line-1: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .14); --line-3: rgba(255, 255, 255, .24);
+  --hair: var(--line-1); --hair-2: var(--line-2);
+  /* текст */
+  --ink: #f4f4f6; --ink-2: #b4b6be; --ink-3: #8b8d96;
+  /* излучение: без ссылки — белое; платформа перекрашивает --el-a/--el-b (core.css, :root[data-platform]) */
+  --el-a: #ffffff; --el-b: #d6d6d6;
+  --ice: #e6efff;
+  --ok: #5fdc9c; --warn: #f0b64d; --err: #ff5f73;
+  --el-glow-soft: 0 0 18px color-mix(in oklab, var(--el-a) 30%, transparent);
+  --white-glow: 0 0 1px rgba(255, 255, 255, .9), 0 0 22px rgba(255, 255, 255, .30), 0 0 64px rgba(255, 255, 255, .12);
+  /* свет от дыры на плитах героя («RTX»): мягкий блик с правой стороны */
+  --lit-from-hole: radial-gradient(90% 170% at 110% 50%, rgba(214, 228, 255, .07), transparent 62%);
+  /* радиусы */
+  --r-xs: 6px; --r-s: 8px; --r-m: 10px; --r-l: 14px; --r-xl: 18px;
+  /* тени — только глубина, без цвета */
+  --shadow: 0 30px 80px -30px rgba(0, 0, 0, .95);
+  --shadow-sm: 0 14px 34px -18px rgba(0, 0, 0, .9);
+  /* каркас */
+  --topbar-h: 56px;
+  --datum: max(24px, 7.5vw);               /* единая левая линия: герой, разделы, подвал */
+  --content-max: 1632px;
+  --grain-opacity: .045;
+  /* движение */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-io: cubic-bezier(.65, 0, .35, 1);
+  --t-fast: .18s; --t-base: .32s; --t-slow: .6s; --t-scene: .9s;
+}
+:root[data-platform="youtube"] { --el-a: #ff3b3b; --el-b: #ff8a00; }
+:root[data-platform="tiktok"] { --el-a: #25f4ee; --el-b: #fe2c55; }
+:root[data-platform="instagram"] { --el-a: #f36f9a; --el-b: #fa7e1e; }
+:root[data-platform="other"] { --el-a: #3ee0a1; --el-b: #3f86ff; }
+html { scroll-padding-top: calc(var(--topbar-h) + 16px); }
+body { background: #000; }
+:focus-visible { outline: 2px solid var(--el-a); outline-offset: 2px; border-radius: var(--r-s); box-shadow: 0 0 0 5px color-mix(in oklab, var(--el-a) 16%, transparent); }
+/* стекло больше не требование: органы управления — тёмные плиты; блик за курсором выключен */
+.glass { backdrop-filter: none; -webkit-backdrop-filter: none; }
+.glass::before { display: none; }
+
+/* ============================== оболочка (shell.css) ============================== */
+
+/* верхняя панель: поверх сцены без плашки; при прокрутке — плотная, с мягким краем снизу (контент уходит в темноту) */
+.topbar { height: var(--topbar-h); padding: 0 24px; transition: background-color var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out); }
+.topbar.scrolled { background: #000; box-shadow: 0 1px 0 var(--line-1); }
+.topbar.scrolled::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 32px; pointer-events: none;
+  background: linear-gradient(to bottom, #000 0%, rgba(0, 0, 0, .6) 45%, rgba(0, 0, 0, 0) 100%); }
+.brand { gap: 10px; }
+.brand-mark { width: 28px; height: 28px; border-radius: 7px; }
+.brand-mark svg { width: 12px; height: 12px; }
+.brand-word { font-size: 19px; }
+.topbar-actions { gap: 6px; }
+.topbar .icon-btn { width: 36px; height: 36px; border-radius: var(--r-m); background: rgba(6, 6, 8, .72); border: 1px solid var(--line-2); box-shadow: none; color: var(--ink-2);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast); }
+.topbar .icon-btn:hover { background: var(--s3); color: var(--ink); border-color: var(--line-3); }
+.topbar .icon-btn svg { width: 17px; height: 17px; }
+
+/* сцена: первый экран целиком, под панелью; высота не зависит от роста героя (дыра — неподвижный ориентир) */
+.hero {
+  margin-top: calc(-1 * var(--topbar-h)); min-height: 100svh; overflow: visible; display: grid; align-items: start;
+  /* сцена cosmos-proto.js: положение и размер — baseline, вид — «Затмение» + мягкость, туман, «RTX» */
+  --bh-anchor: baseline;
+  --bh-halo: 1; --bh-band: .22; --bh-ca: 1; --bh-beam: 160; --bh-beam-amt: .32; --bh-lens: .8;
+  --bh-fog: 2.6; --bh-rays: 1.4; --bh-plane: 1; --bh-plane-y: 1.15; --bh-far: .85; --bh-stars: .4; --bh-flare: 1; --bh-inner: 1; --bh-fib: 1.4;
+  --bh-core: 1.05; --bh-sea: 2.6; --bh-sea-lens: .3; --bh-fog-rot: 3;
+  --stage-fade: 26svh;
+}
+.cosmos-wrap { inset: 0 0 auto 0; height: 100svh; background: #000; overflow: hidden; }
+/* переход сцены в страницу — длинный, без ступени (замечание «резкий переход») */
+.cosmos-wrap::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: var(--stage-fade); pointer-events: none;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, rgba(0, 0, 0, .18) 30%, rgba(0, 0, 0, .55) 62%, rgba(0, 0, 0, .86) 84%, #000 100%); }
+/* затемнение под колонкой текста — из «Затмения» */
+.hero-scrim { display: block; height: 100svh; bottom: auto;
+  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, .86) 30%, rgba(0, 0, 0, .35) 50%, rgba(0, 0, 0, 0) 62%); }
+.hero-frame { inset: calc(var(--topbar-h) + 10px) 24px 20px; height: calc(100svh - var(--topbar-h) - 30px); }
+.hero-frame i { width: 14px; height: 14px; border-color: var(--line-3); opacity: 1; }
+/* датумы сцены уходят вместе со сценой при прокрутке (не висят над очередью) */
+@supports (animation-timeline: scroll()) {
+  .readout, .hero-frame { animation: stage-out linear both; animation-timeline: scroll(root); animation-range: 0 55svh; }
+  /* строки героя растворяются, не доходя до панели, — не «срезаются» её кромкой */
+  .hero .kicker, .hero h1 .thin, .hero h1 .slab, .hero .lede { animation: stage-out linear both; animation-timeline: view(block calc(var(--topbar-h) + 8px) 0px); animation-range: exit -24px exit 60%; }
+  /* привязка к прокрутке — не движение во времени: остаётся и при ?motion=0 и reduced-motion */
+  .motion-off .readout, .motion-off .hero-frame { animation: stage-out linear both !important; animation-timeline: scroll(root) !important; animation-range: 0 55svh !important; }
+  .motion-off .hero .kicker, .motion-off .hero h1 .thin, .motion-off .hero h1 .slab, .motion-off .hero .lede { animation: stage-out linear both !important;
+    animation-timeline: view(block calc(var(--topbar-h) + 8px) 0px) !important; animation-range: exit -24px exit 60% !important; }
+  @keyframes stage-out { to { opacity: 0; } }
+}
+/* показания — датумы в правом нижнем углу сцены */
+.readout { top: calc(100svh - 58px); bottom: auto; right: 40px; gap: 20px; font: 500 10.5px/1.3 var(--font-mono); color: var(--ink-3); }
+.readout dt { font-size: 9.5px; letter-spacing: .2em; }
+.readout dd { font-size: 12px; color: var(--ink-2); }
+
+/* заголовок */
+.kicker { font: 500 11px/1 var(--font-mono); letter-spacing: .24em; color: var(--ink-3); margin-bottom: 18px; }
+.kicker .num { color: var(--ink); }
+.kicker::before { width: 28px; background: var(--line-3); }
+h1 .thin { font-weight: 200; color: #e9eaee; text-shadow: none; letter-spacing: .005em; line-height: 1.02; }
+h1 .slab { font-weight: 800; color: #fff; letter-spacing: -.045em; line-height: .9;
+  text-shadow: 0 0 1px rgba(255, 255, 255, .7), 0 0 28px rgba(255, 255, 255, .22), 0 0 90px rgba(255, 255, 255, .10); }
+.lede { color: var(--ink-2); font-size: 16px; line-height: 1.55; }
+.pf { color: var(--ink); }
+.pf svg { color: var(--ink-3); }
+
+/* раскладка героя — «Затмение»: левая колонка */
+.hero-copy { max-width: none; width: min(62vw, 1280px); margin: 0;
+  padding: calc(var(--topbar-h) + max(28px, 9svh)) 0 72px var(--datum); }
+.hero h1 .thin { font-size: clamp(36px, 6.6svh, 86px); }
+.hero h1 .slab { font-size: clamp(54px, 10.6svh, 136px); white-space: nowrap; }
+.lede { max-width: 560px; }
+
+/* разделы и подвал — на той же левой линии, что и герой (визуальный импульс: кикеры 01/02/03 в одну вертикаль) */
+.section, .foot { max-width: calc(var(--content-max) + 2 * var(--datum)); margin: 0; padding-left: var(--datum); padding-right: var(--datum); }
+.section { padding-top: clamp(56px, 8svh, 96px); }
+.section-head .hairline { background: var(--line-1); }
+h2 { font-weight: 700; letter-spacing: -.035em; }
+
+/* «сервер недоступен» — плита под панелью, не сдвигает сцену и дыру */
+.offline { position: fixed; top: calc(var(--topbar-h) + 8px); left: 50%; translate: -50% 0; z-index: 90; width: min(760px, calc(100vw - 48px));
+  padding: 10px 16px; border-radius: var(--r-l); background: #150a0d; border: 1px solid rgba(255, 95, 115, .42); box-shadow: var(--shadow); }
+.offline p { font-size: 14px; color: var(--ink); }
+.offline-dot { animation-duration: 2.4s; }
+
+/* тосты — плита */
+.toast { border-radius: var(--r-l); background: #0e0e11; border-color: var(--line-2); box-shadow: var(--shadow); }
+
+/* ============================== форма (hero.css) ============================== */
+
+.console { max-width: min(51vw, max(700px, 36.5vw)); margin-top: max(22px, 3.8svh); }
+
+/* вкладки и пилюли: плиты с малым радиусом */
+.tabs, .pills { border-radius: var(--r-m); padding: 3px; background: rgba(8, 8, 10, .78); border: 1px solid var(--line-2); box-shadow: none; }
+.tab, .pills button { border-radius: var(--r-s); }
+.tab { padding: 7px 14px; font-size: 13.5px; }
+.pills button { padding: 7px 12px; font-size: 13.5px; }
+.tab-ink, .pill-ink { top: 3px; bottom: 3px; border-radius: 7px; background: rgba(255, 255, 255, .11); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .14); }
+.formats button[aria-checked="true"] svg { color: var(--el-a); filter: none; }
+
+/* поле ссылки: монолит; кайма — горизонт, излучает цвет платформы; справа — свет дыры */
+.portal { border-radius: var(--r-l); }
+.portal-body { border-radius: var(--r-l); padding: 8px; gap: 6px; border: 1px solid var(--line-2);
+  background: var(--lit-from-hole), linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 40%), #0b0b0e;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 30px 80px -24px rgba(0, 0, 0, .95); }
+.portal-ring { inset: -1px; border-radius: calc(var(--r-l) + 1px); opacity: .5;
+  background: conic-gradient(from var(--angle), transparent 0 58%, color-mix(in oklab, var(--el-a) 90%, transparent) 78%, transparent 96%); animation-duration: 24s; }
+.portal:focus-within .portal-ring, .portal.lit .portal-ring { opacity: 1; filter: drop-shadow(0 0 6px color-mix(in oklab, var(--el-a) 60%, transparent)); animation-duration: 12s; }
+.portal.busy .portal-ring { animation-duration: 6s; }
+.portal-glyph { width: 44px; height: 44px; border-radius: var(--r-m); background: var(--s2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-1); }
+#url { font-size: 17px; padding: 10px 4px; }
+#url:focus-visible { outline: none; box-shadow: none; }   /* фокус показывает кайма поля (.portal:focus-within), без второй рамки */
+#url::placeholder { color: var(--ink-3); }
+.ghost-btn { height: 44px; padding: 0 12px; border-radius: var(--r-m); color: var(--ink-2); font-size: 13.5px; }
+.ghost-btn:hover { background: var(--s3); color: var(--ink); }
+/* «Скачать» — единственная раскалённая плита экрана; подпись словом */
+.go-btn { width: auto; height: 48px; padding: 0 20px 0 16px; border-radius: var(--r-m); display: inline-flex; align-items: center; gap: 9px;
+  color: #000; background: #fff; font: 600 15px/1 var(--font-text); letter-spacing: .005em;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .9), 0 0 26px rgba(255, 255, 255, .34), 0 0 80px rgba(255, 255, 255, .14);
+  transition: box-shadow var(--t-base) var(--ease-out), filter var(--t-fast); }
+.go-btn::after { content: "Скачать"; }
+.go-btn svg { width: 18px; height: 18px; stroke-width: 2.4; }
+.go-btn:hover { box-shadow: 0 0 0 1px #fff, 0 0 34px rgba(255, 255, 255, .5), 0 0 100px rgba(255, 255, 255, .2); }
+
+/* закрытое «Ещё»: содержимое не видно и не получает фокус (было: кнопки битрейта «под сценой» в format-both) */
+.controls[data-open="false"] .controls-inner { visibility: hidden; transition: visibility 0s linear .55s; }
+.controls[data-open="true"] .controls-inner { visibility: visible; transition: visibility 0s; }
+
+/* ряд форматов */
+.dest-row { gap: 8px; margin-top: 12px; flex-wrap: nowrap; }
+.dest { height: 38px; border-radius: var(--r-m); padding: 0 12px; background: rgba(8, 8, 10, .78); border: 1px solid var(--line-2); box-shadow: none; font-size: 13.5px; }
+.dest-value { max-width: 120px; }
+/* «Ещё» — тоже плита: на s и m конец ряда лежит над светом плоскости, текст без подложки там не проходит AA */
+.controls-toggle { height: 38px; padding: 0 12px; border-radius: var(--r-m); background: rgba(8, 8, 10, .78); border: 1px solid var(--line-2);
+  font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.controls-toggle:hover, .controls-toggle[aria-expanded="true"] { color: var(--ink); border-color: var(--line-3); }
+.row-label { color: var(--ink-3); }
+.time-field { border-radius: var(--r-m); background: rgba(8, 8, 10, .78); border: 1px solid var(--line-2); }
+.switch-track { border-radius: 7px; }
+.switch-thumb { border-radius: 5px; }
+.dropzone { border-radius: var(--r-l); background: var(--lit-from-hole), rgba(8, 8, 10, .78); border-color: var(--line-3); }
+
+/* превью */
+.preview { border-radius: var(--r-xl); background: var(--lit-from-hole), #0b0b0e; border: 1px solid var(--line-2); box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .95); padding: 10px; gap: 16px; }
+.pv-media { border-radius: var(--r-m); }
+.meta-chip { border-radius: var(--r-s); border-color: var(--line-2); }
+.range-track, .range-sel, .range-shade.l, .range-shade.r { border-radius: var(--r-s); }
+.range-track::before, .range-track::after { opacity: .55; }
+.range-sel { box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--el-a) 80%, #fff), 0 0 16px -4px color-mix(in oklab, var(--el-a) 55%, transparent); }
+.range-handle { width: 10px; margin-left: -5px; border-radius: 5px; background: #fff;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--el-a) 70%, transparent), 0 0 12px color-mix(in oklab, var(--el-a) 50%, transparent); }
+.range-handle::before { background: rgba(0, 0, 0, .55); }
+
+/* разрушительное действие — «красная плита»: та же форма, что у белой, тёмный текст (белый на #ff5f73 — 2,9:1) */
+.btn.solid.danger, .chip-btn.solid { color: #14040a; background: #ff5f73; border-color: transparent; box-shadow: 0 0 22px rgba(255, 95, 115, .28); }
+
+/* ============================== загрузки (jobs.css) ============================== */
+
+.job { border-radius: var(--r-xl); background: #0b0b0e; border-color: var(--line-1); }
+.job.active { border-color: var(--line-3); box-shadow: 0 0 0 1px rgba(255, 255, 255, .06), 0 30px 80px -40px rgba(255, 255, 255, .18); }
+.job-frame { border-radius: var(--r-m); }
+.job-bar { height: 6px; border-radius: 2px; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .10) 0 6px, transparent 6px 8px); }
+.job-fill { background: var(--el-a); -webkit-mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px); mask: repeating-linear-gradient(90deg, #000 0 6px, transparent 6px 8px); box-shadow: none; }
+.job[data-p="youtube"] { --el-a: #ff3b3b; }
+.job[data-p="tiktok"] { --el-a: #25f4ee; }
+.job[data-p="instagram"] { --el-a: #f36f9a; }
+.job[data-p="other"] { --el-a: #3ee0a1; }
+/* в очереди — без заливки: дорожка тихо дышит (сплошной «прогресс» у ожидающей задачи врал) */
+.job.st-queued .job-fill, .job.st-queued .job-glow { opacity: 0; }
+.job.st-queued .job-bar { animation: queue-breath 2.4s ease-in-out infinite; }
+@keyframes queue-breath { 50% { opacity: .55; } }
+/* остров: миниатюра — тёмная плита с глифом (белое на белом было пустым квадратом) */
+.island-thumb { background: #16161a; box-shadow: inset 0 0 0 1px var(--line-2); }
+.island-thumb svg { color: var(--ink); }
+.job .glass { background: rgba(8, 8, 10, .82); border-color: var(--line-2); box-shadow: none; }
+/* отменённая: гаснет кадр, а не текст (прозрачность всей карточки роняла контраст до 3,9) */
+.job.st-cancelled { opacity: 1; }
+.job.st-cancelled .job-frame { opacity: .45; filter: grayscale(1); }
+.job.st-cancelled .job-title { color: var(--ink-2); }
+
+/* ============================== хранилище (library.css) ============================== */
+
+.explorer .glass, .selbar.glass, .ctx.glass { background: rgba(8, 8, 10, .86); border-color: var(--line-2); box-shadow: none; }
+.search, .sort, .btn.small { border-radius: var(--r-m); }
+.dept, .folder { border-radius: var(--r-l); background: #0b0b0e; }
+.dept-glyph { border-radius: var(--r-m); }
+.tile-media { border-radius: var(--r-m); }
+
+/* ============================== окно xl (≥ 2200 px): колонка героя крупнее на ступень ============================== */
+
+@media (min-width: 2200px) {
+  .lede { font-size: 18px; max-width: 640px; }
+  .kicker { font-size: 12px; }
+  .tab { font-size: 15px; padding: 8px 16px; }
+  .pills button { font-size: 15px; padding: 8px 14px; }
+  #url { font-size: 19px; }
+  .portal-glyph { width: 50px; height: 50px; }
+  .ghost-btn { height: 50px; font-size: 15px; }
+  .go-btn { height: 54px; font-size: 16.5px; padding: 0 24px 0 20px; }
+  .dest { height: 42px; font-size: 15px; }
+  .controls-toggle { height: 42px; font-size: 12.5px; }
+}
+/* ===== S3 · пробелы DIRECTION: .art, перфорация кадра задачи, тег настроек, строка проверки (черновик арт-директора) =====
+   Собирается поверх v4-hybrid.css: cat v4-hybrid.css s3-gaps.part.css > s3-gaps.css */
+
+/* ---------- приближение раскладки плитки §7.4 (заголовок под медиа), чтобы судить .art в сетке ---------- */
+.explorer[data-view="grid"] .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.explorer[data-view="grid"] .grid::after { display: none; }
+.explorer[data-view="grid"] .tile { flex: none; padding: 4px; border-radius: var(--r-l); background: var(--s1); border: 1px solid var(--line-1); }
+.explorer[data-view="grid"] .tile-media { aspect-ratio: 16 / 9; border-radius: var(--r-m); box-shadow: inset 0 0 0 1px var(--line-1); }
+.explorer[data-view="grid"] .tile-scrim { display: none; }
+.explorer[data-view="grid"] .tile-info { position: static; display: block; padding: 10px 8px 6px; color: var(--ink); }
+.explorer[data-view="grid"] .tile-title { text-shadow: none; }
+.explorer[data-view="grid"] .tile-meta { color: var(--ink-3); opacity: 1; }
+.tile-dur, .pv-dur { border-radius: var(--r-xs); backdrop-filter: none; -webkit-backdrop-filter: none; }
+
+/* ---------- .art — обложка без превью: волна на горизонте событий ---------- */
+.art {
+  container-type: inline-size;
+  display: grid; place-items: center; overflow: hidden;
+  background:
+    radial-gradient(56% 30% at 50% 58%, rgba(230, 239, 255, .11), transparent 72%),
+    linear-gradient(180deg, #0e0e11 0%, #060608 58%, #020203 100%);
+}
+/* подсветка под линией: свет плоскости уходит вниз дальше, чем вверх (как у сцены: над линией τ 0,26 R, под ней 0,55 R) */
+.art::before { content: ""; position: absolute; inset: 58% 0 0 0; background: radial-gradient(62% 90% at 50% 0%, rgba(230, 239, 255, .07), transparent 70%); }
+/* линия горизонта — поверх столбиков */
+.art::after {
+  content: ""; position: absolute; left: 6%; right: 6%; top: calc(58% - .5px); height: 1px; z-index: 1;
+  background: linear-gradient(90deg, transparent, rgba(230, 239, 255, .5) 22%, rgba(230, 239, 255, .8) 50%, rgba(230, 239, 255, .5) 78%, transparent);
+  box-shadow: 0 0 10px rgba(230, 239, 255, .22);
+}
+.art svg.wave {
+  position: relative; top: 8%; width: 70%; height: 44%; fill: #fff; stroke: none;
+  -webkit-mask: linear-gradient(180deg, rgba(0, 0, 0, .42) 0%, #000 50%, rgba(0, 0, 0, .24) 50%, transparent 100%);
+          mask: linear-gradient(180deg, rgba(0, 0, 0, .42) 0%, #000 50%, rgba(0, 0, 0, .24) 50%, transparent 100%);
+  filter: drop-shadow(0 0 6px rgba(255, 255, 255, .2));
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.tile:hover .art svg.wave, .tile.focused .art svg.wave { opacity: .45; }
+.art .art-kind {
+  top: auto; right: auto; left: 10px; bottom: 9px; z-index: 1; max-width: calc(100% - 20px);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 11px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--ink-3);
+}
+@container (max-width: 149px) { .art .art-kind { display: none; } }
+@container (min-width: 600px) { .art .art-kind { left: 16px; bottom: 16px; font-size: 12px; } }
+
+/* ---------- кадр задачи 180×101 с перфорацией ---------- */
+.job { grid-template-columns: 180px minmax(0, 1fr); gap: 16px; padding: 12px; }
+.job-frame {
+  width: 180px; height: 101px; aspect-ratio: auto; padding: 8px 0; border-radius: var(--r-m);
+  background: #000; box-shadow: inset 0 0 0 1px var(--line-1);
+}
+.job.active .job-frame, .job.st-done .job-frame { box-shadow: inset 0 0 0 1px var(--line-1); }
+.job-frame::before, .job-frame::after {
+  left: 10px; right: 10px; height: 8px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Crect x='3' y='2' width='6' height='4' rx='1.2' fill='%23fff' fill-opacity='.28'/%3E%3C/svg%3E") 0 0 / 12px 8px space no-repeat;
+}
+.job-frame::before { top: 0; } .job-frame::after { bottom: 0; }
+.job-thumb { border-radius: 2px; background: #000; }
+.job-thumb-icon { width: 20px; height: 20px; color: var(--ink-3); }
+.job-badge { left: 8px; top: 14px; width: 24px; height: 24px; }
+
+/* ---------- тег в настройках: «по умолчанию», «своя папка», «задана снаружи», cookies ---------- */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px; border: 0; border-radius: var(--r-xs);
+  background: var(--s3); color: var(--ink-3); font: 500 10.5px/1 var(--font-mono); letter-spacing: .04em;
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.tag.accent { color: var(--ink); box-shadow: inset 0 0 0 1px var(--line-3); }
+.tag.ok { color: var(--ink-2); }
+#cookie-tag.ok::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+/* ---------- шторки §7.5 (ширина 440 / s 400, отступ 8, поля 24) — чтобы строка проверки стояла в настоящей ширине ---------- */
+.drawer { width: 440px; height: calc(100dvh - 16px); margin: 8px 8px 8px auto; }
+@media (max-width: 1400px) { .drawer { width: 400px; } }
+.drawer-box { border-radius: var(--r-xl); background: var(--s-raised); border-color: var(--line-2); }
+.drawer-head { padding: 24px 24px 16px; }
+.drawer-scroll { padding: 0 24px 24px; gap: 12px; }
+.card-block { border-radius: var(--r-l); background: var(--s1); border-color: var(--line-1); padding: 16px; }
+.health-summary { padding: 0 24px; }
+.health-actions { padding: 16px 24px; }
+
+/* ---------- строка проверки: шапка 32 (иконка · заголовок · действие), ниже подробность и подсказка по линии заголовка ---------- */
+.checks { gap: 8px; }
+.check {
+  grid-template-columns: 24px minmax(0, 1fr) auto; grid-template-rows: 32px; column-gap: 12px; row-gap: 0; align-items: center;
+  padding: 12px; border-radius: var(--r-l); background: var(--s1); border: 1px solid var(--line-1);
+}
+.check-icon { grid-row: 1; grid-column: 1; width: 24px; height: 24px; }
+.check-icon svg { width: 14px; height: 14px; stroke-width: 2.4; }
+.check.ok .check-icon { background: color-mix(in oklab, var(--ok) 18%, transparent); }
+.check.warn .check-icon { background: color-mix(in oklab, var(--warn) 18%, transparent); }
+.check.fail .check-icon { background: color-mix(in oklab, var(--err) 18%, transparent); }
+.check-title { grid-row: 1; grid-column: 2; margin: 0; font: 600 14px/18px var(--font-text); color: var(--ink); min-width: 0; }
+.check .btn { grid-row: 1; grid-column: 3; height: 32px; padding: 0 10px 0 8px; gap: 6px; font-size: 13px; border-radius: var(--r-m); }
+.check .btn svg { width: 16px; height: 16px; }
+.check-detail { grid-row: 2; grid-column: 2 / -1; margin: -6px 0 0; font: 400 13px/20px var(--font-text); color: var(--ink-2); }
+.check-hint { grid-row: 3; grid-column: 2 / -1; margin: 8px 0 0; padding: 6px 10px; border-radius: var(--r-s); background: var(--s2); font: 400 12.5px/18px var(--font-text); color: var(--ink-2); }
+.check.skeleton {
+  height: 70px; border-radius: var(--r-l);
+  background:
+    radial-gradient(circle at 24px 28px, rgba(255, 255, 255, .06) 11.5px, transparent 12px),
+    linear-gradient(rgba(255, 255, 255, .06) 0 0) 48px 23px / 55% 10px no-repeat,
+    linear-gradient(rgba(255, 255, 255, .06) 0 0) 48px 43px / 36% 10px no-repeat,
+    var(--s1);
+}
+
+/* ---------- заголовок секции шторки: иконка в поле 26 px — перенос встаёт по тексту заголовка; тег cookies всегда второй строкой ---------- */
+.card-block h4 { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-left: 26px; font: 600 15px/20px var(--font-text); }
+.card-block h4 > svg { position: absolute; left: 0; top: 1px; width: 18px; height: 18px; }
+#cookies-block h4 { display: grid; justify-items: start; }
+
+/* ---------- сводка и действия диагностики — по одной строке во всех окнах ---------- */
+.health-summary { gap: 6px; flex-wrap: nowrap; }
+.sum-chip { height: 24px; padding: 0 8px; gap: 6px; border-radius: var(--r-xs); font: 500 11.5px/1 var(--font-mono); color: var(--ink-2); background: var(--s1); border: 1px solid var(--line-1); white-space: nowrap; }
+.sum-chip i { width: 6px; height: 6px; }
+.health-actions { flex-wrap: nowrap; gap: 8px; }
+.health-actions .btn { height: 40px; padding: 0 16px 0 14px; font-size: 14px; border-radius: var(--r-m); }
+.health-actions .btn svg { width: 16px; height: 16px; }
+
+/* ---------- плеер-аудио §7.5: .art — вся сцена 16:9; «MP3» + эквалайзер — показание слева сверху; управление — в зоне отражения ---------- */
+.player-stage .audio-view { position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; max-height: 68vh; padding: 0; }
+.player-stage .audio-view .bg { display: none; }
+.player-stage .audio-cover { position: absolute; inset: 0; width: auto; aspect-ratio: auto; border-radius: 0; box-shadow: none; }
+.player-stage .art .art-kind { top: 18px; bottom: auto; left: 16px; font-size: 12px; }
+.player-stage .eq { position: absolute; left: 56px; top: 16px; height: 16px; gap: 4px; z-index: 2; }
+.player-stage .eq i { width: 4px; border-radius: 1px; background: #fff; box-shadow: none; }
+.player-stage .eq i:nth-child(n + 6) { display: none; }
+.player-stage .eq i:nth-child(1) { height: 45%; } .player-stage .eq i:nth-child(2) { height: 80%; } .player-stage .eq i:nth-child(3) { height: 30%; }
+.player-stage .eq i:nth-child(4) { height: 90%; } .player-stage .eq i:nth-child(5) { height: 60%; }
+.player-stage .audio-view audio { position: absolute; left: 50%; bottom: 16px; translate: -50% 0; width: min(520px, calc(100% - 32px)); z-index: 2; }
+/* вариант c: тонкие столбики (3 из 10 по шагу, по центру слота), торцы-плиты */
+.art svg.wave rect { width: 3px; rx: .5px; transform: translateX(1.5px); }

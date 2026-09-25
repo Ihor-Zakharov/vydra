@@ -1,0 +1,24 @@
+/* ===== Вариант 2 · «Затмение» =====
+   Асимметрия: текст и форма — левая колонка на тёмном; дыра — справа, крупно, срезана краем кадра,
+   раскалённая сторона и радужная кайма смотрят на форму (как hero-g от agy). */
+
+.hero {
+  --bh-x: .83; --bh-y: .48; --bh-r: .44;
+  --bh-core: .036; --bh-mid: .09; --bh-haze: .26; --bh-halo: 1.0;
+  --bh-ca: .75; --bh-beam: 180; --bh-beam-amt: .45; --bh-lens: 1.0;
+  --bh-fog: .9; --bh-far: .5; --bh-far-x: .5; --bh-far-y: .5; --bh-far-s: 2.4; --bh-stars: .6;
+  --bh-inner: .12; --bh-fib: .85;
+  --bh-streak-top: .90; --bh-streak-h: .12; --bh-streak: .6; --bh-streak-x: .78;
+  --stage-fade: 8svh;
+  display: grid; align-items: start;
+}
+.hero-scrim { display: block; height: 100svh; bottom: auto;
+  background: linear-gradient(90deg, #000 0%, rgba(0, 0, 0, .86) 30%, rgba(0, 0, 0, .35) 50%, rgba(0, 0, 0, 0) 62%); }
+.hero-copy { max-width: none; width: min(960px, 62vw); margin: 0;
+  padding: calc(var(--topbar-h) + max(28px, 9svh)) 0 72px max(24px, 7.5vw); }
+.hero h1 .thin { font-size: clamp(36px, 6.6svh, 76px); }
+.hero h1 .slab { font-size: clamp(54px, 10.6svh, 120px); white-space: nowrap; }
+.lede { max-width: 560px; }
+.console { max-width: min(700px, 51vw); margin-top: max(22px, 3.8svh); }
+.dest-row { flex-wrap: nowrap; }
+.dest-value { max-width: 120px; }

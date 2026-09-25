@@ -1,0 +1,58 @@
+/* ===== Вариант 1 · «Сингулярность» (выбран) =====
+   Дыра — во весь экран по центру; вся форма лежит внутри тени, на чистом чёрном.
+   Раскалённый ореол — рама по краям кадра, как в референсе пользователя. Поле — в гравитационном центре. */
+
+.hero {
+  --bh-x: .5; --bh-y: .54; --bh-r: .70; --bh-anchor: portal;
+  --bh-core: .040; --bh-mid: .10; --bh-haze: .30; --bh-halo: 1.0;
+  --bh-ca: .60; --bh-beam: 196; --bh-beam-amt: .38; --bh-lens: 1.0;
+  --bh-fog: 1.1; --bh-far: .5; --bh-far-x: .5; --bh-far-y: .5; --bh-far-s: 2.2; --bh-stars: .6;
+  --bh-inner: .10; --bh-fib: .85;
+  --bh-streak-top: .87; --bh-streak-h: .11; --bh-streak: .5; --bh-streak-x: .5;
+  --stage-fade: 4svh;
+  display: grid; align-items: start; justify-items: center;
+}
+.hero-copy { max-width: min(1120px, 92vw); margin: 0 auto; text-align: center;
+  padding: calc(var(--topbar-h) + max(24px, 7svh)) 24px 72px; }
+.hero .kicker { justify-content: center; margin-bottom: 16px; }
+.hero h1 { justify-items: center; gap: 2px; }
+.hero h1 .thin { font-size: clamp(38px, 7.0svh, 92px); }
+.hero h1 .slab { font-size: clamp(58px, 11.4svh, 150px); white-space: nowrap; }
+.hero .lede { max-width: 600px; margin: 18px auto 0; }
+.console { max-width: 720px; margin: max(22px, 3.6svh) auto 0; text-align: left;
+  display: flex; flex-direction: column; }
+.tabs { display: flex; width: max-content; margin: 0 auto 12px; }
+.dest-row { justify-content: center; }
+.controls-toggle { margin-left: 0; }
+.readout { top: calc(100svh - 100px); right: auto; left: 50%; translate: -50% 0; }
+
+/* порядок: поле → форматы → превью → «Ещё». В разметке S3 переносит #preview-slot после .dest-row;
+   здесь то же достигается display: contents на панели ссылки */
+#panel-link:not([hidden]) { display: contents; }
+.console > .tabs { order: 0; }
+.console .portal, #panel-file { order: 1; }
+.console > .dest-row { order: 2; }
+.console .preview-slot { order: 3; }
+.console > .controls { order: 4; }
+
+/* рабочий режим: ссылка вставлена — заголовок уступает место превью (на S3 — ступенчато, см. DIRECTION) */
+.hero:has(.preview) .kicker,
+.hero:has(.preview) h1 .thin,
+.hero:has(.preview) .lede { display: none; }
+.hero:has(.preview) h1 .slab { font-size: clamp(34px, 5.4svh, 60px); }
+.hero:has(.preview) .hero-copy { padding-top: calc(var(--topbar-h) + max(16px, 3svh)); }
+.hero:has(.preview) .console { margin-top: max(16px, 2.4svh); }
+.hero:has(.preview) .readout { visibility: hidden; }
+.hero:has(.preview) { --bh-streak: .14; }
+
+@media (min-height: 1100px) {
+  .hero-copy { padding-top: calc(var(--topbar-h) + 15svh); }
+  .console { max-width: 860px; }
+  .portal-body { padding: 10px; }
+  .portal-glyph { width: 50px; height: 50px; }
+  #url { font-size: 19px; }
+  .go-btn { height: 54px; padding: 0 24px 0 20px; font-size: 16.5px; }
+  .tab, .pills button { font-size: 15px; padding: 8px 15px; }
+  .dest { height: 42px; font-size: 15px; }
+  .hero .lede { font-size: 18px; max-width: 680px; }
+}
