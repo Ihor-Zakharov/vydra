@@ -40,6 +40,9 @@ LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 MAX_COOKIES = 5 * 1024 * 1024
 SSE_HEARTBEAT = 15
 LAYOUT_WAIT = 2.0
+# Сервер останавливается (Ctrl+C, `vydra stop`, перезапуск): открытые вкладки (SSE) закрываем сразу, а не ждём,
+# пока uvicorn через timeout_graceful_shutdown оборвёт их сам. Ставит `vydra ui` при получении сигнала.
+SHUTDOWN = threading.Event()
 
 log = logging.getLogger("vydra")
 
@@ -261,7 +264,7 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
             last_rev = last_jobs = None
             beat = time.monotonic()
             yield "retry: 2000\n\n"
-            while not stopping.is_set():
+            while not stopping.is_set() and not SHUTDOWN.is_set():
                 rev, jobs_version = library.rev, manager.version
                 if rev != last_rev:
                     last_rev = rev

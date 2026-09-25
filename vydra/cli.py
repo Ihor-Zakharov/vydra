@@ -954,12 +954,20 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
         )
     )
     why: list[str] = []
+    from .main import SHUTDOWN
 
     def on_signal(signum, _frame) -> None:
         why.append({signal.SIGINT: "ctrl-c", signal.SIGTERM: "stop"}.get(signum, "restart"))
-        if server.should_exit and signum == signal.SIGINT:
-            server.force_exit = True  # второй Ctrl+C — не ждать открытых вкладок
+        SHUTDOWN.set()
         server.should_exit = True
+
+    uvicorn_exit = server.handle_exit
+
+    def handle_exit(signum, frame) -> None:  # Ctrl+C и SIGTERM, пока работает uvicorn
+        SHUTDOWN.set()
+        uvicorn_exit(signum, frame)
+
+    server.handle_exit = handle_exit  # type: ignore[method-assign]
 
     # uvicorn на время работы ставит свои обработчики, а после остановки вызывает наши — так
     # мы узнаём, почему он остановился; SIGUSR1 он не трогает, и тот приходит сразу сюда
