@@ -51,7 +51,8 @@ def test_transient_errors_are_retried_until_success(settings, library, make_clip
     assert wait_for(lambda: job.status in FINAL)
     assert job.status == "done", job.error
     assert job.attempt == 3 and len(fake.calls) == 3
-    assert not (manager.jobs_root / job.id).exists()  # папка задачи убрана после успеха
+    # папка задачи убрана после успеха — уборка идёт сразу за статусом «готово», под нагрузкой на миг позже
+    assert wait_for(lambda: not (manager.jobs_root / job.id).exists())
     manager.shutdown()
 
 
