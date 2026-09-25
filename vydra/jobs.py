@@ -75,7 +75,7 @@ def canonical_url(url: str | None) -> str | None:
             video = m.group(2)
         if video:
             return f"youtube:{video}"
-    if host.endswith("tiktok.com") and (m := re.search(r"/video/(\d+)", path)):
+    if host.endswith("tiktok.com") and (m := re.search(r"/(?:video|photo)/(\d+)", path)):
         return f"tiktok:{m.group(1)}"
     if host.endswith("instagram.com") and (m := re.match(r"^/(?:[\w.]+/)?(?:p|reel|reels|tv)/([\w-]+)", path)):
         return f"instagram:{m.group(1)}"

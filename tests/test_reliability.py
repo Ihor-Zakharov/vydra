@@ -333,3 +333,11 @@ def test_failed_conversion_keeps_upload_only_for_the_server(settings, library, p
     manager.shutdown()
     assert job.status == "error"
     assert upload.parent.exists() is persist
+
+
+def test_tiktok_photo_post_goes_to_ytdlp_as_video():
+    """yt-dlp не узнаёт /photo/ — была «ссылка не поддерживается»; тот же пост по /video/ отдаёт звук слайдшоу."""
+    photo = "https://www.tiktok.com/@nasa/photo/7250000000000000000?lang=ru"
+    assert downloader.extractor_url(photo) == "https://www.tiktok.com/@nasa/video/7250000000000000000?lang=ru"
+    assert downloader.extractor_url(URL) == URL
+    assert canonical_url(photo) == canonical_url(photo.replace("/photo/", "/video/"))

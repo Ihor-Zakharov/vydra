@@ -499,6 +499,15 @@ class _Permanent(Exception):
     """Ошибка, которую повторять бессмысленно (например, плейлист без подтверждения)."""
 
 
+_TIKTOK_PHOTO = re.compile(r"^(https?://(?:www\.)?tiktok\.com/@[\w.-]*/)photo(/\d+)", re.IGNORECASE)
+
+
+def extractor_url(url: str) -> str:
+    """Ссылка в том виде, который понимает yt-dlp. Фото-пост TikTok (/photo/…) он не узнаёт, а тот же пост
+    по /video/… отдаёт — со звуком слайдшоу (картинки yt-dlp не качает)."""
+    return _TIKTOK_PHOTO.sub(r"\1video\2", url)
+
+
 def _common_opts(req: dict, logger) -> dict:
     opts: dict = {
         "quiet": True,
@@ -540,7 +549,7 @@ def _preview(req: dict) -> dict:
             opts["cookiefile"] = str(Path(tmp) / "cookies.txt")
             shutil.copyfile(req["cookies"], opts["cookiefile"])
         with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(req["url"], download=False)
+            info = ydl.extract_info(extractor_url(req["url"]), download=False)
             if req.get("save_info") and info.get("_type") != "playlist":
                 try:
                     Path(req["save_info"]).write_text(json.dumps(ydl.sanitize_info(info)), encoding="utf-8")
@@ -672,7 +681,7 @@ def _download_with(
 ) -> list[dict]:
     limit = req.get("playlist_limit")
     if info is None:
-        raw = ydl.extract_info(req["url"], download=False, process=False)
+        raw = ydl.extract_info(extractor_url(req["url"]), download=False, process=False)
         if _is_playlist(raw):
             # список роликов ленивый: чтобы понять «больше лимита», берём не больше limit+1 штук
             if limit:
