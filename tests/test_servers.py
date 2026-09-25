@@ -113,6 +113,32 @@ def test_restart_in_place_signals_the_server(tmp_path, fake_server, monkeypatch)
     assert servers.restart(tmp_path, server, timeout=5)
 
 
+def test_restart_of_a_server_that_died_on_the_signal_starts_a_new_one(tmp_path, monkeypatch):
+    """SIGUSR1 застал сервер на остановке, и тот просто вышел: restart поднимает новый, а не ждёт 20 с (ревью)."""
+    dying = FAKE.replace("lambda *_: pid(time.time() + 1)", "lambda *_: sys.exit(0)")
+    proc = subprocess.Popen([sys.executable, "-c", dying, str(tmp_path), "8809", "1"], stdout=subprocess.PIPE, text=True)
+    assert proc.stdout.readline().strip() == "ready"
+    import threading
+
+    threading.Thread(target=proc.wait, daemon=True).start()  # как оболочка терминала: забирает вышедший процесс
+    spawned = []
+
+    class Fresh:
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(servers, "spawn", lambda work, port: spawned.append(port) or Fresh())
+    monkeypatch.setattr(servers, "alive", lambda port, timeout=1.0: bool(spawned))
+    [server] = servers.running(tmp_path)
+    started = time.monotonic()
+    try:
+        assert servers.restart(tmp_path, server, timeout=10)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert spawned == [8809] and time.monotonic() - started < 5
+
+
 def test_stop_command_when_nothing_runs(tmp_path, monkeypatch):
     monkeypatch.setenv("VD_WORK_DIR", str(tmp_path))
     result = runner.invoke(app, ["stop"])

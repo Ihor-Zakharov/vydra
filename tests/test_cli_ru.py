@@ -453,3 +453,32 @@ def test_out_pointing_to_a_file_is_explained(cli_env, tmp_path):
     result = runner.invoke(cli.app, ["d", URL, "-o", str(file)])
     assert result.exit_code != 0
     assert "папка" in result.output.lower() or "directory" in result.output.lower()
+
+
+@needs_ffmpeg
+def test_show_failure_does_not_spoil_a_successful_json_download(cli_env, make_clip, monkeypatch):
+    """--json --show: Проводник не открылся — всё равно один итог «ok» и код 0 (найдено ревью)."""
+
+    def no_explorer(path):
+        raise system.NotSupported("Не найден xdg-open — установите пакет xdg-utils")
+
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), []))
+    monkeypatch.setattr(system, "reveal", no_explorer)
+    result = runner.invoke(cli.app, ["d", URL, "-f", "mp3", "--json", "--show"])
+    assert result.exit_code == 0, result.output
+    assert _json_line(result.output)["ok"] is True  # _json_line проверяет, что строка JSON одна
+    assert "Показать в папке не вышло" in result.output
+
+
+def test_linux_clipboard_without_display_is_unavailable_not_empty(monkeypatch):
+    """xclip есть, а графического сеанса нет (SSH): это «недоступен», а не «пуст» (найдено ревью)."""
+    monkeypatch.setattr(system, "OS", "linux")
+    monkeypatch.setattr(system, "WINDOWS_LIKE", False)
+    monkeypatch.setattr(clipboard.shutil, "which", lambda name: name if name == "xclip" else None)
+    monkeypatch.setattr(system, "run", lambda cmd, timeout=20: None)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    with pytest.raises(clipboard.Unavailable, match="DISPLAY"):
+        clipboard.read_strict()
+    monkeypatch.setattr(system, "run", lambda cmd, timeout=20: "")
+    assert clipboard.read_strict() == ""  # программа ответила — буфер правда пуст

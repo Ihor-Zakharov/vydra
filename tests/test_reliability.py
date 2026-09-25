@@ -405,3 +405,37 @@ def test_retry_after_failure_downloads_the_whole_video(settings, library, monkey
     assert wait_for(lambda: job.status in FINAL, timeout=10)
     manager.shutdown()
     assert seen == [True, False, False]
+
+
+@needs_ffmpeg
+def test_retry_after_a_piece_starts_from_a_clean_folder(settings, library, make_clip, monkeypatch, fast):
+    """Кусок скачан, а сохранить не вышло (диск отвалился): повтор качает ролик целиком, и yt-dlp не должен принять
+    оставшийся кусок <id>.mkv за уже скачанный ролик (найдено ревью)."""
+    import errno
+
+    piece, left_over = make_clip("piece.mp4", seconds=5), []
+
+    def fake(url, mode, quality, work_dir, **kw):
+        left_over.append(sorted(p.name for p in work_dir.iterdir() if p.name != ".alive"))
+        dst = work_dir / "abcdefghijk.mkv"
+        shutil.copyfile(piece, dst)
+        info = {"id": "abcdefghijk", "title": "Лекция", "duration": 4060, "webpage_url": url}
+        section = (1.0, 3.0) if kw["allow_section"] else None
+        return [Downloaded(dst, info, None, section=section)]
+
+    real_add, failures = library.add, [OSError(errno.EIO, "диск отвалился")]
+
+    def flaky_add(*a, **k):
+        if failures:
+            raise failures.pop()
+        return real_add(*a, **k)
+
+    monkeypatch.setattr(jobs, "download", fake)
+    monkeypatch.setattr(library, "add", flaky_add)
+    monkeypatch.setattr(JobManager, "_check_source", lambda self, item: None)  # «ролик целиком» здесь тоже 5 с
+    manager = JobManager(settings, library)
+    job = manager.submit(Job(kind="url", source=URL, mode="mp4", clip=(1.0, 3.0)))
+    assert wait_for(lambda: job.status in FINAL, timeout=30)
+    manager.shutdown()
+    assert job.status == "done", job.error
+    assert left_over == [[], []]  # вторая попытка начала с пустой папки

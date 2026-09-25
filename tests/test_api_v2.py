@@ -101,10 +101,13 @@ def test_shutdown_signal_closes_open_tabs_at_once(settings):
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     assert wait_for(lambda: server.started, timeout=10)
-    tab = threading.Thread(
-        target=lambda: httpx.get(f"http://127.0.0.1:{port}/api/events", headers={"host": "localhost"}, timeout=30),
-        daemon=True,
-    )
+    def open_tab() -> None:
+        try:
+            httpx.get(f"http://127.0.0.1:{port}/api/events", headers={"host": "localhost"}, timeout=30)
+        except httpx.HTTPError:
+            pass  # сервер закрыл поток — этого и ждём
+
+    tab = threading.Thread(target=open_tab, daemon=True)
     tab.start()
     time.sleep(0.5)
     started = time.monotonic()

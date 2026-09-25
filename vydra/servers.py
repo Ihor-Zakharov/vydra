@@ -258,7 +258,16 @@ def restart(work_dir: Path, server: Server, timeout: float = 20.0) -> bool:
             record = _read_pid(work_dir, server.port)
             return (record.get("started") or 0) > before and alive(server.port)
 
-        return _wait(restarted, timeout, 0.2)
+        def settled() -> bool:  # перезапустился — или сигнал застал его на старте/остановке, и он просто вышел
+            return restarted() or not pid_alive(server.pid)
+
+        _wait(settled, timeout, 0.2)
+        if restarted():
+            return True
+        if pid_alive(server.pid) or lock_held(lock_path(work_dir, server.port)):
+            return False
+        proc = spawn(work_dir, server.port)  # процесса больше нет — поднимаем новый в фоне
+        return _wait(lambda: proc.poll() is None and alive(server.port), timeout, 0.2)
     if not stop(work_dir, server):
         return False
     proc = spawn(work_dir, server.port)

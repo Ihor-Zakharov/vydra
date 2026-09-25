@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 
@@ -41,16 +42,21 @@ def read_strict() -> str:
         if out is None:
             raise Unavailable("pbpaste не ответил")
         return out
-    tried = False
+    tried: list[str] = []
     for cmd in (["wl-paste", "--no-newline"], ["xclip", "-o", "-selection", "clipboard"], ["xsel", "-ob"]):
         if shutil.which(cmd[0]):
-            tried = True
             out = system.run(cmd, timeout=5)
             if out:
                 return out
+            if out == "":
+                return ""  # программа ответила: буфер пуст
+            tried.append(cmd[0])
     if not tried:
         raise Unavailable(unavailable_hint())
-    return ""
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        raise Unavailable("нет графического сеанса (DISPLAY / WAYLAND_DISPLAY) — буфер обмена отсюда не виден")
+    # xclip и wl-paste отвечают ошибкой и на пустой буфер, и на недоступный — различить их нельзя
+    raise Unavailable(f"{', '.join(tried)} не отдали текст — буфер пуст или недоступен")
 
 
 def read() -> str | None:

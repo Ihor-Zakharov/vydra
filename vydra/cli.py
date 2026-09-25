@@ -661,14 +661,14 @@ def download(
         if _json_mode:
             emit_json({"ok": True, "exit_code": EXIT_OK, "files": skipped, "jobs": []})
         if show and skipped:
-            _show(Path(skipped[0]["path"]))
+            _show(Path(skipped[0]["path"]), soft=True)
         raise typer.Exit(EXIT_OK)
     code = run_jobs(env, jobs)
     files = [f for j in jobs if j.status == "done" for f in j.files]
     if _json_mode:
         emit_json(_jobs_json(env, jobs, skipped, code))
     if show and files:
-        _show(env.library.root / files[0]["path"])
+        _show(env.library.root / files[0]["path"], soft=True)
     raise typer.Exit(code)
 
 
@@ -940,7 +940,6 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
     title = Text("▲ ") + wordmark() + Text(" обновлена и перезапущена" if restarted else " работает", style="bold")
     console.print()
     console.print(Panel(body, title=title, title_align="left", border_style="#7c5cff", box=box.ROUNDED, padding=(1, 2)))
-    servers.write_pid(settings.work_dir, port)
     if not no_browser:
 
         def opener() -> None:
@@ -983,9 +982,12 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
     # SIGHUP — закрыли окно терминала: останавливаемся так же мягко (очередь сохранится), а не падаем
     handled = [signal.SIGINT, signal.SIGTERM, *(s for s in (servers.RESTART_SIGNAL, hangup) if s)]
     previous = {sig: signal.signal(sig, on_signal) for sig in handled}
+    # .pid с «умею перезапускаться» — только пока обработчик SIGUSR1 стоит: иначе сигнал по умолчанию убил бы процесс
+    servers.write_pid(settings.work_dir, port)
     try:
         server.run()
     finally:
+        servers.clear_pid(settings.work_dir, port)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
     if "restart" in why:
@@ -1137,13 +1139,18 @@ def open_cmd(
         console.print(Text(f"    Подходит ещё {len(items) - 1} — взяла самый свежий; уточните название, если не тот", style="dim"))
 
 
-def _show(path: Path, play: bool = False) -> None:
+def _show(path: Path, play: bool = False, soft: bool = False) -> None:
+    """Показать файл в Проводнике / Finder (или открыть). soft — это довесок к загрузке: не вышло — только
+    предупреждение, без смены кода выхода и без второго JSON-итога."""
     try:
         (system.open_path if play else system.reveal)(path)
-    except FileNotFoundError as exc:
-        raise fail(f"Файла уже нет: {system.display_path(path)}", "Его удалили или переместили: выдра список") from exc
-    except system.NotSupported as exc:
-        raise fail(str(exc)) from exc
+    except (FileNotFoundError, system.NotSupported) as exc:
+        missing = isinstance(exc, FileNotFoundError)
+        message = f"Файла уже нет: {system.display_path(path)}" if missing else str(exc)
+        if soft:
+            err.print(Text(f"  ! Показать в папке не вышло: {message}", style="yellow"))
+            return
+        raise fail(message, "Его удалили или переместили: выдра список" if missing else None) from exc
     action = "Открываю " if play else "Показываю в папке "
     console.print(Text("  ✓ ", style="bold green") + Text(action) + linked(path, "#e6d9a8"))
 

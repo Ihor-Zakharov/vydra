@@ -312,6 +312,7 @@ class JobManager:
         self._stopping = threading.Event()
         self._dirty = threading.Event()
         self._hosts: dict[str, int] = {}  # сколько загрузок идёт с каждого сайта
+        self._pieces: set[str] = set()  # задачи, чья папка хранит кусок ролика (а не ролик целиком)
         self.info_cache = settings.work_dir / "info"  # полная информация из превью для быстрого старта
         workers = max_parallel or settings.max_parallel
         self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="job")
@@ -592,8 +593,9 @@ class JobManager:
             else:
                 message, transient = _explain(exc)
                 log.warning("job %s failed attempt=%d transient=%s: %s", job.id, job.attempt, transient, message)
-                if isinstance(exc, IntegrityError):
-                    _wipe(work)  # битый файл — следующая попытка качает с нуля
+                if isinstance(exc, IntegrityError) or job.id in self._pieces:
+                    # битый файл — с нуля; кусок ролика — тоже: yt-dlp принял бы его за уже скачанный ролик целиком
+                    _wipe(work)
                 if transient and job.attempt < job.max_attempts and not self._stopping.is_set():
                     self._retry_later(job, message, rate_limited=getattr(exc, "rate_limited", False))
                 else:
@@ -602,6 +604,7 @@ class JobManager:
             job.speed = job.eta = None
             with self._lock:
                 self._running.discard(job.id)
+                self._pieces.discard(job.id)
             self.changed()
 
     def _interrupted_or_cancelled(self, job: Job) -> None:
@@ -665,6 +668,8 @@ class JobManager:
         finally:
             with self._lock:
                 self._hosts[host] = max(0, self._hosts.get(host, 1) - 1)
+        if any(item.section for item in items):
+            self._pieces.add(job.id)
         if any(item.watermarked for item in items):
             job.warning = "Версии без водяного знака не нашлось — сохранена версия с ним"
         for n, item in enumerate(items, 1):
