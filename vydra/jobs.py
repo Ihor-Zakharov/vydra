@@ -677,7 +677,7 @@ class JobManager:
             probe = self.media.probe(item.path)
         except MediaError as exc:
             raise IntegrityError("Скачанный файл повреждён") from exc
-        expected = item.info.get("duration")
+        expected = item.section[1] - item.section[0] if item.section else item.info.get("duration")
         if expected and probe.duration and probe.duration < expected * 0.9 - 2:
             raise IntegrityError(f"Скачалось {probe.duration:.0f} с из {expected:.0f} с — файл неполный")
 
@@ -701,7 +701,12 @@ class JobManager:
         if clip:
             stem = f"{stem} ({clip_label(clip, '–').replace(':', '.')})"
         source = info.get("webpage_url") or job.source
-        self._convert(job, item.path, stem, meta, cover, work, clip=clip, source=source, part=n)
+        cut = clip
+        if clip and item.section:  # скачан только кусок: время отрезка — в координатах файла
+            shift = item.section[0] - item.offset
+            end = item.section[1] if clip[1] is None else min(clip[1], item.section[1])
+            cut = (max(0.0, clip[0] - shift), end - shift)
+        self._convert(job, item.path, stem, meta, cover, work, clip=cut, source=source, part=n, saved_clip=clip)
 
     def _run_file(self, job: Job, work: Path) -> None:
         if job.input_path is None or not job.input_path.is_file():
@@ -728,6 +733,7 @@ class JobManager:
         clip: Clip | None,
         source: str | None,
         part: int,
+        saved_clip: Clip | None = None,  # отрезок в координатах ролика — для хранилища (clip — в координатах файла)
     ) -> None:
         for ext in TARGETS[job.mode]:
             if job.cancel.is_set():
@@ -775,7 +781,7 @@ class JobManager:
                 uploader=meta.get("artist") or None,
                 cover=cover,
                 folder=folder,
-                clip=clip or job.clip,
+                clip=saved_clip or clip or job.clip,
             )
             job.files.append(
                 {

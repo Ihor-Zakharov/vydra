@@ -341,3 +341,51 @@ def test_tiktok_photo_post_goes_to_ytdlp_as_video():
     assert downloader.extractor_url(photo) == "https://www.tiktok.com/@nasa/video/7250000000000000000?lang=ru"
     assert downloader.extractor_url(URL) == URL
     assert canonical_url(photo) == canonical_url(photo.replace("/photo/", "/video/"))
+
+
+# --- отрезок куском ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("clip", "duration", "expected"),
+    [
+        ((3900, 3930), 4060, (3900.0, 3930.0)),  # 30 с из часа — куском
+        ((3900, 5000), 4060, None),  # 160 с — длинный кусок YouTube отдаёт медленно: целиком
+        ((10, 40), 60, None),  # ролик короткий — выигрыша нет
+        ((3900, None), 4060, None),  # «до конца» — целиком
+        (None, 4060, None),
+        ((4050, 4100), 4060, (4050.0, 4060.0)),  # конец за длиной ролика — до конца ролика
+    ],
+)
+def test_section_decision(clip, duration, expected):
+    assert downloader.section_for(clip, {"duration": duration}) == expected
+
+
+def test_live_or_disabled_never_uses_sections(monkeypatch):
+    assert downloader.section_for((10, 20), {"duration": 4000, "is_live": True}) is None
+    monkeypatch.setattr(downloader, "SECTION_MAX", 0)
+    assert downloader.section_for((10, 20), {"duration": 4000}) is None
+
+
+@needs_ffmpeg
+def test_downloaded_section_is_cut_in_its_own_time(settings, library, make_clip, monkeypatch):
+    """Воркер скачал только кусок 1:05:00–1:05:05 часового ролика, а ffmpeg добавил перед ним 3 с «разгона»:
+    не «файл неполный», вырезаются последние 5 с файла, а в хранилище — отрезок в координатах ролика."""
+    piece = make_clip("piece.mp4", seconds=8)
+
+    def fake(url, mode, quality, work_dir, **kw):
+        dst = work_dir / "src.mp4"
+        shutil.copyfile(piece, dst)
+        info = {"id": "abcdefghijk", "title": "Лекция", "duration": 4060, "webpage_url": url}
+        return [Downloaded(dst, info, None, section=(3900.0, 3905.0), offset=3.0)]
+
+    monkeypatch.setattr(jobs, "download", fake)
+    manager = JobManager(settings, library)
+    job = manager.submit(Job(kind="url", source=URL, mode="mp4", clip=(3900.0, 3905.0)))
+    assert wait_for(lambda: job.status in FINAL, timeout=30)
+    manager.shutdown()
+    assert job.status == "done", job.error
+    item = library.get(job.files[0]["id"])
+    assert item.clip == [3900.0, 3905.0] and 4 <= item.duration <= 6
+    assert "(1.05.00–1.05.05)" in job.files[0]["name"]
+    assert manager.find_existing(URL, "mp4", (3900.0, 3905.0))
