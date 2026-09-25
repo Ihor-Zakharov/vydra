@@ -34,3 +34,11 @@ def test_install_ps1_parses():
     out = subprocess.run([exe, "-NoProfile", "-Command", script], capture_output=True, text=True, timeout=120,
                          cwd="/mnt/c" if system.OS == "wsl" else None)  # fmt: skip
     assert out.returncode == 0, out.stdout + out.stderr
+
+
+def test_install_sh_restarts_running_ui_after_update():
+    """Повторный install.sh = обновление: работающий `vydra ui` перезапускается новой версией."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert "vydra restart --quiet" in text
+    assert text.index("uv tool install") < text.index("vydra restart --quiet")
+    assert "VYDRA_NO_WINDOWS" in text  # проверка с временным HOME не трогает мост в Windows

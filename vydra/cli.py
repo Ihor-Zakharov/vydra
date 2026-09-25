@@ -11,11 +11,9 @@ import dataclasses
 import os
 import shutil
 import signal
-import socket
 import sys
 import threading
 import time
-import urllib.request
 from enum import Enum
 from pathlib import Path, PureWindowsPath
 from typing import Annotated
@@ -649,38 +647,76 @@ def convert(
 
 
 def ui(
-    port: Annotated[int, typer.Option("--port", "-p", "--порт", help="Порт веб-интерфейса")] = 8765,
+    port: Annotated[int, typer.Option("--port", "-p", "--порт", min=1, max=65535, help="Порт веб-интерфейса")] = 8765,
     no_browser: Annotated[bool, typer.Option("--no-browser", "--без-браузера", help="Не открывать браузер")] = False,
 ) -> None:
     """Запустить веб-интерфейс и открыть его в браузере. [dim](синонимы: интерфейс, web)[/]"""
-    import uvicorn
-
+    from . import servers
     from .fsutil import FileLock
 
+    restarted = os.environ.pop("_VYDRA_RESTARTED", None) is not None  # перезапуск после обновления
+    no_browser = no_browser or restarted
     base = Settings.from_env()
-    lock = FileLock(base.work_dir / f"ui-{port}.lock", timeout=0)
+    lock = FileLock(servers.lock_path(base.work_dir, port), timeout=0)
     lock.__enter__()
-    if _alive(port) or not lock.acquired:  # выдра уже запущена (или запускается) — просто открываем
-        for _ in range(100):
-            if _alive(port):
-                break
-            time.sleep(0.1)
+    other = lock._fh is not None and not lock.acquired  # noqa: SLF001 — блокировку держит другой `vydra ui`
+    state = _port_state(port)
+    if other or (state == "busy" and _alive(port)):
         lock.__exit__(None, None, None)
-        url = f"http://localhost:{port}"
-        banner("уже запущена")
-        console.print(Text(f"  {url}", style="bold cyan"))
-        if not no_browser:
-            system.open_url(url)
+        _already_running(port, no_browser, starting=other and state != "busy")
         return
-    if _port_busy(port):
+    if state != "free":
         lock.__exit__(None, None, None)
-        free = next((p for p in range(port + 1, port + 21) if not _port_busy(p) and not _alive(p)), None)
+        if state == "denied":
+            raise fail(f"Порт {port} нельзя занять без прав администратора",
+                       "Порты до 1024 — системные. Возьмите обычный: выдра интерфейс --порт 8765")  # fmt: skip
+        free = next((p for p in range(port + 1, min(port + 21, 65536))
+                     if _port_state(p) == "free" and not servers.lock_held(servers.lock_path(base.work_dir, p))), None)  # fmt: skip
         if free is None:
             raise fail(f"Порт {port} и соседние заняты другими программами", "Укажите свой: выдра интерфейс --порт 9000")
         console.print(Text(f"  Порт {port} занят другой программой — запускаю на {free}", style="yellow"))
         port = free
-        lock = FileLock(base.work_dir / f"ui-{port}.lock", timeout=0)
+        lock = FileLock(servers.lock_path(base.work_dir, port), timeout=0)
         lock.__enter__()
+    try:
+        _serve(port, no_browser, restarted)
+    finally:
+        servers.clear_pid(base.work_dir, port)
+        lock.__exit__(None, None, None)
+
+
+def _already_running(port: int, no_browser: bool, starting: bool) -> None:
+    url = f"http://localhost:{port}"
+    if starting:  # второй запуск сразу после первого (двойной клик по ярлыку) — ждём, пока поднимется
+        console.print(Text(f"  Выдра уже запускается на порту {port} — жду…", style="dim"))
+        if not _wait_alive(port, 8):
+            raise fail(f"Выдра на порту {port} запущена, но не отвечает",
+                       f"Перезапустите её: выдра stop --port {port}, затем выдра интерфейс")  # fmt: skip
+    banner("уже запущена")
+    console.print(Text(f"  {url}", style=f"bold cyan link {url}"))
+    console.print(Text("  Остановить: ", style="dim") + Text("выдра stop", style="cyan"))
+    if not no_browser:
+        _open_browser(url)
+
+
+def _wait_alive(port: int, timeout: float) -> bool:
+    from .servers import wait_alive
+
+    return wait_alive(port, timeout)
+
+
+def _open_browser(url: str) -> None:
+    try:
+        system.open_url(url)
+    except system.NotSupported as exc:
+        err.print(Text(f"  Браузер не открылся ({exc}) — откройте {url} сами", style="yellow"))
+
+
+def _serve(port: int, no_browser: bool, restarted: bool) -> None:
+    """uvicorn в этом окне. Ctrl+C / `vydra stop` — остановка, SIGUSR1 — перезапуск новой версией (exec)."""
+    import uvicorn
+
+    from . import servers
 
     url = f"http://localhost:{port}"
     os.environ["VD_PORT"] = str(port)
@@ -688,28 +724,26 @@ def ui(
     root = Prefs(settings).library_dir
     body = Table.grid(padding=(0, 2))
     body.add_column(style="#9aa4b2")
-    body.add_column()
+    body.add_column(overflow="fold")  # путь к хранилищу — целиком, а не с «…»
     body.add_row("Интерфейс", Text(url, style=f"bold cyan underline link {url}"))
     body.add_row("Хранилище", linked(root, "cyan"))
     body.add_row("", "")
-    body.add_row("", Text("Не закрывайте это окно — выдра работает, пока оно открыто. Остановить: Ctrl+C", style="dim"))
+    body.add_row("", Text("Не закрывайте это окно — выдра работает, пока оно открыто.\n"
+                          "Остановить: Ctrl+C здесь или «выдра stop» в другом терминале.", style="dim"))  # fmt: skip
+    title = Text("▲ ") + wordmark() + Text(" обновлена и перезапущена" if restarted else " работает", style="bold")
     console.print()
-    console.print(
-        Panel(body, title=Text("▲ ") + wordmark() + Text(" работает", style="bold"), title_align="left",
-              border_style="#7c5cff", box=box.ROUNDED, padding=(1, 2))
-    )  # fmt: skip
+    console.print(Panel(body, title=title, title_align="left", border_style="#7c5cff", box=box.ROUNDED, padding=(1, 2)))
+    servers.write_pid(settings.work_dir, port)
     if not no_browser:
 
         def opener() -> None:
-            for _ in range(100):
-                if _alive(port):
-                    system.open_url(url)
-                    return
-                time.sleep(0.1)
+            if _wait_alive(port, 15):
+                _open_browser(url)
 
         threading.Thread(target=opener, daemon=True).start()
-    try:
-        uvicorn.run(
+
+    server = uvicorn.Server(
+        uvicorn.Config(
             "vydra.main:create_app",
             factory=True,
             host="127.0.0.1",
@@ -718,8 +752,87 @@ def ui(
             access_log=False,
             timeout_graceful_shutdown=3,  # открытые вкладки (SSE) не должны задерживать остановку
         )
+    )
+    why: list[str] = []
+
+    def on_signal(signum, _frame) -> None:
+        why.append({signal.SIGINT: "ctrl-c", signal.SIGTERM: "stop"}.get(signum, "restart"))
+        if server.should_exit and signum == signal.SIGINT:
+            server.force_exit = True  # второй Ctrl+C — не ждать открытых вкладок
+        server.should_exit = True
+
+    # uvicorn на время работы ставит свои обработчики, а после остановки вызывает наши — так
+    # мы узнаём, почему он остановился; SIGUSR1 он не трогает, и тот приходит сразу сюда
+    handled = [signal.SIGINT, signal.SIGTERM] + ([servers.RESTART_SIGNAL] if servers.RESTART_SIGNAL else [])
+    previous = {sig: signal.signal(sig, on_signal) for sig in handled}
+    try:
+        server.run()
     finally:
-        lock.__exit__(None, None, None)
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+    if "restart" in why:
+        console.print(Text("\n  Перезапускаюсь новой версией…", style="dim"))
+        sys.stdout.flush()
+        sys.stderr.flush()
+        servers.clear_pid(settings.work_dir, port)
+        os.environ["_VYDRA_RESTARTED"] = "1"
+        os.execv(sys.executable, [sys.executable, "-m", "vydra", "ui", "--port", str(port), "--no-browser"])  # noqa: S606
+    reason = "остановлена командой stop" if "stop" in why else "остановлена"
+    console.print(Text(f"\n  Выдра {reason}.", style="dim"))
+
+
+def stop(
+    port: Annotated[int | None, typer.Option("--port", "-p", "--порт", help="Только этот порт", show_default=False)] = None,
+) -> None:
+    """Остановить запущенный веб-интерфейс. [dim](синоним: стоп)[/]"""
+    from . import servers
+
+    settings = Settings.from_env()
+    found = servers.running(settings.work_dir, port)
+    if not found:
+        where = f" на порту {port}" if port else ""
+        console.print(Text(f"Выдра не запущена{where} — останавливать нечего.", style="dim"))
+        return
+    failed = []
+    for server in found:
+        with console.status(Text(f"Останавливаю выдру на порту {server.port}…", style="dim"), spinner="dots"):
+            ok = servers.stop(settings.work_dir, server)
+        if ok:
+            console.print(Text("  ✓ ", style="bold green") + Text(f"Остановлена выдра на порту {server.port}"))
+        else:
+            failed.append(server)
+    if failed:
+        pids = " ".join(str(s.pid) for s in failed if s.pid) or "<pid>"
+        raise fail(f"Не удалось остановить выдру на порту {', '.join(str(s.port) for s in failed)}",
+                   f"Завершите процесс вручную: kill -9 {pids}")  # fmt: skip
+
+
+def restart_cmd(
+    port: Annotated[int | None, typer.Option("--port", "-p", "--порт", help="Только этот порт", show_default=False)] = None,
+    quiet: Annotated[bool, typer.Option("--quiet", hidden=True, help="Молчать, если выдра не запущена")] = False,
+) -> None:
+    """Перезапустить работающий веб-интерфейс новой версией. [dim](синоним: перезапустить)[/]"""
+    from . import servers
+
+    settings = Settings.from_env()
+    found = servers.running(settings.work_dir, port)
+    if not found:
+        if not quiet:
+            console.print(Text("Выдра не запущена — перезапускать нечего.", style="dim"))
+        return
+    failed = []
+    for server in found:
+        with console.status(Text(f"Перезапускаю выдру на порту {server.port}…", style="dim"), spinner="dots"):
+            ok = servers.restart(settings.work_dir, server)
+        if ok:
+            log = system.display_path(servers.log_path(settings.work_dir, server.port))
+            where = "в том же окне" if server.restartable else f"в фоне (журнал: {log})"
+            console.print(Text("  ✓ ", style="bold green") + Text(f"Выдра на порту {server.port} перезапущена {where}"))
+        else:
+            failed.append(server)
+    if failed:
+        raise fail(f"Не удалось перезапустить выдру на порту {', '.join(str(s.port) for s in failed)}",
+                   "Остановите и запустите заново: выдра stop, затем выдра интерфейс")  # fmt: skip
 
 
 # --- команды: хранилище ------------------------------------------------------------------
@@ -1124,6 +1237,8 @@ COMMANDS = [
     (info, "info", MAIN),
     (convert, "convert", MAIN),
     (ui, "ui", MAIN),
+    (stop, "stop", MAIN),
+    (restart_cmd, "restart", SERVICE),
     (list_items, "list", STORE),
     (folder, "folder", STORE),
     (doctor, "doctor", SERVICE),
@@ -1173,27 +1288,19 @@ def _normalize(url: str) -> str:
 
 
 def _alive(port: int) -> bool:
-    if not _port_busy(port):  # свободный порт не спрашиваем: в WSL запрос к нему висит до таймаута
-        return False
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=1) as resp:
-            return b'"ok"' in resp.read()
-    except Exception:  # noqa: BLE001
-        return False
+    from .servers import alive
+
+    return alive(port)
+
+
+def _port_state(port: int) -> str:
+    from .servers import port_state
+
+    return port_state(port)
 
 
 def _port_busy(port: int) -> bool:
-    """Занят ли порт: пробуем занять его сами, как это сделает uvicorn (с SO_REUSEADDR).
-
-    Не connect(): в WSL с networkingMode=mirrored и включённым брандмауэром подключение
-    к закрытому порту не получает отказа и висит минутами — `vydra ui` молча не запускался."""
-    with socket.socket() as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            sock.bind(("127.0.0.1", port))
-        except OSError:
-            return True
-        return False
+    return _port_state(port) != "free"
 
 
 def _russian_help_option() -> None:

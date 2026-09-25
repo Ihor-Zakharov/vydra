@@ -103,6 +103,8 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
     "convert": {k: SHARED[k] for k in ("format", "bitrate", "clip", "from", "to", "out", "folder", "yes")},
     "info": {},
     "ui": {"port": Opt(("--port", "-p", "--порт"), True), "no_browser": Opt(("--no-browser", "--без-браузера"))},
+    "stop": {"port": Opt(("--port", "-p", "--порт"), True)},
+    "restart": {"port": Opt(("--port", "-p", "--порт"), True), "quiet": Opt(("--quiet",))},
     "list": {
         "type": Opt(("--type", "-t", "--тип"), True),
         "search": Opt(("--search", "-s", "--поиск"), True),
@@ -138,6 +140,8 @@ COMMAND_ALIASES = {
     "info": ("info", "инфо", "plan", "план"),
     "convert": ("convert", "конвертировать", "конверт"),
     "ui": ("ui", "интерфейс", "web", "веб"),
+    "stop": ("stop", "стоп", "остановить"),
+    "restart": ("restart", "перезапустить"),
     "list": ("list", "список", "ls"),
     "folder": ("folder", "папка"),
     "doctor": ("doctor", "доктор", "health"),

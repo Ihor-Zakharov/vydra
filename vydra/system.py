@@ -12,6 +12,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 import webbrowser
 from pathlib import Path
 
@@ -139,16 +140,45 @@ def display_path(path: Path) -> str:
     return to_windows(path) or str(path)
 
 
+_downloads: Path | None = None
+DOWNLOADS_TTL = 86400
+
+
 def downloads_dir() -> Path:
-    if OS == "wsl":
-        script = "(New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path"
-        converted = from_windows(powershell(script) or "")
-        if converted and converted.is_dir():
-            return converted
+    """«Загрузки» пользователя. В WSL — папка Windows: её спрашиваем у PowerShell (~0,3 с, на холодной
+    Windows — секунды) один раз в сутки, а ответ кэшируем — иначе каждая команда выдры ждала бы его."""
+    global _downloads
+    if _downloads is None:
+        _downloads = _wsl_downloads() if OS == "wsl" else None
+        if _downloads is None:
+            try:
+                _downloads = Path(user_downloads_dir())
+            except Exception:  # noqa: BLE001 — платформенные сюрпризы
+                _downloads = Path.home() / "Downloads"
+    return _downloads
+
+
+def _wsl_downloads() -> Path | None:
+    from platformdirs import user_cache_dir
+
+    cache = Path(os.environ.get("VD_WORK_DIR") or user_cache_dir("vydra", appauthor=False)) / "windows-downloads.txt"
     try:
-        return Path(user_downloads_dir())
-    except Exception:  # noqa: BLE001 — платформенные сюрпризы
-        return Path.home() / "Downloads"
+        if time.time() - cache.stat().st_mtime < DOWNLOADS_TTL:
+            cached = Path(cache.read_text(encoding="utf-8").strip())
+            if cached.is_absolute() and cached.is_dir():
+                return cached
+    except OSError:
+        pass
+    script = "(New-Object -ComObject Shell.Application).NameSpace('shell:Downloads').Self.Path"
+    converted = from_windows(powershell(script, timeout=15) or "")
+    if not (converted and converted.is_dir()):
+        return None
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(str(converted), encoding="utf-8")
+    except OSError:
+        pass
+    return converted
 
 
 def desktop_dir() -> Path | None:

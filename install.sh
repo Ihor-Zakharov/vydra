@@ -49,12 +49,17 @@ say 33 "~" "Ставлю FFmpeg и остальное, проверяю сист
 printf '    \033[2mэто может занять пару минут — терминал не завис\033[0m\n'
 vydra doctor --fix || true
 vydra completion >/dev/null 2>&1 || true
-if grep -qi microsoft /proc/version 2>/dev/null && command -v powershell.exe >/dev/null 2>&1; then
+# VYDRA_NO_WINDOWS=1 — не трогать Windows-сторону (проверка установщика с временным HOME)
+if [ "${VYDRA_NO_WINDOWS:-0}" != 1 ] && grep -qi microsoft /proc/version 2>/dev/null \
+    && command -v powershell.exe >/dev/null 2>&1; then
     vydra bridge || true  # WSL: команды vydra и выдра в PowerShell и cmd Windows
 fi
 if [ "$(uname -s)" = "Darwin" ]; then
     printf '  \033[2mmacOS может один раз спросить разрешение для ffmpeg — разрешите в «Настройках → Конфиденциальность».\033[0m\n'
 fi
+
+# 4. веб-интерфейс уже работает — перезапускаем его новой версией (в том же окне, если умеет)
+vydra restart --quiet || say 33 "!" "Перезапустите веб-интерфейс сами: vydra stop, затем vydra ui"
 
 printf '\n  \033[1;32mГотово!\033[0m Скопируйте ссылку в браузере и запустите:\n'
 printf '    \033[36mвыдра скачать -ф мп3\033[0m   \033[2m(ссылка возьмётся из буфера обмена; или укажите её в кавычках)\033[0m\n'
