@@ -80,12 +80,25 @@ class Doctor:
         if not version:
             return Check("ffmpeg", "FFmpeg", "fail", f"{ffmpeg} не запускается", fix, hint)
         first = version.splitlines()[0].replace("ffmpeg version ", "")
+        if missing := ffmpeg_missing_encoders(ffmpeg):  # чужой урезанный ffmpeg из PATH: MP4/MP3 не соберутся
+            return Check(
+                "ffmpeg", "FFmpeg", "fail",
+                f"В {ffmpeg} нет кодеков {', '.join(missing)} — MP4/MP3 не соберутся", fix,
+                "Выдра скачает свою сборку в свою папку; чужой FFmpeg останется как был",
+            )  # fmt: skip
         return Check("ffmpeg", "FFmpeg", "ok", f"{first.split(' Copyright')[0]}")
 
     def _js(self) -> Check:
         runtime = self.settings.js_runtime
         fix = "Установить Deno" if tools.deno_source() else None
         if not runtime:
+            if stale := self.settings.stale_js_runtime():
+                name, _path, version = stale
+                return Check(
+                    "js", "JS-движок для YouTube", "warn",
+                    f"{'Node.js' if name == 'node' else 'Deno'} {version} слишком старый для yt-dlp — "
+                    "YouTube может отдавать не все качества", fix,
+                )  # fmt: skip
             return Check(
                 "js", "JS-движок для YouTube", "warn",
                 "Не найден ни Node.js, ни Deno — YouTube может отдавать не все качества", fix,
@@ -207,6 +220,12 @@ class Doctor:
 
         status = shell.installed(self.settings.config_dir)
         title = "Умные ссылки в терминале"
+        if not status and (blocked := shell.blocked_powershell()):
+            return Check(
+                "terminal", title, "ok", f"PowerShell запрещает скрипты ({blocked}) — Tab-подсказки выключены",
+                hint="Ссылки с & — в кавычках или из буфера. Включить: Set-ExecutionPolicy -Scope CurrentUser "
+                "RemoteSigned, затем vydra completion",
+            )  # fmt: skip
         if not status:
             return Check("terminal", title, "ok", "Поддерживаемых оболочек не найдено — работает буфер обмена")
         missing = [name for name, ok in status.items() if not ok]
@@ -278,6 +297,18 @@ class Doctor:
     def fix_all(self, checks: list[Check] | None = None) -> list[FixResult]:
         checks = checks if checks is not None else self.run()
         return [self.fix(c.id) for c in checks if c.status != "ok" and c.fix]
+
+
+ENCODERS = ("libx264", "aac", "libmp3lame")  # MP4 (H.264 + AAC) и MP3 собирает media.py
+
+
+def ffmpeg_missing_encoders(ffmpeg: str) -> list[str]:
+    """Каких нужных кодеков нет в этом ffmpeg (пусто — всё есть или узнать не удалось)."""
+    out = system.run([ffmpeg, "-hide_banner", "-encoders"], timeout=15)
+    if not out:
+        return []
+    names = {line.split()[1] for line in out.splitlines() if len(line.split()) > 1 and len(line.split()[0]) == 6}
+    return [e for e in ENCODERS if e not in names]
 
 
 def summary(checks: list[Check]) -> dict:

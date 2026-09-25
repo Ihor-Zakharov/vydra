@@ -32,10 +32,11 @@ class Settings:
     def from_env(cls) -> Settings:
         env = os.environ.get
         fixed = env("VD_LIBRARY_DIR")
+        long = system.long_path  # Windows: без коротких имён 8.3 у кириллических профилей
         return cls(
-            work_dir=Path(env("VD_WORK_DIR") or user_cache_dir(APP, appauthor=False)),
-            config_dir=Path(env("VD_CONFIG_DIR") or user_config_dir(APP, appauthor=False)),
-            tools_dir=Path(env("VD_TOOLS_DIR") or Path(user_data_dir(APP, appauthor=False)) / "bin"),
+            work_dir=Path(env("VD_WORK_DIR") or long(Path(user_cache_dir(APP, appauthor=False)))),
+            config_dir=Path(env("VD_CONFIG_DIR") or long(Path(user_config_dir(APP, appauthor=False)))),
+            tools_dir=Path(env("VD_TOOLS_DIR") or long(Path(user_data_dir(APP, appauthor=False))) / "bin"),
             default_library=system.downloads_dir() / FOLDER_NAME,
             fixed_library=Path(fixed) if fixed else None,
             port=int(env("VD_PORT", "8765")),
@@ -45,10 +46,12 @@ class Settings:
     # Бинарники ищем при каждом обращении: health-fix может доустановить их на лету.
 
     def binary(self, name: str) -> str | None:
+        """Своя копия (доставил doctor --fix) важнее чужой из PATH. На Windows — только .exe: обёртки
+        ffmpeg.cmd / node.bat (scoop, choco, nvm-windows) yt-dlp запустить не умеет."""
         own = self.tools_dir / f"{name}{EXE}"
         if own.is_file() and os.access(own, os.X_OK):
             return str(own)
-        if found := shutil.which(name):
+        if found := shutil.which(f"{name}{EXE}"):
             return found
         for directory in (Path.home() / ".local/bin", Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
             candidate = directory / f"{name}{EXE}"
@@ -66,11 +69,22 @@ class Settings:
 
     @property
     def js_runtime(self) -> tuple[str, str] | None:
-        """(имя, путь) JS-движка: без него YouTube отдаёт не все форматы."""
-        if node := os.environ.get("VD_NODE") or self.binary("node") or _nvm_node():
-            return ("node", node)
-        if deno := self.binary("deno"):
-            return ("deno", deno)
+        """(имя, путь) JS-движка: без него YouTube отдаёт не все форматы. Старый движок yt-dlp молча
+        не берёт (Node.js 18/20 из PATH — частый случай), поэтому такой пропускаем и ищем следующий."""
+        if forced := os.environ.get("VD_NODE"):
+            return ("node", forced)
+        for name, path in (("node", self.binary("node")), ("node", _nvm_node()), ("deno", self.binary("deno"))):
+            if path and runtime_supported(name, path):
+                return (name, path)
+        return None
+
+    def stale_js_runtime(self) -> tuple[str, str, str] | None:
+        """(имя, путь, версия) JS-движка, который есть, но слишком старый для yt-dlp — для подсказки доктора."""
+        for name in ("node", "deno"):
+            path = self.binary(name)
+            version = runtime_version(path) if path else None
+            if path and version and not runtime_supported(name, path):
+                return (name, path, version)
         return None
 
     @property
@@ -164,6 +178,44 @@ class Prefs:
             else:
                 data["library_dir"] = str(path)
             self._write(data)
+
+
+# Минимальные версии JS-движков, которые принимает yt-dlp (yt_dlp/utils/_jsruntime.py); старее — он их не берёт.
+MIN_JS = {"node": (22, 0, 0), "deno": (2, 3, 0)}
+
+
+def _min_js() -> dict[str, tuple[int, ...]]:
+    try:
+        from yt_dlp.utils._jsruntime import DenoJsRuntime, NodeJsRuntime  # noqa: PLC0415 — приватный API
+
+        return {"node": tuple(NodeJsRuntime.MIN_SUPPORTED_VERSION), "deno": tuple(DenoJsRuntime.MIN_SUPPORTED_VERSION)}
+    except Exception:  # noqa: BLE001 — другая версия yt-dlp
+        return MIN_JS
+
+
+_versions: dict[tuple[str, int], str | None] = {}
+
+
+def runtime_version(path: str) -> str | None:
+    """Версия движка из `--version` (v22.11.0 → 22.11.0; «deno 2.5.1 (…)» → 2.5.1); кэш по пути и mtime."""
+    import re
+
+    try:
+        key = (path, Path(path).stat().st_mtime_ns)
+    except OSError:
+        return None
+    if key not in _versions:
+        out = system.run([path, "--version"], timeout=15)
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)", out or "")
+        _versions[key] = ".".join(m.groups()) if m else None
+    return _versions[key]
+
+
+def runtime_supported(name: str, path: str) -> bool:
+    version = runtime_version(path)
+    if version is None:
+        return False
+    return tuple(int(p) for p in version.split(".")) >= _min_js().get(name, (0,))
 
 
 def _nvm_node() -> str | None:

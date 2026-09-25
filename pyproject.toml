@@ -37,5 +37,8 @@ packages = ["vydra"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["live: реальные загрузки из интернета (запуск: pytest -m live)"]
-addopts = "-m 'not live'"
+markers = [
+    "live: реальные загрузки из интернета (запуск: pytest -m live)",
+    "winlive: install.ps1 и выдра на хосте Windows из WSL в изолированном «чистом» профиле (pytest -m winlive)",
+]
+addopts = "-m 'not live and not winlive'"

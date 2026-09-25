@@ -491,6 +491,7 @@ def _worker() -> None:
             os._exit(3)  # сервер умер — выходим сразу, не качаем в пустоту
 
     request = json.loads(sys.stdin.readline())
+    prefer_own_tools(request)
     try:
         if request.get("info"):
             send(type="done", preview=_preview(request))
@@ -504,6 +505,18 @@ def _worker() -> None:
         send(type="error", message=text, transient=transient, raw=str(exc)[:500])
         return
     send(type="done", items=items)
+
+
+def prefer_own_tools(req: dict) -> None:
+    """Папки своих ffmpeg и JS-движка — в начало PATH рабочего процесса. yt-dlp ищет ffmpeg для загрузки
+    куском (download_ranges) только в PATH, мимо ffmpeg_location: на Windows, где ffmpeg доставлен в папку
+    выдры, отрезок всегда качался целиком. Заодно чужой старый ffmpeg из PATH не перехватит работу."""
+    dirs = []
+    for tool in (req.get("ffmpeg"), (req.get("js_runtime") or [None, None])[1]):
+        if tool and (folder := str(Path(tool).parent)) not in dirs:
+            dirs.append(folder)
+    if dirs:
+        os.environ["PATH"] = os.pathsep.join([*dirs, os.environ.get("PATH", "")])
 
 
 class _Permanent(Exception):

@@ -1044,9 +1044,18 @@ def _serve(port: int, no_browser: bool, restarted: bool) -> None:
     previous = {sig: signal.signal(sig, on_signal) for sig in handled}
     # .pid с «умею перезапускаться» — только пока обработчик SIGUSR1 стоит: иначе сигнал по умолчанию убил бы процесс
     servers.write_pid(settings.work_dir, port)
+    # Windows: сигналов нет — `vydra stop` просит остановиться файлом ui-<порт>.stop
+    stopped = threading.Event()
+
+    def stop_requested() -> None:
+        on_signal(signal.SIGTERM, None)
+
+    threading.Thread(target=servers.watch_stop_request, args=(settings.work_dir, port, stop_requested, stopped),
+                     name="stop-watch", daemon=True).start()  # fmt: skip
     try:
         server.run()
     finally:
+        stopped.set()
         servers.clear_pid(settings.work_dir, port)
         for sig, handler in previous.items():
             signal.signal(sig, handler)
@@ -1088,8 +1097,9 @@ def stop(
             failed.append(server)
     if failed:
         pids = " ".join(str(s.pid) for s in failed if s.pid) or "<pid>"
-        raise fail(tr("Не удалось остановить выдру на порту {ports}", ports=", ".join(str(s.port) for s in failed)),
-                   tr("Завершите процесс вручную: kill -9 {pids}", pids=pids))  # fmt: skip
+        how = tr("Завершите процесс вручную: taskkill /F /T /PID {pids}", pids=pids) if system.OS == "windows" else \
+            tr("Завершите процесс вручную: kill -9 {pids}", pids=pids)
+        raise fail(tr("Не удалось остановить выдру на порту {ports}", ports=", ".join(str(s.port) for s in failed)), how)
 
 
 def restart_cmd(
