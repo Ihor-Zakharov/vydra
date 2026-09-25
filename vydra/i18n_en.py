@@ -393,6 +393,7 @@ CONSOLE = {
     "Остановлена выдра на порту {port}": "Stopped vydra on port {port}",
     "Не удалось остановить выдру на порту {ports}": "Couldn't stop vydra on port {ports}",
     "Завершите процесс вручную: kill -9 {pids}": "End the process manually: kill -9 {pids}",
+    "Завершите процесс вручную: taskkill /F /T /PID {pids}": "End the process manually: taskkill /F /T /PID {pids}",
     "Молчать, если выдра не запущена": "Stay quiet if vydra isn't running",
     "Выдра не запущена — перезапускать нечего.": "vydra isn't running — nothing to restart.",
     "Перезапускаю выдру на порту {port}…": "Restarting vydra on port {port}…",

@@ -4,7 +4,9 @@
 <work>/ui-<порт>.pid (pid, версия, время старта). Так сервер находится без сети: в WSL с mirrored-сетью
 и брандмауэром connect() к закрытому порту висит минутами, а блокировка отвечает мгновенно.
 
-Остановка — SIGTERM (uvicorn сохраняет очередь и выходит), через 10 с — SIGKILL.
+Остановка — SIGTERM (uvicorn сохраняет очередь и выходит), через 10 с — SIGKILL. На Windows сигналов нет
+(os.kill там — это TerminateProcess без уборки, а os.kill(pid, 0) шлёт Ctrl+C), поэтому `vydra stop` кладёт
+рядом <work>/ui-<порт>.stop: сервер видит его и мягко выходит; не вышел — taskkill всего дерева процессов.
 Перезапуск — SIGUSR1: `vydra ui` мягко останавливает сервер и заново запускает себя (exec) в том же
 окне терминала — уже новой версией. Серверы версий без перезапуска (нет .pid) останавливаются и
 поднимаются заново в фоне; их журнал — <work>/ui-<порт>.log.
@@ -30,22 +32,35 @@ from .fsutil import FileLock, atomic_write
 
 RESTART_SIGNAL = getattr(signal, "SIGUSR1", None)  # на нативной Windows перезапуска на месте нет
 STOP_TIMEOUT = 10.0
+WINDOWS = os.name == "nt"
+STOP_BY_FILE = WINDOWS  # мягкая остановка через файл-просьбу, а не сигнал
+STOP_POLL = 0.5
 
 
 def port_state(port: int) -> str:
-    """free | busy | denied. Пробуем занять порт сами, как это сделает uvicorn (с SO_REUSEADDR).
+    """free | busy | denied. Пробуем занять порт сами, как это сделает uvicorn.
 
     Не connect(): в WSL с networkingMode=mirrored и включённым брандмауэром подключение
-    к закрытому порту не получает отказа и висит минутами — `vydra ui` молча не запускался."""
+    к закрытому порту не получает отказа и висит минутами — `vydra ui` молча не запускался.
+    На Windows — без SO_REUSEADDR: с ним занятый порт отвечает WSAEACCES, и выдра звала «администратора»."""
     with socket.socket() as sock:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if not WINDOWS:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind(("127.0.0.1", port))
         except OverflowError:
             return "denied"
         except OSError as exc:
-            return "denied" if exc.errno in (errno.EACCES, errno.EPERM) else "busy"
+            return bind_error_state(exc, WINDOWS)
         return "free"
+
+
+def bind_error_state(exc: OSError, windows: bool) -> str:
+    """Почему не занять порт. Windows не делит порты на «системные»: WSAEACCES там — порт держит программа
+    с эксклюзивным доступом или его зарезервировала система (Hyper-V, WSL, Docker) — это «занят», берём соседний."""
+    if exc.errno in (errno.EACCES, errno.EPERM) and not windows:
+        return "denied"
+    return "busy"
 
 
 def alive(port: int, timeout: float = 1.0) -> bool:
@@ -73,6 +88,31 @@ def pid_path(work_dir: Path, port: int) -> Path:
 
 def log_path(work_dir: Path, port: int) -> Path:
     return work_dir / f"ui-{port}.log"
+
+
+def stop_request_path(work_dir: Path, port: int) -> Path:
+    return work_dir / f"ui-{port}.stop"
+
+
+def request_stop(work_dir: Path, port: int) -> bool:
+    """Попросить сервер на этом порту мягко остановиться (его наблюдатель увидит файл)."""
+    try:
+        stop_request_path(work_dir, port).write_text(str(os.getpid()), encoding="utf-8")
+        return True
+    except OSError:
+        return False
+
+
+def watch_stop_request(work_dir: Path, port: int, on_stop, done, poll: float = STOP_POLL) -> None:
+    """Для сервера: ждёт файл-просьбу об остановке (Windows: `vydra stop`), убирает его и зовёт on_stop().
+    done — threading.Event: сервер остановился сам, наблюдать больше не нужно."""
+    path = stop_request_path(work_dir, port)
+    path.unlink(missing_ok=True)  # просьба от прошлого сервера на этом порту — не нам
+    while not done.wait(poll):
+        if path.exists():
+            path.unlink(missing_ok=True)
+            on_stop()
+            return
 
 
 @dataclass
@@ -138,6 +178,10 @@ def lock_held(path: Path) -> bool:
 def pid_alive(pid: int | None) -> bool:
     if not pid or pid <= 0:
         return False
+    if WINDOWS:  # os.kill(pid, 0) на Windows — это Ctrl+C (CTRL_C_EVENT == 0), а не проверка
+        from .system import process_alive
+
+        return process_alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -162,6 +206,8 @@ def holders(path: Path) -> set[int]:
     target = str(path.resolve())
     me = os.getpid()
     found: set[int] = set()
+    if WINDOWS:  # ни /proc, ни lsof; сервер находится по .pid
+        return found
     proc = Path("/proc")
     if proc.is_dir():
         for entry in proc.iterdir():
@@ -228,6 +274,8 @@ def _wait(predicate, timeout: float, step: float = 0.1) -> bool:
 def stop(work_dir: Path, server: Server, timeout: float = STOP_TIMEOUT) -> bool:
     """Мягко остановить (SIGTERM), а если не ушёл за timeout — убить. True — порт освободился."""
     lock = lock_path(work_dir, server.port)
+    if STOP_BY_FILE:
+        return _stop_by_file(work_dir, server, timeout)
     if server.pid is None:
         return not lock_held(lock)
     try:
@@ -243,6 +291,38 @@ def stop(work_dir: Path, server: Server, timeout: float = STOP_TIMEOUT) -> bool:
     except OSError:
         pass
     return _wait(lambda: not lock_held(lock), 3)
+
+
+def _stop_by_file(work_dir: Path, server: Server, timeout: float) -> bool:
+    """Windows: просьба файлом (сервер сохраняет очередь и выходит), не вышел — taskkill всего дерева."""
+    lock = lock_path(work_dir, server.port)
+    request_stop(work_dir, server.port)
+    try:
+        if _wait(lambda: not lock_held(lock) or (server.pid is not None and not pid_alive(server.pid)), timeout):
+            return True
+        if server.pid is None:
+            return False
+        kill_process_tree(server.pid)
+        return _wait(lambda: not lock_held(lock), 3)
+    finally:
+        stop_request_path(work_dir, server.port).unlink(missing_ok=True)
+
+
+def kill_process_tree(pid: int) -> None:
+    """Убить процесс с потомками (yt-dlp → ffmpeg): на Windows — taskkill /T, иначе SIGKILL."""
+    if WINDOWS:
+        from .system import child_flags
+
+        try:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], stdin=subprocess.DEVNULL, capture_output=True,
+                           timeout=15, check=False, **child_flags())  # fmt: skip
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return
+    try:
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+    except OSError:
+        pass
 
 
 def restart(work_dir: Path, server: Server, timeout: float = 20.0) -> bool:
@@ -276,16 +356,19 @@ def restart(work_dir: Path, server: Server, timeout: float = 20.0) -> bool:
 
 def spawn(work_dir: Path, port: int) -> subprocess.Popen:
     """Запустить `vydra ui` в фоне, без браузера; вывод — в <work>/ui-<порт>.log."""
+    from .system import child_flags
+
     work_dir.mkdir(parents=True, exist_ok=True)
     log = log_path(work_dir, port).open("ab")
     try:
+        # своя сессия (POSIX) / своя скрытая консоль (Windows): сервер переживёт закрытие окна, из которого запущен
         return subprocess.Popen(  # noqa: S603
             [sys.executable, "-I", "-m", "vydra", "ui", "--no-browser", "--port", str(port)],
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
-            env={**os.environ, "COLUMNS": "100"},
+            env={**os.environ, "COLUMNS": "100", "PYTHONIOENCODING": "utf-8"},
+            **child_flags(group=True),
         )
     finally:
         log.close()

@@ -426,8 +426,9 @@ def targets(config_dir: Path, shells: list[str] | None = None) -> list[Target]:
         elif shell == "fish":
             result.append(Target("fish", home / ".config/fish/conf.d/vydra.fish", None))
         elif shell == "powershell" and system.OS == "windows":
-            for profile in powershell_profiles():
-                result.append(Target("powershell", folder / "vydra.ps1", profile))
+            for profile, policy in powershell_profiles():
+                if scripts_allowed(policy):  # иначе профиль с нашей строкой — красная ошибка в каждом окне
+                    result.append(Target("powershell", folder / "vydra.ps1", profile))
     return result
 
 
@@ -439,19 +440,59 @@ def _present(shell: str) -> bool:
     return bool(shutil.which(shell)) or (Path.home() / f".{shell}rc").exists()
 
 
-def powershell_profiles() -> list[Path]:
-    """Профили CurrentUserAllHosts для Windows PowerShell 5.1 и PowerShell 7 (если стоит)."""
-    profiles = []
+def powershell_profiles() -> list[tuple[Path, str]]:
+    """(профиль CurrentUserAllHosts, ExecutionPolicy) для Windows PowerShell 5.1 и PowerShell 7 (если стоит)."""
+    if system.OS == "windows" and _profiles_cache is not None:
+        return _profiles_cache
+    profiles: list[tuple[Path, str]] = []
     for exe in ("powershell.exe", "pwsh.exe", "pwsh"):
-        if not shutil.which(exe):
+        found = system.powershell_exe() if exe == "powershell.exe" else shutil.which(exe)
+        if not found:
             continue
-        out = system.run([exe, "-NoProfile", "-NonInteractive", "-Command",
-                          "[Console]::Out.Write($PROFILE.CurrentUserAllHosts)"], timeout=30)  # fmt: skip
-        if out:
-            path = system.from_windows(out) if system.OS == "wsl" else Path(out)
-            if path and path not in profiles:
-                profiles.append(path)
+        out = system.run([found, "-NoProfile", "-NonInteractive", "-Command",
+                          "[Console]::OutputEncoding = [Text.Encoding]::UTF8; "  # иначе кириллица в пути профиля — «???»
+                          "[Console]::Out.Write($PROFILE.CurrentUserAllHosts + '|' + (Get-ExecutionPolicy))"],
+                         timeout=30)  # fmt: skip
+        raw, _, policy = (out or "").rpartition("|")
+        if raw:
+            path = system.from_windows(raw) if system.OS == "wsl" else Path(raw)
+            if path and path.is_absolute() and path not in [p for p, _ in profiles]:
+                profiles.append((path, policy))
+    if system.OS == "windows":
+        globals()["_profiles_cache"] = profiles
     return profiles
+
+
+_profiles_cache: list[tuple[Path, str]] | None = None
+
+
+def scripts_allowed(policy: str) -> bool:
+    """Запустит ли PowerShell наш .ps1 из профиля. Restricted — по умолчанию в Windows PowerShell 5.1."""
+    return policy.strip().lower() not in ("restricted", "allsigned", "")
+
+
+def blocked_powershell() -> str | None:
+    """Windows: политика, из-за которой Tab-подсказки в PowerShell не ставим (None — не мешает)."""
+    if system.OS != "windows":
+        return None
+    policies = [policy for _, policy in powershell_profiles()]
+    if policies and not any(scripts_allowed(p) for p in policies):
+        return policies[0]
+    return None
+
+
+def drop_blocked_profiles() -> list[Path]:
+    """Убрать наш блок из профилей, где скрипты запрещены (ставили раньше или политику ужесточили):
+    иначе каждое новое окно PowerShell начинается с красной ошибки. Опустевший профиль удаляем."""
+    removed = []
+    if system.OS != "windows":
+        return removed
+    for profile, policy in powershell_profiles():
+        if not scripts_allowed(policy) and _remove_block(profile):
+            if not _read(profile).strip():
+                profile.unlink(missing_ok=True)
+            removed.append(profile)
+    return removed
 
 
 def block(target: Target) -> str:
@@ -465,6 +506,7 @@ def block(target: Target) -> str:
 
 
 def install(config_dir: Path, shells: list[str] | None = None) -> list[Target]:
+    drop_blocked_profiles()
     done = []
     for target in targets(config_dir, shells):
         target.script.parent.mkdir(parents=True, exist_ok=True)

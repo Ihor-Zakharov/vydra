@@ -77,6 +77,33 @@ def kill_tree(proc: subprocess.Popen) -> None:
         pass
 
 
+def process_alive(pid: int) -> bool:
+    """Жив ли процесс (Windows: OpenProcess + GetExitCodeProcess; на POSIX — os.kill(pid, 0))."""
+    if pid <= 0:
+        return False
+    if OS != "windows":
+        try:
+            os.kill(pid, 0)
+        except PermissionError:
+            return True
+        except OSError:
+            return False
+        return True
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return kernel32.GetLastError() == 5  # ERROR_ACCESS_DENIED: процесс есть, но чужой
+    try:
+        code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == 259  # STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 # --- запуск внешних программ -------------------------------------------------------------
 
 
@@ -99,9 +126,21 @@ def run(cmd: list[str], timeout: float = 20) -> str | None:
     return out if result.returncode == 0 else None
 
 
+def powershell_exe() -> str | None:
+    """Windows PowerShell: из PATH, а если PATH испорчен — из System32 (он есть в любой Windows 10/11)."""
+    if exe := shutil.which("powershell.exe") or shutil.which("powershell"):
+        return exe
+    if OS == "windows":
+        root = os.environ.get("SystemRoot") or os.environ.get("windir") or r"C:\Windows"
+        builtin = Path(root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        if builtin.is_file():
+            return str(builtin)
+    return None
+
+
 def powershell(script: str, timeout: float = 30, sta: bool = False) -> str | None:
     """PowerShell-скрипт через -EncodedCommand: никаких проблем с кавычками и кириллицей."""
-    exe = shutil.which("powershell.exe") or shutil.which("powershell")
+    exe = powershell_exe()
     if not exe:
         return None
     script = "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n" + script
@@ -152,6 +191,30 @@ def display_path(path: Path) -> str:
     return to_windows(path) or str(path)
 
 
+def long_path(path: Path) -> Path:
+    """Windows: полный путь вместо короткого 8.3. platformdirs для папок с буквами вне Latin-1 (кириллица в имени
+    пользователя: C:\\Users\\Игорь) отдаёт «C:\\Users\\C1D2~1\\Downloads» — такое видели бы пользователь,
+    интерфейс и сравнения путей. Несуществующий хвост (папки выдры ещё не созданы) дописывается как есть."""
+    if OS != "windows" or "~" not in str(path):
+        return path
+    existing, tail = path, []
+    while not existing.exists() and existing.parent != existing:
+        tail.append(existing.name)
+        existing = existing.parent
+    full = _long_name(str(existing))
+    if not full:
+        return path
+    return Path(full).joinpath(*reversed(tail))
+
+
+def _long_name(path: str) -> str | None:
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(32768)
+    n = ctypes.windll.kernel32.GetLongPathNameW(path, buf, len(buf))  # type: ignore[attr-defined]
+    return buf.value if 0 < n < len(buf) else None
+
+
 _downloads: Path | None = None
 DOWNLOADS_TTL = 86400
 
@@ -164,7 +227,7 @@ def downloads_dir() -> Path:
         _downloads = _wsl_downloads() if OS == "wsl" else None
         if _downloads is None:
             try:
-                _downloads = Path(user_downloads_dir())
+                _downloads = long_path(Path(user_downloads_dir()))
             except Exception:  # noqa: BLE001 — платформенные сюрпризы
                 _downloads = Path.home() / "Downloads"
     return _downloads

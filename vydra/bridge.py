@@ -130,7 +130,7 @@ def uninstall(folder: Path | None = None) -> list[str]:
             if path.exists():
                 path.unlink()
                 removed.append(path.name)
-    for profile in shell.powershell_profiles():
+    for profile, _policy in shell.powershell_profiles():
         shell._remove_block(profile)
     (folder.parent / "shell" / "vydra.ps1").unlink(missing_ok=True)
     win = system.to_windows(folder)
@@ -199,7 +199,11 @@ def _install_powershell_integration(script_path: Path) -> list[str]:
     script_path.write_bytes(shell.script("powershell").replace("\n", "\r\n").encode("ascii"))
     target = shell.Target("powershell", script_path, None)
     done = []
-    for profile in shell.powershell_profiles():
+    for profile, policy in shell.powershell_profiles():
+        if not shell.scripts_allowed(policy):  # профиль с нашей строкой — красная ошибка в каждом окне
+            if shell._remove_block(profile) and not shell._read(profile).strip():
+                profile.unlink(missing_ok=True)
+            continue
         target.rc = profile
         shell._write_block(profile, shell.block(target), powershell=True)
         done.append(f"Tab и умные ссылки в PowerShell: {system.display_path(profile)}")

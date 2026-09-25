@@ -69,6 +69,7 @@ def deno_source() -> str | None:
         ("linux", "x64"): "x86_64-unknown-linux-gnu",
         ("linux", "arm64"): "aarch64-unknown-linux-gnu",
         ("windows", "x64"): "x86_64-pc-windows-msvc",
+        ("windows", "arm64"): "aarch64-pc-windows-msvc",
         ("mac", "x64"): "x86_64-apple-darwin",
         ("mac", "arm64"): "aarch64-apple-darwin",
     }
@@ -99,6 +100,8 @@ def install_ffmpeg(settings: Settings, progress: Progress | None = None) -> str:
             return f"FFmpeg установлен: {version}"
         errors.append(f"{urls[0]}: ffmpeg не запускается или его нет в архиве")
     hint = " Или: brew install ffmpeg" if _os() == "mac" else ""
+    if system.OS == "windows":
+        hint = " Если его забрал антивирус — верните ffmpeg.exe из карантина Защитника Windows и повторите."
     raise RuntimeError("Не удалось скачать FFmpeg (" + "; ".join(errors)[:300] + ")." + hint)
 
 
@@ -182,7 +185,8 @@ SHORTCUT_NAME = "Выдра"
 
 def shortcut_path() -> Path | None:
     if system.WINDOWS_LIKE:
-        desktop = system.desktop_dir()
+        # VD_DESKTOP_DIR — свой «рабочий стол» (проверка установщика в изолированном профиле)
+        desktop = Path(os.environ["VD_DESKTOP_DIR"]) if os.environ.get("VD_DESKTOP_DIR") else system.desktop_dir()
         return desktop / f"{SHORTCUT_NAME}.lnk" if desktop else None
     if system.OS == "mac":
         return Path.home() / "Desktop" / f"{SHORTCUT_NAME}.command"
@@ -249,8 +253,11 @@ def _windows_shortcut(target: Path, icon: str | None) -> str:
     if not win_desktop or not win_tmp:
         raise RuntimeError("Не удалось получить путь рабочего стола Windows")
     exe, args = shortcut_command()
+    # WScript.Shell не открывает и путь с символами вне ANSI (кириллический профиль на английской Windows) —
+    # создаём по короткому пути 8.3 той же папки
     create = f"""
-$s = (New-Object -ComObject WScript.Shell).CreateShortcut({system.ps_quote(win_tmp)})
+$dir = (New-Object -ComObject Scripting.FileSystemObject).GetFolder({system.ps_quote(win_desktop)}).ShortPath
+$s = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $dir {system.ps_quote(tmp.name)}))
 $s.TargetPath = 'C:\\Windows\\explorer.exe'
 $s.WindowStyle = 7
 $s.Save()
@@ -329,9 +336,11 @@ def _extract(archive: Path, wanted: set[str], dest: Path) -> set[str]:
     def place(name: str, data: bytes) -> None:
         target = dest / name
         tmp = target.with_name(target.name + ".new")
+        from .fsutil import replace
+
         tmp.write_bytes(data)
         tmp.chmod(0o755)
-        os.replace(tmp, target)
+        replace(tmp, target)  # Защитник Windows проверяет свежий .exe и держит его — повторяем
         found.add(name)
 
     if zipfile.is_zipfile(archive):
