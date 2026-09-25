@@ -6,6 +6,13 @@
 между прогонами. Пишет .sprint/shots/<label>/<viewport>/<state>.png, contact-<viewport>.png
 и report.json (консоль, вылет по ширине, обрезанный текст, наложения, axe).
 
+Экраны (решение пользователя, .sprint/notes/post-s1.md): главный — без хэша, «Очередь» — #/queue,
+«Библиотека» — #/library. Состояния с полем StateDef.screen открываются сразу с нужным хэшем.
+Пока интерфейс не умеет роутинга (до S2/S3) — контракт обнаружения: интерфейс обязан выставлять
+`document.body.dataset.screen = 'queue' | 'library' | ''` при переключении экрана; пока этого нет —
+стенд считает вёрстку одностраничной и ведёт себя как раньше (прокрутка к разделу). Это техническое
+соглашение стенда, не дизайнерское решение — см. is_screen_active()/a_show_queue().
+
 Запуск:
     python3 tools/ui_rig.py --label baseline
     python3 tools/ui_rig.py --label baseline --states idle,job-*,library-grid
@@ -150,7 +157,218 @@ def virtual_tree(items: list[dict]) -> dict:
 def library_stats(items: list[dict]) -> dict:
     videos = sum(1 for i in items if i.get("type") == "video")
     audios = sum(1 for i in items if i.get("type") == "audio")
-    return {"count": len(items), "size": sum(i.get("size") or 0 for i in items), "videos": videos, "audios": audios}
+    size_video = sum(i.get("size") or 0 for i in items if i.get("type") == "video")
+    size_audio = sum(i.get("size") or 0 for i in items if i.get("type") == "audio")
+    return {
+        "count": len(items), "size": size_video + size_audio, "videos": videos, "audios": audios,
+        "size_by_type": {"video": size_video, "audio": size_audio},
+    }
+
+
+# ============================== большая библиотека (контракт docs/cli/API-LIBRARY.md) ==============================
+#
+# 5 000 элементов, детерминированно (фиксированное зерно) — для состояния library-huge и для проверки
+# постраничной выдачи /api/library и /api/fs. Разложены по платформе/типу/месяцу (ноябрь 2023 … сентябрь 2026),
+# чтобы папка вида «YouTube/Видео» показывала ~30 подпапок-месяцев, а не тысячи плиток разом — так кадр
+# остаётся быстрым и осмысленным ещё до появления в интерфейсе настоящей постраничной подгрузки (S2/S3).
+
+HUGE_LIBRARY_SEED = 20260925
+HUGE_LIBRARY_COUNT = 5000
+
+_HUGE_PLATFORM_WEIGHTS = (("youtube", 45), ("tiktok", 25), ("instagram", 15), ("other", 10), ("file", 5))
+_HUGE_TYPE_WEIGHTS = (("video", 70), ("audio", 30))
+_HUGE_TITLE_WORDS = [
+    "выдра", "река", "снег", "рыба", "плавает", "нора", "мех", "детёныш", "закат", "лёд",
+    "космос", "прогулка", "игра", "путешествие", "зима", "лето", "утро", "ночь", "друзья", "семья",
+]
+_HUGE_MONTHS: list[str] = []
+for _y in (2023, 2024, 2025, 2026):
+    for _m in range(1, 13):
+        if _y == 2023 and _m < 11:
+            continue
+        if _y == 2026 and _m > 9:
+            break
+        _HUGE_MONTHS.append(f"{_y:04d}-{_m:02d}")
+
+
+def _weighted_choice(rng, pairs):
+    total = sum(w for _, w in pairs)
+    x = rng.uniform(0, total)
+    acc = 0.0
+    for value, weight in pairs:
+        acc += weight
+        if x <= acc:
+            return value
+    return pairs[-1][0]
+
+
+def generate_huge_library(n: int = HUGE_LIBRARY_COUNT, seed: int = HUGE_LIBRARY_SEED) -> list[dict]:
+    import random as _random
+    rng = _random.Random(seed)
+    base_added = FIXED_NOW.timestamp() - 3600
+    items: list[dict] = []
+    for i in range(n):
+        plat = _weighted_choice(rng, _HUGE_PLATFORM_WEIGHTS)
+        typ = _weighted_choice(rng, _HUGE_TYPE_WEIGHTS)
+        bucket = rng.choice(_HUGE_MONTHS)
+        words = rng.sample(_HUGE_TITLE_WORDS, k=3)
+        title = " ".join(w.capitalize() if idx == 0 else w for idx, w in enumerate(words))
+        ext = "mp4" if typ == "video" else "mp3"
+        folder = f"{PLAT_NAME[plat]}/{TYPE_NAME[typ]}/{bucket}"
+        name = f"{plat}-{typ}-{i:05d}.{ext}"
+        size = rng.randrange(500_000, 900_000_000) if typ == "video" else rng.randrange(500_000, 15_000_000)
+        has_source = rng.random() < 0.82 and plat != "file"
+        item: dict[str, Any] = {
+            "id": f"huge{i:05d}",
+            "path": f"{folder}/{name}",
+            "name": name,
+            "folder": folder,
+            "type": typ,
+            "title": f"{title} №{i}",
+            "platform": plat,
+            "size": size,
+            "added": base_added - i * 37,
+            "duration": rng.randrange(5, 3 * 3600),
+            "uploader": (f"автор-{i % 137}" if plat != "file" else None),
+            "poster": None,
+            "probed": True,
+            "source": (f"https://{plat}.example/watch?v={i:06x}" if has_source else None),
+        }
+        if typ == "video":
+            item["width"], item["height"] = (1920, 1080) if i % 3 else (1080, 1920)
+        items.append(item)
+    return items
+
+
+_HUGE_LIBRARY_CACHE: Optional[list[dict]] = None
+
+
+def huge_library_items() -> list[dict]:
+    global _HUGE_LIBRARY_CACHE
+    if _HUGE_LIBRARY_CACHE is None:
+        _HUGE_LIBRARY_CACHE = generate_huge_library()
+    return _HUGE_LIBRARY_CACHE
+
+
+LIBRARY_PAGINATION_KEYS = ("limit", "offset", "sort", "order", "q", "type", "folder")
+FS_PAGINATION_KEYS = ("limit", "offset", "sort", "order", "q", "type")
+
+
+def _qs_first(qs: dict, key: str, default: Optional[str] = None) -> Optional[str]:
+    v = qs.get(key)
+    return v[0] if v else default
+
+
+def _filter_sort_items(items: list[dict], qs: dict, folder_key: Optional[str] = None) -> tuple[Optional[int], list[dict]]:
+    """Общая часть контракта: поиск/фильтр/сортировка. Возвращает (код ошибки или None, отфильтрованный список)."""
+    filtered = items
+    q = (_qs_first(qs, "q") or "").strip().lower()
+    if q:
+        words = q.split()
+
+        def matches(it: dict) -> bool:
+            hay = f"{it.get('title') or ''} {it.get('name') or it['path'].split('/')[-1]}".lower()
+            return all(w in hay for w in words)
+
+        filtered = [it for it in filtered if matches(it)]
+    type_f = _qs_first(qs, "type")
+    if type_f is not None:
+        if type_f not in ("video", "audio"):
+            return 422, []
+        filtered = [it for it in filtered if it.get("type") == type_f]
+    if folder_key is not None:
+        filtered = [it for it in filtered if item_folder(it) == folder_key]
+
+    sort_key = _qs_first(qs, "sort", "added")
+    if sort_key not in ("added", "name", "size", "duration"):
+        return 422, []
+    order = _qs_first(qs, "order") or ("asc" if sort_key == "name" else "desc")
+    if order not in ("asc", "desc"):
+        return 422, []
+    reverse = order == "desc"
+
+    def sort_val(it: dict):
+        if sort_key == "name":
+            return (it.get("name") or it["path"].split("/")[-1]).lower()
+        if sort_key == "size":
+            return it.get("size") or 0
+        if sort_key == "duration":
+            return it.get("duration") or 0
+        return it.get("added") or 0
+
+    if sort_key == "duration":
+        with_dur = sorted((it for it in filtered if it.get("duration") is not None), key=sort_val, reverse=reverse)
+        without_dur = [it for it in filtered if it.get("duration") is None]
+        ordered = with_dur + without_dur
+    else:
+        ordered = sorted(filtered, key=sort_val, reverse=reverse)
+    return None, ordered
+
+
+def _paginate(ordered: list[dict], qs: dict) -> Optional[tuple[int, Optional[int], int, Optional[int]]]:
+    """Возвращает (offset, limit, total, next_offset) или None при невалидных limit/offset (→ 422)."""
+    total = len(ordered)
+    limit_raw = _qs_first(qs, "limit")
+    offset_raw = _qs_first(qs, "offset")
+    try:
+        limit = int(limit_raw) if limit_raw is not None else None
+    except ValueError:
+        return None
+    try:
+        offset = int(offset_raw) if offset_raw is not None else 0
+    except ValueError:
+        return None
+    if limit is not None and not (1 <= limit <= 1000):
+        return None
+    if offset < 0:
+        return None
+    next_offset = offset + limit if (limit is not None and offset + limit < total) else None
+    return offset, limit, total, next_offset
+
+
+def paginate_library(items: list[dict], qs: dict, root: str, rev: int) -> tuple[int, dict]:
+    folder_f = _qs_first(qs, "folder")
+    err, ordered = _filter_sort_items(items, qs, folder_key=folder_f)
+    if err:
+        return err, {"detail": "стенд: неверный параметр постраничной выдачи /api/library"}
+    page = _paginate(ordered, qs)
+    if page is None:
+        return 422, {"detail": "стенд: неверный limit/offset"}
+    offset, limit, total, next_offset = page
+    sliced = ordered[offset: offset + limit] if limit is not None else ordered[offset:]
+    body = {
+        "root": root,
+        "stats": library_stats(items),
+        "rev": rev,
+        "items": sliced,
+        "total": total,
+        "offset": offset,
+        "limit": limit if limit is not None else total,
+        "next_offset": next_offset,
+    }
+    return 200, body
+
+
+def paginate_fs(items: list[dict], qs: dict, path: str, rev: int) -> tuple[int, dict]:
+    base = virtual_fs(path, items)
+    err, ordered = _filter_sort_items(base["files"], qs)
+    if err:
+        return err, {"detail": "стенд: неверный параметр постраничной выдачи /api/fs"}
+    page = _paginate(ordered, qs)
+    if page is None:
+        return 422, {"detail": "стенд: неверный limit/offset"}
+    offset, limit, total, next_offset = page
+    sliced = ordered[offset: offset + limit] if limit is not None else ordered[offset:]
+    body = {
+        **{k: v for k, v in base.items() if k != "files"},
+        "rev": rev,
+        "files": sliced,
+        "files_total": total,
+        "offset": offset,
+        "limit": limit if limit is not None else total,
+        "next_offset": next_offset,
+    }
+    return 200, body
 
 
 # ============================== состояние фикстур для одной страницы ==============================
@@ -164,6 +382,7 @@ def default_rt() -> dict:
         "library_items": [],
         "down": False,  # /api/** отвечает ошибкой — состояние "offline"
         "_preview_thumb_override": None,
+        "_fs_delay_ms": 0,  # искусственная задержка /api/fs — для library-loading (скелетоны порции)
     }
 
 
@@ -213,7 +432,13 @@ async def api_router(route: Route, request: Request, rt: dict) -> None:
             await j([]); return
         if path == "/api/library" and method == "GET":
             items = rt["library_items"]
+            if any(k in qs for k in LIBRARY_PAGINATION_KEYS):
+                status, body = paginate_library(items, qs, rt["info"]["library"]["path"], rev=len(items))
+                await j(body, status=status); return
             await j({"items": items, "stats": library_stats(items), "root": rt["info"]["library"]["path"]}); return
+        if path == "/api/library/stats" and method == "GET":
+            items = rt["library_items"]
+            await j({"stats": library_stats(items), "rev": len(items), "root": rt["info"]["library"]["path"]}); return
         m = re.match(r"^/api/library/([^/]+)$", path)
         if m and method == "DELETE":
             await j({"ok": True}); return
@@ -224,6 +449,12 @@ async def api_router(route: Route, request: Request, rt: dict) -> None:
             await j({"rev": len(rt["library_items"])}); return
         if path == "/api/fs" and method == "GET":
             p = (qs.get("path") or [""])[0]
+            if rt.get("_fs_delay_ms"):
+                # для library-loading: держим ответ, пока стенд не снял кадр «данные ещё не пришли»
+                await asyncio.sleep(rt["_fs_delay_ms"] / 1000)
+            if any(k in qs for k in FS_PAGINATION_KEYS):
+                status, body = paginate_fs(rt["library_items"], qs, p, rev=len(rt["library_items"]))
+                await j(body, status=status); return
             await j(virtual_fs(p, rt["library_items"])); return
         if path == "/api/fs" and method == "DELETE":
             await j({"ok": True}); return
@@ -355,12 +586,46 @@ def a_wait(selector: str, timeout: int = 4000, state: str = "visible") -> Action
     return run
 
 
-async def a_show_queue(page: Page, rt: dict) -> None:
-    # секция очереди идёт под героем во весь экран — без прокрутки карточка задачи не попадает
-    # в кадр даже на xl. Сам остров — фиксированный элемент, скролл его не двигает.
-    await page.wait_for_selector("#jobs .job", timeout=6000)
-    await page.evaluate("() => document.getElementById('queue')?.scrollIntoView({ block: 'start' })")
+async def is_screen_active(page: Page, screen: str) -> bool:
+    """Контракт обнаружения экрана (см. докстринг модуля): интерфейс сам выставляет
+    data-screen при роутинге по хэшу — на <html> (там же data-theme/data-platform) или на <body>,
+    принимаем любой. Пока этого нет (до S2/S3) — вёрстка одностраничная, и вызывающий код должен
+    вести себя как раньше (прокрутка к разделу)."""
+    try:
+        val = await page.evaluate(
+            "() => document.documentElement.dataset.screen || document.body.dataset.screen || ''"
+        )
+    except Exception:
+        return False
+    return val == screen
+
+
+async def a_scroll_to_section(page: Page, screen: str, section_id: str) -> None:
+    """Обе секции (очередь, библиотека) сейчас идут под героем на всю высоту viewport — без
+    прокрутки их содержимое не попадает в кадр даже на xl. Если экран уже реализован
+    (`document.body.dataset.screen` — см. is_screen_active), он сам занимает весь вьюпорт,
+    и прокрутка не нужна и не делается.
+
+    Скроллим дважды с паузой: сразу после прокрутки на слух ещё может доехать позднее содержимое
+    (числа readout, состояние острова) и на пиксель-два сдвинуть высоту героя — без второго
+    прохода итоговая позиция иногда расходилась между двумя прогонами (замечено попиксельным
+    --diff, до 0,15% кадра, не только шум сглаживания)."""
+    if await is_screen_active(page, screen):
+        return
+    scroll_js = "(id) => document.getElementById(id)?.scrollIntoView({ block: 'start' })"
+    await page.evaluate(scroll_js, section_id)
+    await page.wait_for_timeout(140)
+    await page.evaluate(scroll_js, section_id)
     await page.wait_for_timeout(60)
+
+
+async def a_show_queue(page: Page, rt: dict) -> None:
+    await page.wait_for_selector("#jobs .job", timeout=6000)
+    await a_scroll_to_section(page, "queue", "queue")
+
+
+async def a_show_library(page: Page, rt: dict) -> None:
+    await a_scroll_to_section(page, "library", "library")
 
 
 async def a_expand_island(page: Page, rt: dict) -> None:
@@ -472,6 +737,30 @@ async def a_move_dialog(page: Page, rt: dict) -> None:
     await page.wait_for_selector("#folder-dialog[open]", timeout=6000)
 
 
+async def a_capture_before_fs_reply(page: Page, rt: dict) -> None:
+    # /api/fs искусственно задержан (rt["_fs_delay_ms"], см. api_router, по умолчанию 6 с) — ждём
+    # фиксированные 700 мс, не дожидаясь ни плиток, ни папок: с большим запасом до конца задержки
+    # (полный /api/library на 5 000 элементов, который явно грузится до /api/fs, тоже занимает время,
+    # так что запас должен перекрывать и его — короткая фиксированная задержка не подошла: кадр иногда
+    # успевал поймать уже готовый ответ). Кадр должен поймать момент «данные ещё не пришли».
+    await page.wait_for_timeout(700)
+
+
+async def a_hover_first_tile(page: Page, rt: dict) -> None:
+    # locator.hover() сам решает, докручивать ли элемент в видимую область — после нашего
+    # scrollIntoView (см. a_show_library) это иногда сдвигало скролл ещё раз и не совпадало между
+    # прогонами (замечено попиксельным --diff). Вместо этого наводим курсор на уже известные
+    # координаты (после прокрутки) напрямую — без повторного авто-скролла.
+    tile = page.locator(".tile").first
+    await tile.wait_for(state="visible", timeout=6000)
+    box = await tile.bounding_box()
+    if box:
+        await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    else:
+        await tile.hover()
+    await page.wait_for_timeout(80)
+
+
 async def a_toast_warn_empty_submit(page: Page, rt: dict) -> None:
     await page.click("#go")
     await page.wait_for_selector(".toast.warn", timeout=6000)
@@ -497,6 +786,21 @@ def rt_library(with_items: bool = True):
     return setup
 
 
+def rt_library_huge():
+    def setup(rt: dict) -> None:
+        rt["library_items"] = huge_library_items()
+    return setup
+
+
+def rt_library_loading(delay_ms: int = 6000):
+    # DIRECTION §7.4: порция ещё не пришла — держим /api/fs, чтобы кадр застал скелетоны/пустое
+    # содержимое до ответа (см. a_capture_before_fs_reply и /api/fs в api_router).
+    def setup(rt: dict) -> None:
+        rt["library_items"] = huge_library_items()
+        rt["_fs_delay_ms"] = delay_ms
+    return setup
+
+
 def rt_doctor(key: str):
     def setup(rt: dict) -> None:
         rt["doctor"] = CATALOG[key]
@@ -518,6 +822,7 @@ class StateDef:
     action: Action = a_noop
     note: str = ""
     expect_errors: bool = False  # состояние намеренно провоцирует ошибки сети (напр. offline)
+    screen: Optional[str] = None  # "queue" | "library" — открыть сразу с хэшем экрана (#/queue, #/library)
 
 
 STATES: list[StateDef] = [
@@ -546,39 +851,75 @@ STATES: list[StateDef] = [
     # ---------- загрузки ----------
     # секция очереди — под героем на всю высоту экрана, поэтому каждое job-* состояние
     # прокручивает её в кадр (a_show_queue), иначе виден только герой и пилюля Dynamic Island.
-    StateDef("job-queued", rt=rt_jobs("queued"), action=a_show_queue),
-    StateDef("job-downloading", rt=rt_jobs("downloading"), action=a_show_queue),
-    StateDef("job-downloading-indet", rt=rt_jobs("downloading_indet"), action=a_show_queue),
-    StateDef("job-converting", rt=rt_jobs("converting"), action=a_show_queue),
-    StateDef("job-saving", rt=rt_jobs("saving"), action=a_show_queue),
-    StateDef("job-waiting", rt=rt_jobs("waiting"), action=a_seq(a_show_queue, a_wait(".job-ask"))),
-    StateDef("job-done", rt=rt_jobs("done"), action=a_show_queue),
-    StateDef("job-error", rt=rt_jobs("error"), action=a_seq(a_show_queue, a_wait(".job-note"))),
-    StateDef("job-cancelled", rt=rt_jobs("cancelled"), action=a_show_queue),
-    StateDef("jobs-many", rt=rt_jobs("queued", "downloading", "converting", "waiting", "done"),
+    # По решению пользователя (.sprint/notes/post-s1.md) «Очередь» становится отдельным экраном,
+    # адресуемым #/queue — до появления роутинга (S2/S3) a_show_queue сама падает обратно
+    # на прокрутку (см. is_screen_active).
+    StateDef("job-queued", rt=rt_jobs("queued"), screen="queue", action=a_show_queue),
+    StateDef("job-downloading", rt=rt_jobs("downloading"), screen="queue", action=a_show_queue),
+    StateDef("job-downloading-indet", rt=rt_jobs("downloading_indet"), screen="queue", action=a_show_queue),
+    StateDef("job-converting", rt=rt_jobs("converting"), screen="queue", action=a_show_queue),
+    StateDef("job-saving", rt=rt_jobs("saving"), screen="queue", action=a_show_queue),
+    StateDef("job-waiting", rt=rt_jobs("waiting"), screen="queue", action=a_seq(a_show_queue, a_wait(".job-ask"))),
+    StateDef("job-done", rt=rt_jobs("done"), screen="queue", action=a_show_queue),
+    StateDef("job-error", rt=rt_jobs("error"), screen="queue", action=a_seq(a_show_queue, a_wait(".job-note"))),
+    StateDef("job-cancelled", rt=rt_jobs("cancelled"), screen="queue", action=a_show_queue),
+    StateDef("jobs-many", rt=rt_jobs("queued", "downloading", "converting", "waiting", "done"), screen="queue",
              action=a_seq(a_show_queue, a_expand_island)),
+    StateDef("screen-queue", rt=rt_jobs("queued", "downloading", "waiting", "done"), screen="queue",
+             action=a_show_queue,
+             note="отдельный экран «Очередь» (решение пользователя); до роутинга (S2/S3) — тот же вид с прокруткой"),
+    StateDef("screen-queue-empty", rt=rt_jobs(), screen="queue", action=a_noop,
+             note="экран «Очередь» без задач; до роутинга раздел скрыт, как сейчас в одностраничной вёрстке"),
 
     # ---------- хранилище ----------
     # на корне всегда есть 5 папок-отделов по платформам (так у explorer.js даже при пустой
     # библиотеке) — по-настоящему пусто внутри конкретной папки типа.
-    StateDef("library-empty", rt=rt_library(False), query={"folder": "YouTube/Видео"}, action=a_wait("#lib-empty:not([hidden])")),
-    StateDef("library-grid", rt=rt_library(), query={"folder": "YouTube/Видео"}, action=a_wait(".tile")),
-    StateDef("library-list", rt=rt_library(), query={"folder": "YouTube/Видео"},
-             action=a_seq(a_wait(".tile"), a_pill(".view-toggle", "list"))),
-    StateDef("library-search-none", rt=rt_library(), query={"folder": "YouTube/Видео"}, action=a_seq(
+    # По решению пользователя «Библиотека» тоже становится отдельным экраном, #/library.
+    StateDef("library-empty", rt=rt_library(False), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait("#lib-empty:not([hidden])"), a_show_library)),
+    StateDef("library-grid", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_show_library)),
+    StateDef("library-list", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_pill(".view-toggle", "list"), a_show_library)),
+    StateDef("library-search-none", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library", action=a_seq(
         a_wait(".tile"),
         lambda page, rt: page.fill("#lib-search", "zzz-нет-такого"),
         a_wait("#lib-empty:not([hidden])"),
+        a_show_library,
     )),
-    StateDef("library-selection", rt=rt_library(), query={"folder": "YouTube/Видео"}, action=a_seq(
-        a_wait(".tile"), a_select_tile(0), a_select_tile(1, "Control"), a_wait("#selbar:not([hidden])"),
+    StateDef("library-selection", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library", action=a_seq(
+        a_wait(".tile"), a_select_tile(0), a_select_tile(1, "Control"), a_wait("#selbar:not([hidden])"), a_show_library,
     )),
-    StateDef("explorer-tree", rt=rt_library(), query={"folder": "YouTube"}, action=a_seq(
-        a_wait('#ex-folders .folder[data-path="YouTube/Избранное"]'), a_rename_folder_favorite,
+    StateDef("explorer-tree", rt=rt_library(), query={"folder": "YouTube"}, screen="library", action=a_seq(
+        a_wait('#ex-folders .folder[data-path="YouTube/Избранное"]'), a_rename_folder_favorite, a_show_library,
     )),
+    StateDef("screen-library", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_wait(".tile"), a_show_library),
+             note="отдельный экран «Библиотека» (решение пользователя); до роутинга (S2/S3) — тот же одностраничный вид"),
+    StateDef("library-huge", rt=rt_library_huge(), query={"folder": "YouTube/Видео"}, screen="library",
+             # explorer.js сейчас на каждой навигации ждёт полный /api/library (см. loadLibrary()) прежде
+             # чем показать /api/fs — с 5 000 элементов это ощутимо дольше обычного, отсюда увеличенный
+             # таймаут; когда интерфейс перейдёт на постраничные запросы (S2/S3), можно будет вернуть 4000.
+             action=a_seq(a_wait(".folder", timeout=9000), a_show_library),
+             note=("библиотека на 5 000 файлов (детерминированная фикстура, contract docs/cli/API-LIBRARY.md); "
+                   "папка разложена по месяцам, поэтому кадр — список папок-месяцев (быстро и без интерфейса "
+                   "постраничной подгрузки, которого пока нет); /api/library и /api/fs уже отвечают постранично "
+                   "по limit/offset/sort/order/q/type/folder — интерфейс начнёт их использовать на S2/S3")),
+    StateDef("library-loading", rt=rt_library_loading(), query={"folder": "YouTube/Видео"}, screen="library",
+             action=a_seq(a_capture_before_fs_reply, a_show_library),
+             note=("DIRECTION §7.4 library-loading: /api/fs искусственно задержан фикстурой, кадр снят до ответа — "
+                   "«данные ещё не пришли»; настоящие скелетоны той же геометрии (порции по 120 через limit/offset) "
+                   "появятся на S2/S3, сейчас это то, что показывает текущая вёрстка в момент ожидания")),
+    StateDef("library-source", rt=rt_library(), query={"folder": "YouTube/Видео"}, screen="library",
+             # сперва прокрутка, потом наведение: иначе scrollIntoView после hover() увёл бы курсор
+             # с плитки (viewport-координата курсора не следует за скроллом) и снял бы :hover
+             action=a_seq(a_wait(".tile"), a_show_library, a_hover_first_tile),
+             note=("наведение на плитку файла — действия «Открыть источник»/«Скопировать ссылку» (решение "
+                   "пользователя) появятся при реализации на S2/S3; сейчас показывает текущий hover-стиль плитки, "
+                   "чтобы кадр не падал заранее")),
 
     # ---------- диалоги и системное ----------
-    StateDef("player", rt=rt_library(), query={"folder": "YouTube/Видео", "player": "first"},
+    StateDef("player", rt=rt_library(), query={"folder": "YouTube/Видео", "player": "first"}, screen="library",
              action=a_freeze_player_media),
     StateDef("settings", action=a_click("#open-settings", wait_for="#settings[open]")),
     StateDef("health-ok", rt=rt_doctor("doctor_ok"), action=a_click("#open-health", wait_for="#checks .check")),
@@ -601,12 +942,19 @@ STATES: list[StateDef] = [
 STATE_IDS = [s.id for s in STATES]
 
 
+# DIRECTION зовёт состояние по-своему («queue-empty») — контракт стенда (STATES.md) держит
+# рабочее имя «screen-queue-empty» (парой с screen-queue/screen-library); поддерживаем оба —
+# --states queue-empty и --states screen-queue-empty выбирают одно и то же состояние.
+STATE_ID_ALIASES = {"queue-empty": "screen-queue-empty"}
+
+
 def match_states(patterns: list[str]) -> list[StateDef]:
     if not patterns or patterns == ["all"]:
         return list(STATES)
     chosen: list[StateDef] = []
     seen = set()
     for pat in patterns:
+        pat = STATE_ID_ALIASES.get(pat, pat)
         matched = [s for s in STATES if fnmatch.fnmatch(s.id, pat)]
         if not matched:
             print(f"предупреждение: маска «{pat}» не совпала ни с одним состоянием", file=sys.stderr)
@@ -718,12 +1066,27 @@ def attach_collectors(page: Page, coll: Collector) -> None:
 
 # ============================== кадр одного состояния ==============================
 
-async def build_url(base_url: str, query: dict, motion_off: bool) -> str:
+SCREEN_HASH = {"queue": "#/queue", "library": "#/library"}
+
+
+async def hard_goto(page: Page, url: str, timeout: int = 15000) -> None:
+    """page.goto() к адресу, отличающемуся от текущего только хэшем (или совпадающему один в один),
+    браузер трактует как переход внутри того же документа — без настоящей перезагрузки страница
+    остаётся на старом состоянии JS (проверено по числу настоящих сетевых запросов документа через
+    CDP). Из-за экранов #/queue и #/library соседние состояния часто отличаются только хэшем, поэтому
+    каждый переход стенда — через about:blank, чтобы каждое состояние гарантированно получало
+    свежую перезагрузку и не наследовало DOM/данные предыдущего состояния."""
+    await page.goto("about:blank")
+    await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+
+
+async def build_url(base_url: str, query: dict, motion_off: bool, screen: Optional[str] = None) -> str:
     q = dict(query)
     if motion_off:
         q["motion"] = "0"
     qstr = urlencode(q)
-    return f"{base_url}/{('?' + qstr) if qstr else ''}"
+    hash_part = SCREEN_HASH.get(screen, "")
+    return f"{base_url}/{('?' + qstr) if qstr else ''}{hash_part}"
 
 
 async def capture_state(
@@ -735,10 +1098,10 @@ async def capture_state(
     page._rig_rt["value"] = rt  # noqa: SLF001 — свой атрибут, не приватность Playwright
 
     coll.reset()
-    url = await build_url(base_url, state.query, motion_off)
+    url = await build_url(base_url, state.query, motion_off, state.screen)
     entry: dict[str, Any] = {"state": state.id, "note": state.note}
     try:
-        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        await hard_goto(page, url)
         # шрифты (Geologica/Unbounded) грузятся асинхронно — без ожидания кадр иногда ловил
         # промежуточный рендер на системном шрифте, сдвигавший антиалиасинг текста по всей
         # странице. document.fonts.ready убирает эту гонку.
@@ -793,7 +1156,7 @@ async def capture_kbd(page: Page, coll: Collector, base_url: str, out_dir: Path,
     coll.reset()
     frames = []
     url = await build_url(base_url, {}, motion_off)
-    await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+    await hard_goto(page, url)
     await page.wait_for_timeout(220)
     for i in range(steps):
         await page.keyboard.press("Tab")
