@@ -389,3 +389,19 @@ def test_downloaded_section_is_cut_in_its_own_time(settings, library, make_clip,
     assert item.clip == [3900.0, 3905.0] and 4 <= item.duration <= 6
     assert "(1.05.00–1.05.05)" in job.files[0]["name"]
     assert manager.find_existing(URL, "mp4", (3900.0, 3905.0))
+
+
+def test_retry_after_failure_downloads_the_whole_video(settings, library, monkeypatch, fast):
+    """Кусок завис или сломался — повтор идёт надёжным путём: ролик целиком."""
+    seen = []
+
+    def flaky(url, mode, quality, work_dir, **kw):
+        seen.append(kw["allow_section"])
+        raise DownloadFailed("Загрузка зависла — сайт перестал отдавать данные", transient=True)
+
+    monkeypatch.setattr(jobs, "download", flaky)
+    manager = JobManager(settings, library)
+    job = manager.submit(Job(kind="url", source=URL, mode="mp4", clip=(3900.0, 3905.0)))
+    assert wait_for(lambda: job.status in FINAL, timeout=10)
+    manager.shutdown()
+    assert seen == [True, False, False]

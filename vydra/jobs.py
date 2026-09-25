@@ -660,6 +660,7 @@ class JobManager:
                 info_cache=self.info_cache,
                 confirm_playlist=job.confirm_playlist,
                 clip=job.clip,
+                allow_section=job.attempt == 1,  # повтор после сбоя — надёжный путь: ролик целиком
             )
         finally:
             with self._lock:

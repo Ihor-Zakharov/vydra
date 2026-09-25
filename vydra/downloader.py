@@ -200,6 +200,7 @@ def download(
     info_cache: Path | None = None,
     confirm_playlist: bool = False,
     clip: tuple[float, float | None] | None = None,
+    allow_section: bool = True,
 ) -> list[Downloaded]:
     work_dir.mkdir(parents=True, exist_ok=True)
     request = {
@@ -213,7 +214,8 @@ def download(
         "library_dir": str(library_dir) if library_dir else None,
         "info_file": str(cached_info(info_cache, url, cookies)) if info_cache and cached_info(info_cache, url, cookies) else None,
         "playlist_limit": None if confirm_playlist else PLAYLIST_LIMIT,
-        "clip": list(clip) if clip else None,  # только для проверки «отрезок за пределами ролика»
+        "clip": list(clip) if clip else None,  # «отрезок за пределами ролика» и загрузка куском
+        "allow_section": allow_section,
     }
     reporter.stage("Получаю информацию о видео")
     watch = _Watch()
@@ -709,7 +711,7 @@ def _download_with(
         info = _review(ydl, info, req, send)
         _check_space(info, work_dir, req.get("library_dir"), req["mode"])
     send(type="phase", phase="download")
-    section = None if _is_playlist(info) else section_for(req.get("clip"), info)
+    section = None if _is_playlist(info) or not req.get("allow_section", True) else section_for(req.get("clip"), info)
     piece = _download_section(ydl, info, req, send, section, work_dir) if section else None
     offsets: dict[str, float] = {}
     if piece is not None:
