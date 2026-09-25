@@ -157,12 +157,13 @@ def _read_pid(work_dir: Path, port: int) -> dict:
         return {}
 
 
-def holder_pid(path: Path) -> int | None:
-    """PID процесса, который держит файл открытым (для серверов старых версий без .pid)."""
+def holders(path: Path) -> set[int]:
+    """PID процессов, у которых файл открыт (кроме нас самих): /proc на Linux и в WSL, lsof на macOS."""
     target = str(path.resolve())
+    me = os.getpid()
+    found: set[int] = set()
     proc = Path("/proc")
     if proc.is_dir():
-        me = os.getpid()
         for entry in proc.iterdir():
             if not entry.name.isdigit() or int(entry.name) == me:
                 continue
@@ -173,17 +174,23 @@ def holder_pid(path: Path) -> int | None:
             for fd in fds:
                 try:
                     if os.readlink(fd) == target:
-                        return int(entry.name)
+                        found.add(int(entry.name))
+                        break
                 except OSError:
                     continue
-        return None
+        return found
     try:  # macOS: /proc нет — спрашиваем lsof (с таймаутом)
         out = subprocess.run(["lsof", "-t", "--", target], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                              timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
-        return None
-    pids = [int(p) for p in out.stdout.split() if p.isdigit() and int(p) != os.getpid()]
-    return pids[0] if pids else None
+        return found
+    return {int(p) for p in out.stdout.split() if p.isdigit() and int(p) != me}
+
+
+def holder_pid(path: Path) -> int | None:
+    """PID процесса, который держит файл блокировки (для серверов старых версий без .pid)."""
+    found = holders(path)
+    return min(found) if found else None
 
 
 def running(work_dir: Path, port: int | None = None) -> list[Server]:
@@ -199,9 +206,12 @@ def running(work_dir: Path, port: int | None = None) -> list[Server]:
             continue
         record = _read_pid(work_dir, number)
         pid = record.get("pid") if pid_alive(record.get("pid")) else None
+        owners = holders(lock)
+        if pid is not None and owners and pid not in owners:
+            pid = None  # .pid от прошлого сервера, а номер уже занял чужой процесс — такой не трогаем
         restartable = bool(pid and record.get("restart"))
         if pid is None:
-            pid, record = holder_pid(lock), {}
+            pid, record = (min(owners) if owners else None), {}
         found.append(Server(number, pid, record.get("version"), record.get("started"), restartable))
     return found
 

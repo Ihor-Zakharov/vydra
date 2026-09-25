@@ -85,6 +85,21 @@ def test_old_server_without_pid_file_is_found_by_lock_holder(tmp_path, fake_serv
     assert server.pid == proc.pid and not server.restartable
 
 
+def test_stale_pid_of_unrelated_process_is_never_signalled(tmp_path, fake_server):
+    """В .pid — номер процесса, который уже не сервер (номер переиспользован): его не трогаем, берём владельца блокировки."""
+    if not os.path.isdir("/proc"):
+        pytest.skip("нужен /proc")
+    stranger = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        server = fake_server(8808, write_pid=False)
+        (tmp_path / "ui-8808.pid").write_text(json.dumps({"pid": stranger.pid, "port": 8808, "restart": True}))
+        [found] = servers.running(tmp_path, 8808)
+        assert found.pid == server.pid and not found.restartable
+    finally:
+        stranger.kill()
+        stranger.wait()
+
+
 def test_port_filter(tmp_path, fake_server):
     fake_server(8803)
     assert servers.running(tmp_path, 8804) == []
