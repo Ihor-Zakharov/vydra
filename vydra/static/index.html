@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>выдра</title>
   <meta name="description" content="Скачивание видео с YouTube, TikTok и Instagram без водяных знаков, конвертация в MP4 и MP3, офлайн-хранилище">
-  <meta name="color-scheme" content="dark light">
+  <meta name="color-scheme" content="dark">
   <meta name="referrer" content="no-referrer">
   <meta name="theme-color" content="#050508">
   <link rel="manifest" href="/static/manifest.webmanifest">
@@ -15,15 +15,17 @@
   <link rel="modulepreload" href="/static/cosmos.js">
   <link rel="modulepreload" href="/static/explorer.js">
   <link rel="stylesheet" href="/static/fonts/fonts.css">
-  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/css/core.css">
+  <link rel="stylesheet" href="/static/css/shell.css">
+  <link rel="stylesheet" href="/static/css/hero.css">
+  <link rel="stylesheet" href="/static/css/jobs.css">
+  <link rel="stylesheet" href="/static/css/library.css">
+  <link rel="stylesheet" href="/static/css/dialogs.css">
   <script>
-    // тема — до первой отрисовки, чтобы ничего не мигало
+    // тема — сейчас только тёмная (KOCMOC): переключатель скрыт, светлая тема — на следующем этапе.
     (function () {
+      document.documentElement.dataset.theme = 'dark';
       var q = new URLSearchParams(location.search);
-      var t = q.get('theme');
-      try { t = t || localStorage.getItem('vd.theme'); } catch (e) {}
-      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-      document.documentElement.dataset.theme = t;
       if (q.get('motion') === '0') document.documentElement.classList.add('motion-off');
     })();
   </script>
@@ -120,7 +122,7 @@
         <svg><use href="#i-pulse"/></svg><span class="badge" id="health-badge" hidden></span>
       </button>
       <button class="glass icon-btn" id="open-settings" type="button" title="Настройки" aria-label="Настройки"><svg><use href="#i-sliders"/></svg></button>
-      <button class="glass icon-btn" id="theme" type="button" title="Светлая / тёмная тема" aria-label="Сменить тему">
+      <button class="glass icon-btn" id="theme" type="button" title="Светлая / тёмная тема" aria-label="Сменить тему" hidden>
         <svg class="sun"><use href="#i-sun"/></svg><svg class="moon"><use href="#i-moon"/></svg>
       </button>
     </nav>
@@ -236,7 +238,7 @@
                     <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
                     <span class="switch-text">Качать сразу после вставки</span>
                   </label>
-                  <label class="switch" id="auto-accept-wrap" title="Если нужного качества или формата нет, выдра сама возьмёт ближайший вариант, не спрашивая">
+                  <label class="switch" title="Если нужного качества или формата нет, выдра сама возьмёт ближайший вариант, не спрашивая">
                     <input type="checkbox" id="auto-accept">
                     <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
                     <span class="switch-text">Соглашаться на альтернативы автоматически</span>
@@ -367,7 +369,7 @@
         <button class="glass icon-btn" data-close type="button" aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
       </header>
       <div class="drawer-scroll">
-        <section class="card-block" id="storage-block">
+        <section class="card-block">
           <h4><svg><use href="#i-drive"/></svg>Папка для загрузок <span class="tag" id="lib-tag"></span></h4>
           <p class="path-now" id="lib-path">…</p>
           <p class="fixed-note" id="lib-fixed" hidden>Папка задана переменной окружения VD_LIBRARY_DIR и из интерфейса не меняется.</p>
@@ -397,7 +399,7 @@
           <h4><svg><use href="#i-cookie"/></svg>Cookies для входа <span class="tag" id="cookie-tag"></span></h4>
           <p class="muted-text">Нужны, только если сайт просит войти: закрытые, 18+ или «подтвердите, что вы не бот». Экспортируйте <code>cookies.txt</code> из браузера (например, расширением «Get cookies.txt LOCALLY») и загрузите сюда. Файл остаётся только на этом компьютере.</p>
           <div class="btn-row">
-            <label class="glass btn" id="cookie-upload"><input type="file" id="cookie-input" accept=".txt,text/plain" hidden><svg><use href="#i-upload"/></svg>Загрузить cookies.txt</label>
+            <label class="glass btn"><input type="file" id="cookie-input" accept=".txt,text/plain" hidden><svg><use href="#i-upload"/></svg>Загрузить cookies.txt</label>
             <button class="glass btn danger" id="cookie-remove" type="button"><svg><use href="#i-trash"/></svg>Удалить</button>
           </div>
         </section>

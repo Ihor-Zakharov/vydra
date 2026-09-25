@@ -4,6 +4,7 @@ import glob
 import os
 import shutil
 import subprocess
+import tempfile
 
 from _common import ROOT, block, read_input
 
@@ -26,9 +27,20 @@ def run(args: list[str]) -> str | None:
     return None if r.returncode == 0 else (r.stderr or r.stdout).strip()[-1500:]
 
 
+def check_workflow(n: str) -> str | None:
+    # Скрипт воркфлоу исполняется внутри async-функции: return и await на верхнем уровне законны.
+    src = open(path, encoding="utf-8").read().replace("export const meta", "const meta", 1)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write("(async () => {\n" + src + "\n})\n")
+    try:
+        return run([n, "--check", f.name])
+    finally:
+        os.unlink(f.name)
+
+
 err = None
 if path.endswith((".js", ".mjs")) and (n := node()):
-    err = run([n, "--check", path])
+    err = check_workflow(n) if "/.claude/workflows/" in path else run([n, "--check", path])
 elif path.endswith(".py"):
     err = run(["python3", "-m", "py_compile", path])
 elif path.endswith(".css"):

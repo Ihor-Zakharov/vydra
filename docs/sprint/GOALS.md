@@ -13,12 +13,12 @@
       меньше чем за 3 минуты и пишет `report.json` (ошибки консоли, горизонтальный вылет, обрезанный текст,
       наложения, axe) и листы-контакты; кадры детерминированы (фикстуры API, поддельный EventSource).
       ↳
-- [ ] G2 Контракт: `docs/sprint/FEATURES.md` — все функции UI; `tools/e2e.py` и базовый e2e-прогон записан
+- [x] G2 Контракт: `docs/sprint/FEATURES.md` — все функции UI; `tools/e2e.py` и базовый e2e-прогон записан
       в `.sprint/baseline/e2e.md`.
-      ↳
-- [ ] G3 Механика: CSS разнесён по регионам (`vydra/static/css/*.css`) без изменения кадров (попиксельно
+      ↳ docs/sprint/FEATURES.md (183 функции, +23 состояния в STATES.md); tools/e2e.py; .sprint/baseline/e2e.md — 7/7 OK, повтор QA --compare 7/7 OK (.sprint/qa/s0.md)
+- [x] G3 Механика: CSS разнесён по регионам (`vydra/static/css/*.css`) без изменения кадров (попиксельно
       с baseline); тема всегда тёмная, переключатель скрыт; остатков кинотеатра и мёртвых id нет.
-      ↳
+      ↳ vydra/static/css/{core,shell,hero,jobs,library,dialogs}.css, styles.css удалён; каскад сверен парсером правил (разница — 2 мёртвых правила); diff split↔baseline только в топбаре (скрыт переключатель темы); тема всегда dark; мёртвые id и «кинотеатр» убраны; pytest 228 passed (.sprint/qa/s0.md)
 
 ## S1 — направление
 - [ ] G4 `docs/design/DIRECTION.md` от `vydra-designer`: мир KOCMOC / UNLEASHED, принципы, токены, сетка,
@@ -62,14 +62,14 @@
       ↳
 
 ## CLI — консоль (параллельно, `vydra-cli`)
-- [ ] C1 Надёжность в WSL: `vydra ui` стартует ≤ 3 с на любом порту; нет вызовов без таймаута (сокеты, HTTP,
+- [x] C1 Надёжность в WSL: `vydra ui` стартует ≤ 3 с на любом порту; нет вызовов без таймаута (сокеты, HTTP,
       интероп Windows, `/mnt/c`); `vydra stop`; «показать в папке» — Проводник с выделенным файлом; macOS — `open -R`.
-      ↳
-- [ ] C2 Матрица загрузок: `docs/cli/MATRIX.md` — платформы × форматы × качество × отрезки × плохие ссылки ×
+      ↳ ветка worktree-agent-a7bdf14343443b5db @1884c6c: vydra/servers.py (stop/restart), docs/cli/PROGRESS.md (баннер 0,9→0,2 с, /api/health 1,6→0,5 с), tests/test_servers.py, tests/test_system.py (open -R, Проводник)
+- [x] C2 Матрица загрузок: `docs/cli/MATRIX.md` — платформы × форматы × качество × отрезки × плохие ссылки ×
       «грязные» названия × запись в `/mnt/c`; все сбои разобраны: фикс + тест или честная причина.
-      ↳
-- [ ] C3 CLI отшлифован: справка, прогресс, итог, ошибки с подсказкой, коды выхода, вывод без TTY, буфер обмена
+      ↳ ветка worktree-agent-a7bdf14343443b5db @1884c6c: docs/cli/MATRIX.md — 57 авто (42 OK, 9 FIX, 4 SITE, 2 KNOWN, 0 по вине выдры) + 13 ручных
+- [x] C3 CLI отшлифован: справка, прогресс, итог, ошибки с подсказкой, коды выхода, вывод без TTY, буфер обмена
       (WSL и macOS), вопросы при сбое, чистый Ctrl+C.
-      ↳
-- [ ] C4 Ветка готова: pytest зелёный, API интерфейса не изменился (только дополнения), `docs/cli/PROGRESS.md` актуален.
-      ↳
+      ↳ ветка worktree-agent-a7bdf14343443b5db @1884c6c: --json, коды 0/1/2/3/130, ошибки с подсказкой, vydra cookies, двойной Ctrl+C — tests/test_cli_ru.py; docs/cli/PROGRESS.md
+- [x] C4 Ветка готова: pytest зелёный, API интерфейса не изменился (только дополнения), `docs/cli/PROGRESS.md` актуален.
+      ↳ ветка worktree-agent-a7bdf14343443b5db @1884c6c: pytest 308 passed / 2 skipped (проверено дирижёром 2026-09-25), live 4 passed; маршруты vydra/main.py не менялись, добавлено только is_live в /api/preview

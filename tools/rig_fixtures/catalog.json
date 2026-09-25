@@ -1,0 +1,80 @@
+{
+  "_comment": "Данные для стенда tools/ui_rig.py. Время заморожено на 2026-09-25T12:00:00Z (см. FIXED_NOW в ui_rig.py). Никаких внешних URL — все превью без картинки (artHtml) или на data: URI, чтобы кадры были офлайновыми и детерминированными.",
+
+  "info": {
+    "version": "1.4.2",
+    "ytdlp": "2025.09.10",
+    "os": "wsl",
+    "can_pick_folder": true,
+    "library": { "path": "C:\\Users\\Ihor\\Videos\\выдра" }
+  },
+
+  "settings_default": {
+    "library": { "path": "C:\\Users\\Ihor\\Videos\\выдра", "is_default": true, "fixed": false },
+    "cookies": { "present": false }
+  },
+  "settings_custom": {
+    "library": { "path": "D:\\Видео\\выдра", "is_default": false, "fixed": false },
+    "cookies": { "present": true, "updated": 1790330400 }
+  },
+
+  "doctor_ok": {
+    "summary": { "ok": 5, "warn": 0, "fail": 0 },
+    "checks": [
+      { "id": "ffmpeg", "title": "ffmpeg найден", "status": "ok", "detail": "версия 6.1.1" },
+      { "id": "ytdlp", "title": "yt-dlp обновлён", "status": "ok", "detail": "2025.09.10" },
+      { "id": "disk", "title": "Свободное место", "status": "ok", "detail": "128 ГБ свободно" },
+      { "id": "network", "title": "Соединение с интернетом", "status": "ok", "detail": "есть" },
+      { "id": "cookies", "title": "Cookies", "status": "ok", "detail": "не требуются, пока не понадобятся" }
+    ]
+  },
+  "doctor_problems": {
+    "summary": { "ok": 2, "warn": 2, "fail": 1 },
+    "checks": [
+      { "id": "ffmpeg", "title": "ffmpeg не найден", "status": "fail", "detail": "Конвертация и вырезание отрезков работать не будут", "fix": "Установить", "hint": "Обычно чинится одной кнопкой" },
+      { "id": "ytdlp", "title": "yt-dlp устарел", "status": "warn", "detail": "версия 2024.03.01, доступна 2025.09.10", "fix": "Обновить" },
+      { "id": "disk", "title": "Мало места на диске", "status": "warn", "detail": "800 МБ свободно", "hint": "Освободите место или смените папку в настройках" },
+      { "id": "network", "title": "Соединение с интернетом", "status": "ok", "detail": "есть" },
+      { "id": "cookies", "title": "Cookies", "status": "ok", "detail": "не требуются, пока не понадобятся" }
+    ]
+  },
+
+  "preview": {
+    "youtube": { "platform": "youtube", "url": "https://youtube.com/watch?v=vydra-demo", "title": "Как приручить выдру: полное руководство", "uploader": "Дикая природа рядом", "duration": 754, "heights": [2160, 1080, 720, 480, 360], "thumbnail": null, "has_video": true },
+    "tiktok": { "platform": "tiktok", "url": "https://tiktok.com/@ottervibes/video/1", "title": "выдра ест краба под музыку", "uploader": "@ottervibes", "duration": 38, "heights": [1920, 1280, 960], "thumbnail": null, "has_video": true },
+    "instagram": { "platform": "instagram", "url": "https://instagram.com/reel/vydra-demo", "title": "Reel: утро на реке", "uploader": "river.otters", "duration": 21, "heights": [1080, 720], "thumbnail": null, "has_video": true },
+    "other": { "platform": "other", "url": "https://example.com/v/demo", "title": "Видео с сайта example.com", "uploader": null, "duration": 183, "heights": [720, 480], "thumbnail": null, "has_video": true },
+    "audio_only": { "platform": "youtube", "url": "https://youtube.com/watch?v=audio-demo", "title": "Подкаст «Про выдр», выпуск 12", "uploader": "Подкаст про выдр", "duration": 2415, "heights": [], "thumbnail": null, "has_video": false },
+    "playlist": { "platform": "youtube", "url": "https://youtube.com/playlist?list=demo", "title": "Выдры: подборка лучших моментов", "uploader": "Дикая природа рядом", "duration": 0, "heights": [1080, 720], "thumbnail": null, "has_video": true, "playlist": true, "count": 24 }
+  },
+
+  "library_items": [
+    { "id": "yt1", "platform": "youtube", "type": "video", "folder": "YouTube/Видео", "path": "YouTube/Видео/vydry-igrayut-v-snegu.mp4", "title": "Выдры играют в снегу — 4K природа", "size": 245000000, "duration": 612, "width": 3840, "height": 2160, "added": 1790330400, "uploader": "Дикая природа рядом", "poster": null, "source": "https://youtube.com/watch?v=1" },
+    { "id": "yt2", "platform": "youtube", "type": "video", "folder": "YouTube/Видео", "path": "YouTube/Видео/kak-vydry-lovyat-rybu.mp4", "title": "Как выдры ловят рыбу без сетей", "size": 189000000, "duration": 483, "width": 1920, "height": 1080, "added": 1790265600, "uploader": "Дикая природа рядом", "poster": null, "source": "https://youtube.com/watch?v=2" },
+    { "id": "yt3", "platform": "youtube", "type": "video", "folder": "YouTube/Видео", "path": "YouTube/Видео/semya-vydr-na-zakate.mp4", "title": "Семья выдр на закате", "size": 98000000, "duration": 271, "width": 1920, "height": 1080, "added": 1789905600, "uploader": "Речной дозор", "poster": null, "source": "https://youtube.com/watch?v=3" },
+    { "id": "yt4", "platform": "youtube", "type": "audio", "folder": "YouTube/Аудио", "path": "YouTube/Аудио/podcast-pro-vydr-12.mp3", "title": "Подкаст «Про выдр», выпуск 12", "size": 42000000, "duration": 2415, "added": 1789905600, "uploader": "Подкаст про выдр", "poster": null },
+    { "id": "tt1", "platform": "tiktok", "type": "video", "folder": "TikTok/Видео", "path": "TikTok/Видео/vydra-i-krab.mp4", "title": "выдра ест краба под музыку", "size": 18000000, "duration": 34, "width": 1080, "height": 1920, "added": 1790337480, "uploader": "@ottervibes", "poster": null, "source": "https://tiktok.com/@ottervibes/video/1" },
+    { "id": "tt2", "platform": "tiktok", "type": "video", "folder": "TikTok/Видео", "path": "TikTok/Видео/vydrenok-uchitsya-plavat.mp4", "title": "Выдрёнок учится плавать", "size": 22000000, "duration": 51, "width": 1080, "height": 1920, "added": 1790265600, "uploader": "@ottervibes", "poster": null, "source": "https://tiktok.com/@ottervibes/video/2" },
+    { "id": "ig1", "platform": "instagram", "type": "video", "folder": "Instagram/Видео", "path": "Instagram/Видео/utro-na-reke.mp4", "title": "Reel: утро на реке", "size": 31000000, "duration": 21, "width": 1080, "height": 1350, "added": 1790330400, "uploader": "river.otters", "poster": null, "source": "https://instagram.com/reel/1" },
+    { "id": "other1", "platform": "other", "type": "video", "folder": "Другие сайты/Видео", "path": "Другие сайты/Видео/example-video.mp4", "title": "Видео с сайта example.com", "size": 76000000, "duration": 183, "width": 1280, "height": 720, "added": 1789905600, "poster": null, "source": "https://example.com/v/demo" },
+    { "id": "file1", "platform": "file", "type": "audio", "folder": "Мои файлы/Аудио", "path": "Мои файлы/Аудио/zapis-s-dachi.mp3", "title": "запись с дачи (конвертировано)", "size": 8100000, "duration": 214, "added": 1790330400, "poster": null },
+    { "id": "file2", "platform": "file", "type": "video", "folder": "Мои файлы/Видео", "path": "Мои файлы/Видео/staroe-video.mp4", "title": "старое видео.avi → mp4", "size": 55000000, "duration": 96, "width": 720, "height": 576, "added": 1789905600, "poster": null },
+    { "id": "fav1", "platform": "youtube", "type": "video", "folder": "YouTube/Избранное", "path": "YouTube/Избранное/luchshiy-moment.mp4", "title": "Лучший момент — выдра и мяч", "size": 41000000, "duration": 58, "width": 1920, "height": 1080, "added": 1790330400, "uploader": "Дикая природа рядом", "poster": null, "source": "https://youtube.com/watch?v=fav" }
+  ],
+
+  "jobs": {
+    "queued": { "id": "job-q1", "kind": "url", "source": "https://youtube.com/watch?v=queued", "platform": "youtube", "status": "queued", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "В очереди", "progress": null, "thumb": false },
+    "downloading": { "id": "job-d1", "kind": "url", "source": "https://youtube.com/watch?v=dl", "title": "Выдры на рассвете — таймлапс 4К", "platform": "youtube", "status": "downloading", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "Скачивание", "progress": 63, "speed": 4200000, "eta": 18, "thumb": false },
+    "downloading_indet": { "id": "job-d2", "kind": "url", "source": "https://tiktok.com/@x/video/2", "title": "Смешные выдры — подборка", "platform": "tiktok", "status": "downloading", "mode": "mp4", "quality": "720", "bitrate": 192, "stage": "Скачивание", "progress": null, "speed": 900000, "thumb": false },
+    "converting": { "id": "job-c1", "kind": "file", "source": "staroe-video.avi", "title": "staroe-video.avi", "platform": "file", "status": "converting", "mode": "mp4", "bitrate": 192, "stage": "Конвертация", "progress": 41, "thumb": false },
+    "saving": { "id": "job-s1", "kind": "url", "source": "https://youtube.com/watch?v=saving", "title": "Выдры в зоопарке — экскурсия", "platform": "youtube", "status": "saving", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "Сохраняю файл", "progress": null, "thumb": false },
+    "waiting": { "id": "job-w1", "kind": "url", "source": "https://instagram.com/reel/2", "title": "Reel без указанного формата", "platform": "instagram", "status": "waiting", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "Ждёт ответа", "progress": null, "thumb": false,
+      "question": { "id": "q1", "title": "Нужного качества нет", "message": "1080p недоступно для этой ссылки — есть только 480p.", "default": "use_480",
+        "options": [ { "id": "use_480", "label": "Взять 480p", "primary": true, "hint": "Скачается сразу" }, { "id": "cancel", "label": "Отменить" } ] } },
+    "done": { "id": "job-done1", "kind": "url", "source": "https://youtube.com/watch?v=done", "title": "Выдры — 10 часов релакса", "platform": "youtube", "status": "done", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "Готово", "progress": 100, "thumb": false,
+      "files": [ { "id": "yt1", "type": "mp4", "size": 245000000, "path": "YouTube/Видео/vydry-igrayut-v-snegu.mp4" } ] },
+    "error": { "id": "job-err1", "kind": "url", "source": "https://youtube.com/watch?v=private", "title": "https://youtube.com/watch?v=private", "platform": "youtube", "status": "error", "mode": "mp4", "quality": "1080", "bitrate": 192, "stage": "Ошибка", "progress": null, "thumb": false,
+      "error": "Видео закрыто — нужен вход (cookies)" },
+    "cancelled": { "id": "job-cancel1", "kind": "url", "source": "https://tiktok.com/@x/video/3", "title": "TikTok-ролик", "platform": "tiktok", "status": "cancelled", "mode": "mp4", "quality": "720", "bitrate": 192, "stage": "Отменено", "progress": null, "thumb": false }
+  }
+}

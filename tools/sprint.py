@@ -24,6 +24,23 @@ def busy(port: int) -> bool:  # bind, не connect: в mirrored-WSL connect к �
         except OSError:
             return True
 
+def cli_beat(cli: dict | None) -> float | None:
+    """Последняя активность CLI-трека: коммит, правленые файлы и .sprint в его worktree."""
+    times = [hb.stat().st_mtime] if (hb := STATE / "cli-heartbeat").exists() else []
+    path = Path(cli["path"]) if cli and cli.get("path") else None
+    if path and path.exists():
+        git = lambda *a: subprocess.run(["git", "-C", str(path), *a], capture_output=True, text=True, timeout=3).stdout
+        try:
+            if ct := git("log", "-1", "--format=%ct").strip():
+                times.append(float(ct))
+            for line in git("status", "--porcelain").splitlines():
+                if (f := path / line[3:].split(" -> ")[-1].strip('"')).exists():
+                    times.append(f.stat().st_mtime)
+        except Exception:
+            pass
+        times += [p.stat().st_mtime for p in (path / "docs/cli/PROGRESS.md", path / ".sprint") if p.exists()]
+    return max(times, default=None)
+
 def status(short: bool) -> None:
     text = GOALS.read_text(encoding="utf-8") if GOALS.exists() else ""
     sections, cur = [], None
@@ -36,9 +53,9 @@ def status(short: bool) -> None:
     print(f"Этап: {stage}{' (параллельный режим)' if (STATE / 'parallel').exists() else ''}")
     for name, open_, done in sections:
         print(f"  {name}: {len(done)}/{len(open_) + len(done)}" + (f" открыто {' '.join(open_)}" if open_ else " ✓"))
-    hb = STATE / "cli-heartbeat"
     cli = json.loads((STATE / "cli.json").read_text()) if (STATE / "cli.json").exists() else None
-    age = f"{(time.time() - hb.stat().st_mtime) / 60:.0f} мин назад" if hb.exists() else "нет"
+    beat = cli_beat(cli)
+    age = f"{(time.time() - beat) / 60:.0f} мин назад" if beat else "нет"
     print(f"CLI-трек: {'ветка ' + cli.get('branch', '?') if cli else 'не запущен'}; пульс: {age}")
     if not short:
         print("Серверы: " + ", ".join(f"{p} {'занят' if busy(p) else 'свободен'}" for p in (8799, 8798, 8797, 9333)))

@@ -1,7 +1,7 @@
 {
   "name": "выдра — видео без водяных знаков",
   "short_name": "выдра",
-  "description": "Скачивание видео с YouTube, TikTok и Instagram, конвертация в MP4 и MP3, офлайн-хранилище и кинотеатр",
+  "description": "Скачивание видео с YouTube, TikTok и Instagram, конвертация в MP4 и MP3, офлайн-хранилище",
   "lang": "ru",
   "start_url": "/",
   "scope": "/",
