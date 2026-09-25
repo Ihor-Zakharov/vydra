@@ -435,3 +435,21 @@ def test_both_formats_for_silent_video_keeps_the_video(cli_env, make_clip, monke
     data = _json_line(result.output)
     assert [f["type"] for f in data["files"]] == ["mp4"]
     assert "нет звука" in data["jobs"][0]["warning"]
+
+
+@needs_ffmpeg
+def test_out_into_new_nested_folder(cli_env, make_clip, monkeypatch, tmp_path):
+    """-o в ещё не созданную папку (родителя тоже нет): раньше — «Папка хранилища недоступна» (матрица, /mnt/c)."""
+    monkeypatch.setattr(jobs, "download", fake_download(make_clip("s.mp4"), []))
+    target = tmp_path / "новая папка" / "вложенная"
+    result = runner.invoke(cli.app, ["d", URL, "-f", "mp3", "-o", str(target)])
+    assert result.exit_code == 0, result.output
+    assert (target / "YouTube" / "Аудио" / "Ролик.mp3").is_file()
+
+
+def test_out_pointing_to_a_file_is_explained(cli_env, tmp_path):
+    file = tmp_path / "файл.txt"
+    file.write_text("x")
+    result = runner.invoke(cli.app, ["d", URL, "-o", str(file)])
+    assert result.exit_code != 0
+    assert "папка" in result.output.lower() or "directory" in result.output.lower()

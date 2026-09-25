@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -286,13 +287,34 @@ def make_env(out: Path | None = None) -> Env:
     settings = Settings.from_env()
     diagnostics.setup_logging(settings)  # подробности и ошибки — в журнал, а не поверх прогресс-баров
     if out is not None:
-        settings = dataclasses.replace(settings, fixed_library=out.expanduser().resolve())
+        target = _out_dir(out)
+        settings = dataclasses.replace(settings, fixed_library=target)
     library = Library(Prefs(settings), Media(settings), enrich=False)
     try:
         library.ensure_layout()
     except OSError as exc:
-        raise fail(f"Папка хранилища недоступна: {exc}", "Проверьте путь: выдра папка") from exc
+        where = system.display_path(library.root)
+        raise fail(f"Папка хранилища недоступна: {where} ({exc.strerror or 'нет доступа'})",
+                   "Диск отключён или папку удалили? Выберите другую: выдра папка \"D:\\Видео\"")  # fmt: skip
     return Env(settings, library, JobManager(settings, library))
+
+
+def _out_dir(out: Path) -> Path:
+    """-o/--куда: папка для этой загрузки. «D:\\Видео» в WSL — диск Windows; нет такой папки — создаём."""
+    raw = str(out)
+    try:
+        path = system.parse_user_path(raw) if (raw[1:2] == ":" or raw.startswith("\\\\")) else out.expanduser()
+    except ValueError as exc:
+        raise fail(f"-o {raw}: {exc}") from exc
+    path = path.resolve()
+    if path.exists() and not path.is_dir():
+        raise fail(f"-o {raw}: это файл, а нужна папка")
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise fail(f"Не удалось создать папку {system.display_path(path)}: {exc.strerror or exc}",
+                   "Проверьте, что диск подключён и в эту папку можно писать") from exc  # fmt: skip
+    return path
 
 
 def resolve_clip(clip: str | None, start: str | None, end: str | None):
@@ -1590,6 +1612,75 @@ def _russian_help_option() -> None:
         return option
 
     Command.get_help_option = patched
+
+
+_ARG_NAMES = {"files": "файлы", "urls": "ссылки", "url": "ссылка", "path": "путь", "query": "название"}
+
+
+def _short_hint(hint: str) -> str:
+    """«'--format' / '-f' / '--формат' / '-ф'» → «--format (-f)»."""
+    names = [n.strip().strip("'\"") for n in hint.split("/")]
+    names = [_ARG_NAMES.get(n, n) for n in names if n]
+    return names[0] + (f" ({names[1]})" if len(names) > 1 else "") if names else hint
+
+
+def _translate_value(text: str) -> str:
+    rules = [
+        (r"^'(.*)' is not one of (.+)\.$",
+         lambda m: f"«{m[1]}» — такого варианта нет. Можно: {m[2].replace(chr(39), '')}"),
+        (r"^'(.*)' is not a valid (?:int|integer|int range|float|float range)\.?$", lambda m: f"«{m[1]}» — это не число"),
+        (r"^(\S+) is not in the range (\d+)<=x<=(\d+)\.$", lambda m: f"{m[1]} — можно от {m[2]} до {m[3]}"),
+        (r"^(?:File|Path|Directory) '(.*)' does not exist\.$", lambda m: f"нет такого файла или папки: {m[1]}"),
+        (r"^Directory '(.*)' is a file\.$", lambda m: f"«{m[1]}» — это файл, а нужна папка"),
+        (r"^File '(.*)' is a directory\.$", lambda m: f"«{m[1]}» — это папка, а нужен файл"),
+    ]
+    for pattern, repl in rules:
+        if m := re.match(pattern, text, re.S):
+            return repl(m)
+    return text
+
+
+def _did_you_mean(name: str) -> str:
+    from difflib import get_close_matches
+
+    close = get_close_matches(name.lower(), list(argv.COMMANDS), n=1, cutoff=0.6)
+    return f" — может быть, «{close[0]}»?" if close else ""
+
+
+def translate_usage_error(message: str) -> str:
+    """Ошибки разбора командной строки (Click) — по-русски и с тем, что делать."""
+    rules = [
+        (r"^No such option: (\S+)(?: \(Possible options: (.+)\))?(?:\s*Did you mean (\S+)\?)?",
+         lambda m: f"Нет ключа {m[1]}" + (f" — может быть, {m[2] or m[3]}?" if (m[2] or m[3]) else "")),
+        (r"^Invalid value for (.+?): (.*)$", lambda m: f"Неверное значение {_short_hint(m[1])}: {_translate_value(m[2])}"),
+        (r"^Invalid value: (.*)$", lambda m: f"Неверное значение: {_translate_value(m[1])}"),
+        (r"^No such command '(.+)'\.", lambda m: f"Нет команды «{m[1]}»" + _did_you_mean(m[1])),
+        (r"^Option '(.+)' requires an argument\.", lambda m: f"Ключу {m[1]} нужно значение"),
+        (r"^Missing argument '(.+)'\.", lambda m: f"Не хватает аргумента: {_ARG_NAMES.get(m[1], m[1])}"),
+        (r"^Got unexpected extra argument(?:s|\(s\))? \((.+)\)", lambda m: f"Лишнее в команде: {m[1]}"),
+    ]
+    for pattern, repl in rules:
+        if m := re.match(pattern, message, re.S):
+            return repl(m)
+    return message
+
+
+def _russian_errors() -> None:
+    """Ошибки разбора (typer печатает их по-английски в рамке) — одной строкой по-русски и где справка."""
+    from typer import rich_utils
+
+    def show(exc) -> None:
+        if exc.__class__.__name__ == "NoArgsIsHelpError":
+            return
+        ctx = getattr(exc, "ctx", None)
+        command = ctx.command_path if ctx is not None else "vydra"
+        err.print(Text("✗ ", style="bold red") + Text(translate_usage_error(exc.format_message()), style="red"))
+        err.print(Text("  → Справка: ", style="dim") + Text(f"{command} --help", style="cyan"))
+
+    rich_utils.rich_format_error = show
+
+
+_russian_errors()
 
 
 def main() -> None:
