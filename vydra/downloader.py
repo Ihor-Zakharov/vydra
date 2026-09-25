@@ -792,7 +792,7 @@ def _download_section(
     for path in set(work_dir.iterdir()) - before:  # иначе yt-dlp принял бы кусок за уже скачанный ролик
         if path.is_file() and path.suffix.lower() not in IMAGE_EXTS and path.name != "cookies.txt":
             path.unlink(missing_ok=True)
-    send(type="note", text="Отрезок отдельно не скачался — скачал ролик целиком и вырезал сам")
+    send(type="note", text="Отрезок отдельно не скачался — качаю ролик целиком и вырежу сам")
     send(type="phase", phase="download")
     return None
 
