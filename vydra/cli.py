@@ -1067,80 +1067,144 @@ def restart_cmd(
 
 def list_items(
     kind: Annotated[str | None, typer.Option("--type", "-t", "--тип", help="video/видео или audio/аудио", show_default=False)] = None,  # noqa: E501
-    search: Annotated[str | None, typer.Option("--search", "-s", "--поиск", help="Поиск по названию", show_default=False)] = None,  # noqa: E501
-    limit: Annotated[int, typer.Option("--limit", "-n", "--сколько", help="Сколько показать")] = 25,
+    search: Annotated[str | None, typer.Option("--search", "-s", "--поиск", help="Поиск по названию и имени файла (все слова)", show_default=False)] = None,  # noqa: E501
+    limit: Annotated[int, typer.Option("--limit", "-n", "--сколько", min=1, help="Сколько на странице")] = 25,
+    page: Annotated[int, typer.Option("--page", "-p", "--страница", min=1, help="Номер страницы")] = 1,
+    sort: Annotated[str, typer.Option("--sort", "--сортировка", metavar="added|name|size|duration",
+                                      help="По дате (новые сверху), имени, размеру или длительности")] = "added",  # fmt: skip
+    folder_rel: Annotated[str | None, typer.Option("--folder", "-F", "--папка", show_default=False,
+                                                   help="Только файлы этой папки хранилища, например \"TikTok/Видео\"")] = None,  # fmt: skip
     paths: Annotated[bool, typer.Option("--paths", "--пути", help="Показать полные пути файлов")] = False,
     as_json: Annotated[bool, typer.Option("--json", help="Список в JSON на stdout (для скриптов)")] = False,
 ) -> None:
-    """Что лежит в хранилище. [dim](синонимы: список, ls)[/]"""
+    """Что лежит в хранилище — постранично, с поиском и сортировкой. [dim](синонимы: список, ls)[/]"""
+    from . import servers
+    from .library import FsError
+
     json_mode(as_json)
     settings = Settings.from_env()
     library = Library(Prefs(settings), Media(settings), enrich=False)
-    items = library.items()
-    stats = library.stats()
+    wanted = None
     if kind:
-        wanted = {"video": "video", "видео": "video", "audio": "audio", "аудио": "audio"}.get(kind.lower(), kind)
-        if wanted not in ("video", "audio"):
+        wanted = {"video": "video", "видео": "video", "audio": "audio", "аудио": "audio"}.get(kind.lower())
+        if wanted is None:
             raise fail(f"Непонятный тип «{kind}»", "Бывает: видео (video) или аудио (audio)", code=EXIT_USAGE)
-        items = [i for i in items if i["type"] == wanted]
-    if search:
-        items = [i for i in items if search.casefold() in (i["title"] or "").casefold()]
+    sorts = {"added": "added", "дата": "added", "name": "name", "имя": "name", "size": "size", "размер": "size",
+             "duration": "duration", "длина": "duration", "длительность": "duration"}  # fmt: skip
+    if sort.lower() not in sorts:
+        raise fail(f"Непонятная сортировка «{sort}»", "Бывает: added, name, size, duration", code=EXIT_USAGE)
+    # работает сервер — его наблюдатель и так держит индекс свежим: полный обход диска не нужен
+    fresh = bool(servers.running(settings.work_dir))
+    try:
+        result = library.query(q=search, kind=wanted, folder=folder_rel.replace("\\", "/") if folder_rel else None,
+                               sort=sorts[sort.lower()], offset=(page - 1) * limit, limit=limit, refresh=not fresh)  # fmt: skip
+    except FsError as exc:
+        raise fail(f"--папка: {exc}", code=EXIT_USAGE) from exc
+    items, total, stats = result["items"], result["total"], library.stats()
+    pages = max(1, -(-total // limit))
     if _json_mode:
         root = library.root
         emit_json({"ok": True, "exit_code": EXIT_OK, "root": str(root), "display_root": system.display_path(root),
-                   "stats": stats, "total": len(items),
-                   "items": [{**i, "abs_path": str(root / i["path"])} for i in items[:limit]]})  # fmt: skip
+                   "stats": stats, "total": total, "page": page, "pages": pages, "limit": limit,
+                   "items": [{**i, "abs_path": str(root / i["path"])} for i in items]})  # fmt: skip
         return
     banner("хранилище")
     console.print(Text("  ") + linked(library.root, "cyan"), soft_wrap=True)
     if not items:
+        if total:
+            raise fail(f"Страницы {page} нет — всего {pages}", code=EXIT_USAGE)
+        if search or wanted or folder_rel:
+            console.print(Text("\n  Ничего не нашлось.", style="dim"))
+            return
         console.print(Text("\n  Пусто. Скачайте что-нибудь: ", style="dim") + Text("выдра скачать -ф мп3", style="cyan"))
         return
     if paths:
-        for item in items[:limit]:
+        for item in items:
             icon = Text("▶ ", style="#7c5cff") if item["type"] == "video" else Text("♪ ", style="#00d4ff")
             console.print(Text("  ") + icon + linked(library.root / item["path"]), soft_wrap=True)
     else:
         table = Table(box=box.SIMPLE_HEAD, header_style="bold #9aa4b2", pad_edge=False, expand=False)
         table.add_column("", width=2)
-        table.add_column("Название", max_width=max(24, console.width - 58), overflow="ellipsis", no_wrap=True)
-        table.add_column("Папка", no_wrap=True, max_width=24, overflow="ellipsis", style="dim")
+        table.add_column("Название", max_width=max(20, console.width - 76), overflow="ellipsis", no_wrap=True)
+        table.add_column("Папка", no_wrap=True, max_width=22, overflow="ellipsis", style="dim")
+        table.add_column("Откуда", no_wrap=True, max_width=16, overflow="ellipsis", style="dim")
         table.add_column("Длина", justify="right", style="cyan", no_wrap=True, min_width=5)
         table.add_column("Размер", justify="right", no_wrap=True, min_width=8)
         table.add_column("Добавлено", style="dim", no_wrap=True, min_width=10)
-        for item in items[:limit]:
+        for item in items:
             icon = Text("▶", style="#7c5cff") if item["type"] == "video" else Text("♪", style="#00d4ff")
-            title = Text(item["title"], style=f"link {file_uri(library.root / item['path'])}")
+            title = Text(item["title"] or item["name"], style=f"link {file_uri(library.root / item['path'])}")
+            origin = Text(short_source(item.get("source")), style=f"link {item['source']}" if item.get("source") else "")
             table.add_row(
-                icon, title, rel_folder(item.get("folder") or ""),
+                icon, title, rel_folder(item.get("folder") or ""), origin,
                 format_time(item["duration"]) if item["duration"] else "—", size(item["size"]), ago(item["added"]),
             )  # fmt: skip
         console.print(table)
-    console.print(
-        Text(f"  {stats['videos']} видео · {stats['audios']} аудио · {size(stats['size'])}", style="dim")
-        + (Text(f"   (показано {limit} из {len(items)}, все: --сколько 1000)", style="dim") if len(items) > limit else Text(""))
-    )
+    line = Text(f"  {stats['videos']} видео · {stats['audios']} аудио · {size(stats['size'])}", style="dim")
+    if pages > 1 or total != stats["count"]:
+        first = (page - 1) * limit + 1
+        line.append(f"   · {first}–{first + len(items) - 1} из {total}, страница {page} из {pages}", style="dim")
+        if page < pages:
+            line.append(f"   дальше: --страница {page + 1}", style="dim cyan")
+    console.print(line)
 
 
 def open_cmd(
     query: Annotated[str | None, typer.Argument(metavar="[НАЗВАНИЕ]", help="Часть названия; без него — последний скачанный файл", show_default=False)] = None,  # noqa: E501
     play: Annotated[bool, typer.Option("--play", "--запустить", help="Открыть в плеере, а не показать в папке")] = False,
+    source: Annotated[bool, typer.Option("--source", "--оригинал", help="Открыть страницу оригинала в браузере")] = False,
 ) -> None:
-    """Показать скачанный файл выделенным в Проводнике / Finder. [dim](синонимы: показать, открыть)[/]"""
+    """Показать скачанный файл в Проводнике / Finder или открыть оригинал. [dim](синонимы: показать, открыть)[/]"""
     settings = Settings.from_env()
     library = Library(Prefs(settings), Media(settings), enrich=False)
-    items = library.items()
-    if query:
-        wanted = query.casefold()
-        items = [i for i in items if wanted in (i["title"] or "").casefold() or wanted in Path(i["path"]).name.casefold()]
+    items = library.query(q=query)["items"] if query else library.items()
     if not items:
         if query:
             raise fail(f"В хранилище нет файла, в названии которого есть «{query}»", "Что есть: выдра список")
         raise fail("Хранилище пусто — показывать нечего", "Скачайте что-нибудь: выдра скачать -ф мп3")
-    path = library.root / items[0]["path"]
-    _show(path, play)
+    if source:
+        _open_source(library, items[0])
+    else:
+        _show(library.root / items[0]["path"], play)
     if query and len(items) > 1:
         console.print(Text(f"    Подходит ещё {len(items) - 1} — взяла самый свежий; уточните название, если не тот", style="dim"))
+
+
+def _open_source(library: Library, item: dict) -> None:
+    url = item.get("source") or _source_from_file(library, item)
+    if not url:
+        raise fail(f"У «{item['title'] or item['name']}» нет ссылки на оригинал",
+                   "Ссылка есть у скачанного выдрой; у своих файлов её нет")  # fmt: skip
+    try:
+        system.open_url(url)
+    except system.NotSupported as exc:
+        raise fail(f"Браузер не открылся: {exc}", f"Откройте сами: {url}") from exc
+    console.print(Text("  ✓ ", style="bold green") + Text("Открываю оригинал ")
+                  + Text(url, style=f"cyan link {url}"), soft_wrap=True)  # fmt: skip
+
+
+def _source_from_file(library: Library, item: dict) -> str | None:
+    """Ссылка из тегов самого файла (comment), если в индексе её ещё нет (файл нашло сканирование)."""
+    from .media import MediaError
+
+    try:
+        tags = library.media.probe(library.root / item["path"]).tags or {}
+    except MediaError:
+        return None
+    url = str(tags.get("comment") or tags.get("purl") or "").strip()
+    return url if url.lower().startswith(("http://", "https://")) else None
+
+
+def short_source(url: str | None) -> str:
+    """youtube.com, tiktok.com… — для столбца «Откуда»."""
+    if not url:
+        return "—"
+    from urllib.parse import urlsplit
+
+    host = (urlsplit(url).hostname or "").lower()
+    for prefix in ("www.", "m.", "music.", "vm.", "vt."):
+        host = host.removeprefix(prefix)
+    return {"youtu.be": "youtube.com"}.get(host, host) or "—"
 
 
 def _show(path: Path, play: bool = False, soft: bool = False) -> None:
@@ -1188,9 +1252,15 @@ def folder(
         if settings.fixed_library:
             raise fail("Папка задана переменной окружения VD_LIBRARY_DIR — здесь её не сменить")
         old = library.root
+        source = None
+        if move and new.expanduser().resolve() == old.resolve():  # папку уже сменили — переносим из прежней
+            source = library.prefs.previous_library_dir
+            if source is None or not source.is_dir():
+                raise fail("Переносить нечего: прежней папки с файлами нет")
+            old = source
         try:
             if move and old.is_dir():
-                _move_with_progress(library, new)
+                _move_with_progress(library, new, source)
             else:
                 library.set_root(new)
         except (ValueError, OSError) as exc:
@@ -1243,7 +1313,7 @@ def _print_layout(library: Library) -> None:
     console.print(Text("  Сменить: ", style="dim") + Text("выдра папка \"D:\\Видео\" --перенести", style="cyan"))
 
 
-def _move_with_progress(library: Library, new: Path) -> None:
+def _move_with_progress(library: Library, new: Path, source: Path | None = None) -> None:
     started = time.monotonic()
     with Live(Text("  Переношу…", style="dim"), console=console, transient=True, refresh_per_second=10) as live:
 
@@ -1254,7 +1324,7 @@ def _move_with_progress(library: Library, new: Path) -> None:
                          Text(name[-50:], style="dim", no_wrap=True))  # fmt: skip
             live.update(line)
 
-        result = library.move_root(new, progress)
+        result = library.move_root(new, progress, source=source)
     console.print(
         Text("  ✓ ", style="bold green") + Text(f"Перенесено {size(result['bytes'])} за {seconds(time.monotonic() - started)}")
         + (Text(f", переименовано из-за совпадений: {result['renamed']}", style="dim") if result["renamed"] else Text(""))
@@ -1582,10 +1652,23 @@ def settings_cmd(
     art_value: Annotated[str | None, typer.Option("--art", "--заставка", metavar="on|off",
                                                   help="Заставка при входе в интерактивный режим: on/вкл или off/выкл",
                                                   show_default=False)] = None,  # fmt: skip
+    storage: Annotated[str | None, typer.Option("--storage", "--папка", metavar="ПАПКА", show_default=False,
+                                                help="Новая папка-хранилище (например D:\\Видео или ~/Movies)")] = None,  # fmt: skip
+    storage_reset: Annotated[bool, typer.Option("--storage-reset", "--папка-сброс",
+                                                help="Вернуть папку-хранилище по умолчанию («Загрузки»)")] = False,  # fmt: skip
+    move: Annotated[bool, typer.Option("--move", "--перенести",
+                                       help="Вместе с новой папкой перенести в неё уже скачанное")] = False,  # fmt: skip
 ) -> None:
-    """Настройки консоли: заставка, где хранилище, cookies. [dim](синоним: настройки)[/]"""
+    """Настройки консоли: заставка, папка-хранилище (с переносом файлов), cookies. [dim](синоним: настройки)[/]"""
     from . import art
 
+    if storage or storage_reset or move:
+        if storage and storage_reset:
+            raise fail("Либо --storage, либо --storage-reset", code=EXIT_USAGE)
+        if move and not (storage or storage_reset):
+            raise fail("--move переносит в новую папку — укажите её: --storage <папка>", code=EXIT_USAGE)
+        folder(path=storage, move=move, reset=storage_reset, pick=False, open_=False)
+        console.print()
     settings = Settings.from_env()
     prefs = Prefs(settings)
     if art_value is not None:
@@ -1607,7 +1690,8 @@ def settings_cmd(
         state.append("  (переменной VYDRA_NO_ART)", style="dim")
     state.append(f"   выдра настройки --заставка {'выкл' if on else 'вкл'}", style="dim cyan")
     table.add_row("Заставка консоли", state)
-    table.add_row("Хранилище", linked(Prefs(settings).library_dir, "cyan"))
+    table.add_row("Хранилище", linked(Prefs(settings).library_dir, "cyan")
+                  + Text("   выдра настройки --папка <папка> [--перенести]", style="dim cyan"))  # fmt: skip
     table.add_row("Cookies", Text("подключены", style="green") if settings.cookies_file else Text("нет", style="dim"))
     table.add_row("Файл настроек", linked(prefs.path, "dim"))
     console.print(table)

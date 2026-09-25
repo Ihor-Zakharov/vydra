@@ -30,7 +30,7 @@ from .downloader import PLAYLIST_LIMIT, DownloadFailed, peek_preview, preview
 from .fsutil import friendly_os_error
 from .health import Doctor, summary
 from .jobs import Job, JobManager, detect_platform
-from .library import FsError, Library, validate_rel
+from .library import FsError, Library, LibraryUnavailable, validate_rel
 from .media import Media
 from .naming import safe_stem
 from .timecode import parse_clip
@@ -98,6 +98,7 @@ class PreviewRequest(BaseModel):
 class LibraryPathRequest(BaseModel):
     path: str | None = None
     reset: bool = False
+    move: bool = False  # перенести уже скачанное (из текущей папки — или из прежней, если path уже текущая)
 
 
 class FixRequest(BaseModel):
@@ -411,15 +412,35 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
 
     # --- хранилище -----------------------------------------------------------------------
 
+    def page_params(q, type_, sort, order, offset, limit) -> dict | None:
+        """Параметры постраничной выдачи или None — клиент их не прислал (ответ как в прежних версиях)."""
+        if all(v is None for v in (q, type_, sort, order, offset, limit)):
+            return None
+        return {"q": q, "kind": type_, "sort": sort or "added", "order": order, "offset": offset or 0, "limit": limit}
+
     @app.get("/api/library")
-    def list_library():
-        items = library.items()
-        return {
-            "root": system.display_path(library.root),
-            "stats": library.stats(),
-            "items": items,
-            "rev": library.rev,
-        }
+    def list_library(
+        q: str | None = Query(None, max_length=200),
+        type_: Literal["video", "audio"] | None = Query(None, alias="type"),
+        folder: str | None = Query(None, max_length=1024),
+        sort: Literal["added", "name", "size", "duration"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        offset: int | None = Query(None, ge=0),
+        limit: int | None = Query(None, ge=1, le=1000),
+    ):
+        page = page_params(q, type_, sort, order, offset, limit)
+        if page is None and folder is None:  # без параметров — весь список, как раньше (собран один раз на ревизию)
+            return Response(library.full_json(), media_type="application/json")
+        try:
+            result = library.query(folder=folder, **(page or {}))
+        except FsError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        return {"root": system.display_path(library.root), "stats": library.stats(), "rev": library.rev} | result
+
+    @app.get("/api/library/stats")
+    def library_stats():
+        """Итоги хранилища — мгновенно (считаются один раз на ревизию), без списка файлов."""
+        return {"stats": library.stats(), "rev": library.rev, "root": system.display_path(library.root)}
 
     @app.get("/api/library/rev")
     def library_rev():
@@ -471,8 +492,16 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
     # --- проводник -----------------------------------------------------------------------
 
     @app.get("/api/fs")
-    def fs_list(path: str = ""):
-        return library.list_dir(path)
+    def fs_list(
+        path: str = "",
+        q: str | None = Query(None, max_length=200),
+        type_: Literal["video", "audio"] | None = Query(None, alias="type"),
+        sort: Literal["added", "name", "size", "duration"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        offset: int | None = Query(None, ge=0),
+        limit: int | None = Query(None, ge=1, le=1000),
+    ):
+        return library.list_dir(path, page_params(q, type_, sort, order, offset, limit))
 
     @app.get("/api/fs/tree")
     def fs_tree():
@@ -501,16 +530,49 @@ def create_app(settings: Settings | None = None, watch: bool = True) -> FastAPI:
     def get_settings():
         return settings_payload()
 
+    move_state: dict = {"active": False, "done": 0, "total": 0, "name": None, "from": None, "to": None,
+                        "error": None, "result": None}  # fmt: skip
+
     @app.post("/api/settings/library")
     def set_library(req: LibraryPathRequest):
         if settings.fixed_library:
             raise HTTPException(409, "Папка задана переменной окружения VD_LIBRARY_DIR")
         try:
             path = settings.default_library if req.reset else system.parse_user_path(req.path or "")
-            library.set_root(path)
+            if not req.move:
+                library.set_root(path)
+                return settings_payload()
+            return settings_payload() | {"moved": move_library(path)}
+        except LibraryUnavailable as exc:
+            raise HTTPException(409, "Прежняя папка хранилища недоступна — диск отключён или её удалили") from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
-        return settings_payload()
+
+    def move_library(path: Path) -> dict:
+        """Перенос в path. Если path уже текущая папка (её только что выбрали) — переносим из прежней."""
+        source = None
+        if path.expanduser().resolve() == library.root.resolve():
+            source = prefs.previous_library_dir
+            if source is None or not source.is_dir():
+                raise ValueError("Переносить нечего: прежней папки с файлами нет")
+        move_state.update(active=True, done=0, total=0, name=None, error=None, result=None,
+                          **{"from": system.display_path(source or library.root), "to": system.display_path(path)})  # fmt: skip
+
+        def progress(done: int, total: int, name: str) -> None:
+            move_state.update(done=done, total=total, name=name)
+
+        try:
+            result = library.move_root(path, progress, source=source)
+        except Exception as exc:
+            move_state.update(active=False, error=str(exc))
+            raise
+        move_state.update(active=False, result=result)
+        return result
+
+    @app.get("/api/settings/library/move")
+    def move_progress():
+        """Ход переноса хранилища (интерфейс опрашивает, пока POST с move=true не ответил)."""
+        return dict(move_state)
 
     @app.post("/api/settings/library/pick")
     def pick_library():

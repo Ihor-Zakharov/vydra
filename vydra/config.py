@@ -88,10 +88,22 @@ class Prefs:
         self._lock = threading.Lock()
 
     def _read(self) -> dict:
+        # root хранилища спрашивают тысячи раз подряд (на каждый файл) — перечитываем, только если файл сменился
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
+            st = self.path.stat()
+            stamp = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return {}
+        cached = getattr(self, "_cached", None)
+        if cached is not None and cached[0] == stamp:
+            return dict(cached[1])
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
+        data = data if isinstance(data, dict) else {}
+        self._cached = (stamp, data)
+        return dict(data)
 
     def _write(self, data: dict) -> None:
         from .fsutil import atomic_write
@@ -115,6 +127,21 @@ class Prefs:
         with self._lock:
             data = self._read()
             data["console_art"] = on
+            self._write(data)
+
+    @property
+    def previous_library_dir(self) -> Path | None:
+        """Прежняя папка хранилища — откуда переносить «уже скачанное» после смены папки."""
+        value = self._read().get("previous_library_dir")
+        return Path(value) if value else None
+
+    def set_previous_library_dir(self, path: Path | None) -> None:
+        with self._lock:
+            data = self._read()
+            if path is None:
+                data.pop("previous_library_dir", None)
+            else:
+                data["previous_library_dir"] = str(path)
             self._write(data)
 
     def set_library_dir(self, path: Path | None) -> None:

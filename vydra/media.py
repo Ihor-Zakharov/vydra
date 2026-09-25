@@ -47,6 +47,7 @@ class Probe:
     duration: float | None
     video: dict | None  # первая «настоящая» видеодорожка, не обложка
     audio: dict | None
+    tags: dict | None = None  # теги контейнера (title, comment — туда пишется ссылка на оригинал), ключи в нижнем регистре
 
 
 class Media:
@@ -90,7 +91,8 @@ class Media:
         )
         audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
         duration = _float(data.get("format", {}).get("duration")) or _float((video or audio or {}).get("duration"))
-        return Probe(duration=duration, video=video, audio=audio)
+        tags = {str(k).lower(): v for k, v in (data.get("format", {}).get("tags") or {}).items()}
+        return Probe(duration=duration, video=video, audio=audio, tags=tags)
 
     def to_mp4(
         self,

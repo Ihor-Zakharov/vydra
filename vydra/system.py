@@ -269,6 +269,8 @@ def _must_exist(path: Path) -> None:
 def open_url(url: str) -> None:
     if OS == "wsl":
         _spawn(["explorer.exe", url])  # браузер по умолчанию на стороне Windows
+    elif OS == "mac":
+        _spawn(["open", url])
     else:
         webbrowser.open(url)
 

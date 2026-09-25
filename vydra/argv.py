@@ -111,10 +111,13 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "type": Opt(("--type", "-t", "--тип"), True),
         "search": Opt(("--search", "-s", "--поиск"), True),
         "limit": Opt(("--limit", "-n", "--сколько"), True),
+        "page": Opt(("--page", "-p", "--страница"), True),
+        "sort": Opt(("--sort", "--сортировка"), True),
+        "folder": Opt(("--folder", "-F", "--папка"), True),
         "paths": Opt(("--paths", "--пути")),
         "json": Opt(("--json",)),
     },
-    "open": {"play": Opt(("--play", "--запустить"))},
+    "open": {"play": Opt(("--play", "--запустить")), "source": Opt(("--source", "--оригинал"))},
     "folder": {
         "reset": Opt(("--reset", "--сброс")),
         "pick": Opt(("--pick", "--выбрать")),
@@ -135,7 +138,12 @@ COMMAND_OPTS: dict[str, dict[str, Opt]] = {
         "no_banner": Opt(("--no-banner",)),
     },
     "cookies": {"remove": Opt(("--remove", "--удалить"))},
-    "settings": {"art": Opt(("--art", "--заставка"), True)},
+    "settings": {
+        "art": Opt(("--art", "--заставка"), True),
+        "storage": Opt(("--storage", "--папка"), True),
+        "storage_reset": Opt(("--storage-reset", "--папка-сброс")),
+        "move": Opt(("--move", "--перенести")),
+    },
     "shortcut": {},
     "completion": {
         "shell": Opt(("--shell", "--оболочка"), True),
