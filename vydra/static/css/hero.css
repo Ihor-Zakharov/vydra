@@ -76,6 +76,13 @@
 @keyframes spin { to { --angle: 360deg; } }
 .portal-body { display: grid; grid-template-columns: auto 1fr auto auto; align-items: start; border-radius: var(--r-l); padding: 8px; gap: 6px; border: 1px solid var(--line-2); background: var(--lit-from-hole), linear-gradient(180deg, rgba(255, 255, 255, .025), transparent 40%), var(--s1); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 30px 80px -24px rgba(0, 0, 0, .95); transition: border-color var(--t-fast) var(--ease-out); }
 .portal:hover .portal-body { border-color: var(--line-3); }
+/* свет курсора: кайма и поверхность капсулы подсвечиваются там, где указатель (--mx/--my ставит app.js для .glass) */
+.portal-body { position: relative; isolation: isolate; }
+.portal-body::before, .portal-body::after { content: ""; position: absolute; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity .45s var(--ease-out); }
+.portal-body::before { inset: -1px; padding: 1.5px; background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), #fff 0%, color-mix(in oklab, var(--el-a, #fff) 45%, rgba(255, 255, 255, .7)) 25%, transparent 75%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+.portal-body::after { inset: 0; z-index: -1; background: radial-gradient(380px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, .10), rgba(255, 255, 255, .03) 40%, transparent 75%); }
+.portal:hover .portal-body::before, .portal:hover .portal-body::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .portal-body::before, .portal-body::after { transition: none; } }
 /* элементы прибиты к верху, центры первой строки — на оси «Скачать»: поле из нескольких ссылок растёт вниз, «Скачать» не едет */
 .portal-body > .portal-glyph, .portal-body > #paste, .portal-body > #url { margin-top: 2px; }
 .portal-glyph { display: grid; place-items: center; transition: background var(--t-base) var(--ease-out), color var(--t-base) var(--ease-out), box-shadow var(--t-base) var(--ease-out); width: 44px; height: 44px; border-radius: var(--r-m); background: var(--s2); color: var(--ink-2); box-shadow: inset 0 0 0 1px var(--line-1); }
