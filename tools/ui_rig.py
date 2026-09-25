@@ -597,7 +597,23 @@ async def is_screen_active(page: Page, screen: str) -> bool:
         )
     except Exception:
         return False
-    return val == screen
+    if val:
+        return val == screen
+    # Интерфейс мог сделать экраны, не выставив data-screen: тогда экран активен, если на адресе #/<экран>
+    # его раздел уже виден в верхней части окна без прокрутки (на одностраничной вёрстке он ниже героя).
+    try:
+        return await page.evaluate(
+            """(s) => {
+                if (location.hash !== '#/' + s) return false;
+                const el = document.getElementById(s);
+                if (!el || !el.getClientRects().length) return false;
+                const r = el.getBoundingClientRect();
+                return r.bottom > 0 && r.top < innerHeight * 0.6;
+            }""",
+            screen,
+        )
+    except Exception:
+        return False
 
 
 async def a_scroll_to_section(page: Page, screen: str, section_id: str) -> None:
